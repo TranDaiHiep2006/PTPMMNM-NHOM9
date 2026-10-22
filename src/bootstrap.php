@@ -16,6 +16,98 @@
 
 declare(strict_types=1);
 
+/* ---------------------------------------------------------------------------
+   Polyfill cho các hàm multibyte.
+   ----------------------------------------------------------------------------
+   mbstring là extension TUỲ CHỌN của PHP và có thể chưa được bật trên một số
+   máy Windows khi cài PHP từ file nén (bản winget mặc định chưa có php.ini).
+   Vì toàn bộ giao diện là tiếng Việt nên các hàm này là bắt buộc. Bên dưới ta
+   cung cấp lại chúng bằng iconv và bảng tra ký tự hợp lệ, để trang không bao giờ
+   báo lỗi "Call to undefined function".
+   --------------------------------------------------------------------------- */
+
+if (!function_exists('mb_strlen')) {
+    function mb_strlen(string $string, ?string $encoding = null): int
+    {
+        $length = @iconv_strlen($string, 'UTF-8');
+        return $length === false ? strlen($string) : $length;
+    }
+}
+
+if (!function_exists('mb_substr')) {
+    function mb_substr(string $string, int $start, ?int $length = null, ?string $encoding = null): string
+    {
+        $result = $length === null
+            ? @iconv_substr($string, $start, null, 'UTF-8')
+            : @iconv_substr($string, $start, $length, 'UTF-8');
+
+        return $result === false ? '' : $result;
+    }
+}
+
+/** Tách chuỗi UTF-8 thành mảng ký tự (tương thích khi thiếu mbstring). */
+if (!function_exists('wa_str_split')) {
+    function wa_str_split(string $string): array
+    {
+        $chars = preg_split('//u', $string, -1, PREG_SPLIT_NO_EMPTY);
+        return $chars === false ? [] : $chars;
+    }
+}
+
+/**
+ * Bảng tra chữ thường ↔ chữ hoa (dạng precomposed) cho tiếng Việt.
+ * Chỉ dùng khi máy không có mbstring.
+ */
+if (!function_exists('wa_vi_case_map')) {
+    function wa_vi_case_map(): array
+    {
+        static $map = null;
+
+        if ($map === null) {
+            $upper = 'ÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ';
+            $lower = 'àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđ';
+
+            $upperChars = wa_str_split($upper);
+            $lowerChars = wa_str_split($lower);
+
+            // 1) Chữ có dấu tiếng Việt.
+            $map = [];
+            foreach ($upperChars as $index => $char) {
+                $map[$char] = $lowerChars[$index] ?? $char;
+            }
+
+            // 2) Chữ Latin ASCII không dấu — cần để hạ chữ hoa xuống.
+            foreach (range('A', 'Z') as $asciiUpper) {
+                $map[$asciiUpper] = strtolower($asciiUpper);
+            }
+        }
+
+        return $map;
+    }
+}
+
+if (!function_exists('mb_strtolower')) {
+    function mb_strtolower(string $string, ?string $encoding = null): string
+    {
+        if (function_exists('mb_convert_case')) {
+            return mb_convert_case($string, MB_CASE_LOWER, 'UTF-8');
+        }
+
+        return strtr($string, wa_vi_case_map());
+    }
+}
+
+if (!function_exists('mb_strtoupper')) {
+    function mb_strtoupper(string $string, ?string $encoding = null): string
+    {
+        if (function_exists('mb_convert_case')) {
+            return mb_convert_case($string, MB_CASE_UPPER, 'UTF-8');
+        }
+
+        return strtr($string, array_flip(wa_vi_case_map()));
+    }
+}
+
 define('WA_ROOT', dirname(__DIR__));
 define('WA_SRC', WA_ROOT . '/src');
 define('WA_TEMPLATES', WA_ROOT . '/templates');
