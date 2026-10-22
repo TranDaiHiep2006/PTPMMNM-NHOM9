@@ -27,7 +27,7 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/sample_data.php';
+require_once __DIR__ . '/db.php';
 
 /** Trạng thái mô phỏng: thành công. */
 const MOCK_STATE_SUCCESS = 'success';
@@ -69,16 +69,24 @@ function mock_extract_path(string $url): string
 
 /**
  * Kiểm tra tên miền có nằm trong danh sách được duyệt hay không.
+ *
+ * Đọc từ bảng `allowlist_domains` (CSDL MySQL). Nếu CSDL không truy cập được
+ * thì coi như tên miền KHÔNG được duyệt — an toàn theo nguyên tắc của hệ thống.
  */
 function mock_is_allowlisted(string $domain): bool
 {
-    foreach (sample_allowlist() as $entry) {
-        if (strcasecmp($entry['domain'], $domain) === 0) {
-            return true;
-        }
+    if ($domain === '') {
+        return false;
     }
 
-    return false;
+    try {
+        $stmt = db()->prepare('SELECT 1 FROM `allowlist_domains` WHERE domain = ? LIMIT 1');
+        $stmt->execute([strtolower($domain)]);
+
+        return $stmt->fetchColumn() !== false;
+    } catch (Throwable $e) {
+        return false;
+    }
 }
 
 /**

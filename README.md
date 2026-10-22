@@ -1,8 +1,9 @@
 # WebArchive — Lưu trang Web & đọc lại ngoại tuyến (Đề tài 16)
 
-> **GIAI ĐOẠN GIAO DIỆN — UI phase.**
-> Dữ liệu trong dự án là **dữ liệu mẫu**, quy trình **lưu trang** và **tìm kiếm** là **mô phỏng**.
-> Chưa có MySQL, chưa tải trang thật, chưa có engine bóc tách/sanitize.
+> **GIAI ĐOẠN CƠ SỞ DỮ LIỆU — P-DB phase.**
+> Dữ liệu nằm trong **MySQL** (database `webarchive`). Đăng nhập/đăng ký, thư viện, thẻ bài
+> viết, trình đọc, tìm kiếm và khu vực quản trị đều đọc từ bảng thật.
+> Quy trình **lưu trang** vẫn là **mô phỏng** (engine tải/sanitize là phase sau).
 
 Ứng dụng lưu nội dung (snapshot) của trang web để đọc lại và tìm kiếm về sau, tổ chức trong
 thư viện theo chủ đề, gắn nhãn và phân quyền thành viên. Toàn bộ giao diện bằng **tiếng Việt**,
@@ -12,9 +13,35 @@ viết bằng **PHP thuần** — không framework, không bước build.
 
 ## 1. Chạy dự án trên Windows
 
-Yêu cầu: **PHP 8.0 trở lên** (khuyến nghị 8.3). Không cần MySQL để chạy bản demo này.
+Yêu cầu: **PHP 8.0 trở lên** (khuyến nghị 8.3) và **MySQL Server 8.0**.
 
-Mở **PowerShell** tại thư mục gốc dự án và chạy:
+Bật các extension PHP cần thiết trong `php.ini`: `mbstring`, `pdo_mysql`, `mysqli`.
+
+### 1.1. Cài đặt cơ sở dữ liệu (chạy MỘT LẦN, có thể chạy lại)
+
+Mở **PowerShell** tại thư mục gốc dự án và đặt thông tin quản trị MySQL:
+
+```powershell
+$env:WA_ADMIN_USER = 'root'
+$env:WA_ADMIN_PASS = '<mat khau MySQL cua ban>'
+php scripts/setup_db.php
+```
+
+Kịch bản này sẽ:
+
+1. Tạo database `webarchive` (utf8mb4 / utf8mb4_unicode_ci) nếu chưa có.
+2. Tạo tài khoản MySQL riêng `'webarchive'@'localhost'` chỉ có quyền trên `webarchive.*`,
+   với mật khẩu ngẫu nhiên, rồi ghi vào `config/db.local.php`.
+3. Áp dụng `database/schema.sql` rồi `database/seed.sql` (xoá và nạp lại riêng database này).
+4. In ra số dòng của từng bảng.
+
+> **Bí mật:** `config/db.local.php` đã được `.gitignore` và **không bao giờ commit**.
+> Mật khẩu quản trị `WA_ADMIN_PASS` chỉ tồn tại trong phiên PowerShell, không ghi ra tệp.
+> Ứng dụng **luôn** kết nối bằng tài khoản riêng `webarchive`, không dùng tài khoản quản trị.
+
+Chạy lại `setup_db.php` bất cứ lúc nào để **cài lại sạch** dữ liệu mẫu.
+
+### 1.2. Chạy máy chủ web
 
 ```powershell
 php -S localhost:8080 -t public
@@ -34,12 +61,16 @@ Nhấn `Ctrl + C` để dừng máy chủ.
 
 ## 2. Tài khoản demo
 
+Đây là **tài khoản thật trong bảng `users`** của MySQL, mật khẩu lưu bằng
+`password_hash()` (bcrypt), kiểm tra bằng `password_verify()`.
+
 | Email | Mật khẩu | Vai trò | Quyền |
 |-------|----------|---------|-------|
 | `user@demo.vn` | `demo123` | Người dùng | Thư viện, lưu trang, tìm kiếm, đọc offline |
 | `admin@demo.vn` | `admin123` | Quản trị viên | Như trên **+ khu vực Quản trị hệ thống** |
 
-Mật khẩu lưu bằng `password_hash()` (bcrypt), kiểm tra bằng `password_verify()`.
+Dữ liệu mẫu còn có thêm 3 tài khoản phụ (`ha.nguyen@demo.vn`, `minh.vu@demo.vn` — đang bị
+khoá, `linh.pham@demo.vn`) dùng để minh hoạ màn hình quản trị.
 
 **Khi đăng nhập bằng tài khoản thường và mở trang quản trị** sẽ thấy trang tiếng Việt
 “Không có quyền truy cập”. Khi là **khách** và mở bất kỳ trang workspace nào, hệ thống
@@ -58,7 +89,7 @@ Mật khẩu lưu bằng `password_hash()` (bcrypt), kiểm tra bằng `password
 | Thư viện của tôi | `/libraries.php` | Đăng nhập |
 | Chi tiết thư viện | `/library.php?slug=cntt-lap-trinh` | Đăng nhập |
 | Lưu trang Web | `/save.php` | Đăng nhập |
-| Trình đọc ngoại tuyến | `/reader.php?id=SNAP-8941` | Đăng nhập |
+| Trình đọc ngoại tuyến | `/reader.php?id=8941` | Đăng nhập |
 | Tìm kiếm nội dung | `/search.php?q=snapshot` | Đăng nhập |
 | Tổng quan hệ thống | `/admin/index.php` | **Quản trị** |
 | Người dùng | `/admin/users.php` | **Quản trị** |
@@ -72,12 +103,17 @@ Mật khẩu lưu bằng `password_hash()` (bcrypt), kiểm tra bằng `password
 ```
 prompt.md                      Đặc tả giai đoạn này
 PROJECT_CONTEXT.md             Tóm tắt đặc tả, bản đồ trang, cách các phase sau cắm vào
-config/demo_users.php          Tài khoản demo (placeholder — sẽ thay bằng MySQL)
+database/schema.sql            Lược đồ MySQL (10 bảng, InnoDB, utf8mb4, khoá ngoại)
+database/seed.sql              Dữ liệu mẫu (INSERT) — chạy lại được nhiều lần
+scripts/setup_db.php           Cài đặt CSDL + tài khoản riêng + nạp seed (CLI, idempotent)
+config/db.php                  Nạp cấu hình CSDL, dựng DSN (KHÔNG chứa mật khẩu)
+config/db.local.php            Thông tin kết nối thật — .gitignore, KHÔNG commit
+src/db.php                     PDO singleton + trang lỗi tiếng Việt khi CSDL lỗi
 src/auth.php                   Session + require_login() / require_admin() / current_user()
-src/bootstrap.php              Đường dẫn, nạp src, hàm trợ giúp
-src/sample_data.php            TOÀN BỘ dữ liệu mẫu của giao diện
+src/bootstrap.php              Đường dẫn, nạp src, hàm trợ giúp, polyfill mbstring
+src/queries.php                Toàn bộ truy vấn CSDL (thay thế src/sample_data.php)
 src/mock_capture.php           Mô phỏng trạng thái lưu trang (không tải thật)
-templates/                     2 layout dùng chung + trang lỗi 403
+templates/                     2 layout dùng chung + trang lỗi 403 + trang lỗi CSDL
 public/                        WEB ROOT
   assets/css/app.css           Toàn bộ design token + component (không framework)
   assets/img/                  Logo & ảnh minh hoạ cục bộ (SVG)
@@ -88,35 +124,41 @@ docs/design-reference/         Nguồn thiết kế: DESIGN.md + 4 màn hình th
 
 ## 5. Phạm vi của giai đoạn này
 
-**Đã có (UI + session):**
-- Toàn bộ giao diện 14 trang, tiếng Việt, đúng hệ thiết kế `docs/design-reference/`.
-- Đăng nhập/đăng ký/đăng xuất hoạt động thật với **session**.
-- Chặn trang theo vai trò (khách → đăng nhập; người dùng thường → trang 403 tiếng Việt).
+**Đã có (CSDL + session):**
+- MySQL thật qua PDO; 10 bảng InnoDB utf8mb4 với khoá ngoại và ràng buộc UNIQUE.
+- Đăng nhập/đăng ký/đăng xuất đối chiếu bảng `users`; **đăng ký ghi thật** vào CSDL.
+- Thư viện, chi tiết thư viện, trình đọc, tìm kiếm và khu vực quản trị đọc từ bảng thật.
+- Form **thêm tên miền được duyệt** ghi thật vào bảng `allowlist_domains` và còn nguyên sau khi tải lại trang.
+- Quyền truy cập cơ bản: người dùng chỉ thấy thư viện mình sở hữu / là thành viên; quản trị thấy tất cả.
+- Mọi truy vấn có tham số đều dùng **prepared statement** — không nối chuỗi SQL với dữ liệu người dùng.
 - Trình đọc có nút **A- / A+**, đổi nền đọc và **tiến độ đọc** thật (JavaScript thuần).
-- Bảng tìm kiếm lọc theo thẻ và tên miền, làm nổi bật từ khoá bằng `<mark>`.
+- Biểu mẫu lưu trang vẫn **mô phỏng** trạng thái theo allowlist/404/timeout.
 
 **Chưa có (để phase sau):**
-- ❌ MySQL — dữ liệu đọc từ `src/sample_data.php`.
 - ❌ Tải trang thật — `src/mock_capture.php` chỉ **mô phỏng** trạng thái theo URL.
 - ❌ Engine bóc tách tiêu đề/nội dung và sanitize HTML.
-- ❌ Tìm kiếm thật — `search.php` lọc trên mảng dữ liệu mẫu.
-- ❌ Trang đăng ký **không lưu** tài khoản vào CSDL; chỉ kiểm tra dữ liệu và báo thành công.
-- ❌ Các nút "tạo thư viện", "thêm tên miền", "mời người dùng" chỉ hiển thị giao diện.
+- ❌ Tải ảnh về máy chủ và ghi vào bảng `assets` khi lưu trang.
+- ❌ Tìm kiếm thật — `search.php` hiện dùng `LIKE` trên `snapshots.title` / `content_text`.
+- ❌ Các nút "tạo thư viện", "mời người dùng" chỉ hiển thị giao diện.
+- ❌ Siết chặt phân quyền editor/viewer (hiện mới lọc ở mức thư viện).
 
 ---
 
 ## 6. Cách trải nghiệm nhanh
 
-1. Mở `http://localhost:8080` — trang chủ dành cho **khách**.
-2. Bấm **Đăng nhập**, dùng `user@demo.vn` / `demo123` → vào `libraries.php`.
-3. Mở thư viện **CNTT & Lập Trình** → xem thẻ bài viết, bảng thành viên, bảng lưu URL.
-4. **Đọc bản đã lưu** → trình đọc nền giấy ngà, thử **A- / A+** và đổi nền đọc.
-5. Vào **Lưu trang Web** → thử các URL mẫu để xem 4 trạng thái:
+1. Chạy `php scripts/setup_db.php` một lần để tạo CSDL (xem mục 1.1).
+2. Mở `http://localhost:8080` — trang chủ dành cho **khách**.
+3. Bấm **Đăng nhập**, dùng `user@demo.vn` / `demo123` → vào `libraries.php`.
+4. Mở thư viện **CNTT & Lập Trình** → xem thẻ bài viết, bảng thành viên, bảng lưu URL.
+5. **Đọc bản đã lưu** → trình đọc nền giấy ngà, thử **A- / A+** và đổi nền đọc.
+6. Vào **Tìm kiếm** (`/search.php?q=snapshot`) → xem đoạn trích có từ khoá được làm nổi bật.
+7. Vào **Lưu trang Web** → thử các URL mẫu để xem 4 trạng thái:
    - `https://phptutorial.vn/bai-viet` → thành công
    - `https://khong-duoc-duyet.vn/bai-viet` → không thuộc danh sách được duyệt
    - `https://phptutorial.vn/bai-viet-404` → trang gốc trả về 404
    - `https://techblog.dev/bai-viet-timeout` → hết thời gian chờ
-6. Đăng xuất, đăng nhập bằng `admin@demo.vn` / `admin123` → thấy mục **Quản trị hệ thống** trong sidebar.
+8. Đăng xuất, đăng nhập bằng `admin@demo.vn` / `admin123` → thấy mục **Quản trị hệ thống** trong sidebar,
+   thêm một tên miền ở `/admin/allowlist.php` và tải lại trang để thấy nó vẫn còn.
 
 ---
 

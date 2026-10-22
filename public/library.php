@@ -14,7 +14,7 @@ require_once __DIR__ . '/../src/bootstrap.php';
 require_login();
 
 $slug = (string) ($_GET['slug'] ?? 'cntt-lap-trinh');
-$library = sample_find_library($slug);
+$library = wa_find_library($slug);
 
 if ($library === null) {
     http_response_code(404);
@@ -34,8 +34,21 @@ if ($library === null) {
     exit;
 }
 
-$articles = sample_articles_by_library((string) $library['id']);
-$members = sample_members();
+$articles = wa_library_articles((int) $library['id']);
+$members = wa_library_members((int) $library['id']);
+
+// Số liệu tổng hợp của thư viện (lấy từ CSDL).
+$library['article_count'] = count($articles);
+$library['image_count']   = array_sum(array_column($articles, 'image_count'));
+$library['size_bytes']    = array_sum(array_column($articles, 'size_bytes'));
+$library['member_count']  = count($members);
+$library['tags']          = wa_library_tags((int) $library['id']);
+$library['tag_count']     = count($library['tags']);
+$library['storage_label'] = wa_format_mb($library['size_bytes']);
+$library['asset_size']    = $library['storage_label'];
+$library['broken_images'] = 0;
+$library['integrity']     = '100% nguyên vẹn';
+$library['updated']       = 'Cập nhật ' . wa_datetime((string) $library['created_at']);
 
 // Phân trang (mô phỏng giao diện): 6 bài mỗi trang.
 $perPage = 6;
@@ -78,7 +91,7 @@ require __DIR__ . '/../templates/header_app.php';
     <div class="pagehead__eyebrow">
       <span class="t-label-sm t-upper t-accent" style="font-weight:600">Bộ sưu tập chuyên đề</span>
       <span class="t-muted" style="font-weight:300">•</span>
-      <span class="t-label-sm" style="color:#74777E">ID: <?= wa_e($library['id']) ?></span>
+      <span class="t-label-sm" style="color:#74777E">ID: LIB-<?= (int) $library['id'] ?></span>
     </div>
     <h1 class="pagehead__title"><?= wa_e($library['name']) ?></h1>
     <p class="pagehead__desc"><?= wa_e($library['description']) ?> Bảo tồn snapshot ngoại tuyến độc lập với máy chủ gốc.</p>
@@ -212,7 +225,7 @@ require __DIR__ . '/../templates/header_app.php';
       </div>
     </div>
     <div class="state__actions">
-      <a class="btn btn--light" href="<?= wa_e(wa_url('reader.php?id=SNAP-8941')) ?>">
+      <a class="btn btn--light" href="<?= wa_e(wa_url('reader.php?id=' . (int) ($articles[0]['snapshot_id'] ?? 0))) ?>">
         <span class="ms ms-16" style="color:var(--wa-teal-deep)">chrome_reader_mode</span>
         Mở xem ngay
       </a>
@@ -284,10 +297,10 @@ require __DIR__ . '/../templates/header_app.php';
         <div class="article-card__thumb">
           <div class="article-card__thumb-top">
             <span class="chip"><?= wa_e($article['thumb_label']) ?></span>
-            <?php if ($article['images'] > 0): ?>
-              <span class="chip chip--teal"><span class="dot dot--teal"></span><?= $article['images'] ?> ảnh cục bộ</span>
+            <?php if ($article['image_count'] > 0): ?>
+              <span class="chip chip--teal"><span class="dot dot--teal"></span><?= $article['image_count'] ?> ảnh cục bộ</span>
             <?php else: ?>
-              <span class="chip chip--plain"><span class="ms ms-14">storage</span><?= wa_e($article['size']) ?></span>
+              <span class="chip chip--plain"><span class="ms ms-14">storage</span><?= wa_e($article['size_label']) ?></span>
             <?php endif; ?>
           </div>
           <div class="article-card__thumb-code"><?= wa_e($article['thumb_code']) ?></div>
@@ -318,7 +331,7 @@ require __DIR__ . '/../templates/header_app.php';
       </div>
 
       <div class="article-card__foot">
-        <a class="btn btn--dark" href="<?= wa_e(wa_url('reader.php?id=' . urlencode($article['id']))) ?>">
+        <a class="btn btn--dark" href="<?= wa_e(wa_url('reader.php?id=' . (int) ($article['snapshot_id'] ?? 0))) ?>">
           <span class="ms ms-18">chrome_reader_mode</span>
           Đọc bản đã lưu
         </a>

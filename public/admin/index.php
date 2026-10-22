@@ -9,10 +9,10 @@ require_once __DIR__ . '/../../src/bootstrap.php';
 
 require_admin();
 
-$stats = sample_stats();
-$users = sample_users();
-$activity = sample_activity();
-$allowlist = sample_allowlist();
+$stats    = wa_admin_stats();
+$users    = wa_users();
+$activity = wa_recent_activity(6);
+$allowlist = wa_allowlist();
 
 $activeAllowlist = 0;
 foreach ($allowlist as $entry) {
@@ -20,6 +20,8 @@ foreach ($allowlist as $entry) {
         $activeAllowlist++;
     }
 }
+
+$allLibraries = wa_all_libraries();
 
 $pageTitle = 'Tổng quan hệ thống';
 require __DIR__ . '/../../templates/header_app.php';
@@ -57,27 +59,27 @@ require __DIR__ . '/../../templates/header_app.php';
       <span class="stat__icon"><span class="ms ms-18">group</span></span>
       <span>
         <span class="stat__value"><?= count($users) ?> Người dùng</span>
-        <span class="stat__note">Trong đó 1 quản trị viên</span>
+        <span class="stat__note">Trong đó <?= (int) $stats['admin_count'] ?> quản trị viên</span>
       </span>
     </div>
     <div class="stat">
       <span class="stat__icon stat__icon--blue"><span class="ms ms-18">folder_special</span></span>
       <span>
-        <span class="stat__value"><?= count(sample_libraries()) ?> Thư viện</span>
+        <span class="stat__value"><?= count($allLibraries) ?> Thư viện</span>
         <span class="stat__note">Toàn hệ thống</span>
       </span>
     </div>
     <div class="stat">
       <span class="stat__icon stat__icon--teal"><span class="ms ms-18">perm_media</span></span>
       <span>
-        <span class="stat__value"><?= $stats['image_count'] ?> Ảnh cục bộ</span>
-        <span class="stat__note">Dung lượng <?= $stats['storage_gb'] ?></span>
+        <span class="stat__value"><?= (int) $stats['image_count'] ?> Ảnh cục bộ</span>
+        <span class="stat__note">Dung lượng <?= wa_e((string) $stats['storage_label']) ?></span>
       </span>
     </div>
     <div class="stat">
       <span class="stat__icon stat__icon--mint"><span class="ms ms-18">error_outline</span></span>
       <span>
-        <span class="stat__value">3 Lần lưu thất bại</span>
+        <span class="stat__value"><?= (int) $stats['error_count'] ?> Lần lưu thất bại</span>
         <span class="stat__note">404 / timeout / ngoài allowlist</span>
       </span>
     </div>
@@ -91,7 +93,7 @@ require __DIR__ . '/../../templates/header_app.php';
       <span class="stat-card__label">Tổng snapshot</span>
       <span class="ms ms-18" style="color:var(--wa-action)">archive</span>
     </div>
-    <div class="stat-card__value"><b><?= $stats['article_count'] ?></b><span>bản ghi</span></div>
+    <div class="stat-card__value"><b><?= (int) $stats['snapshot_count'] ?></b><span>bản ghi</span></div>
     <div class="stat-card__note" style="color:var(--wa-action)"><span class="dot dot--teal"></span> 100% nguyên vẹn</div>
   </div>
 
@@ -100,8 +102,8 @@ require __DIR__ . '/../../templates/header_app.php';
       <span class="stat-card__label">Tài nguyên cục bộ</span>
       <span class="ms ms-18" style="color:var(--wa-action)">photo_library</span>
     </div>
-    <div class="stat-card__value"><b><?= $stats['image_count'] ?></b><span>tập tin</span></div>
-    <div class="stat-card__note">Dung lượng <?= $stats['storage_gb'] ?> tổng cộng</div>
+    <div class="stat-card__value"><b><?= (int) $stats['asset_count'] ?></b><span>tập tin</span></div>
+    <div class="stat-card__note">Dung lượng <?= wa_e((string) $stats['storage_label']) ?> tổng cộng</div>
   </div>
 
   <div class="stat-card">
@@ -118,8 +120,8 @@ require __DIR__ . '/../../templates/header_app.php';
       <span class="stat-card__label">Liên kết lỗi</span>
       <span class="ms ms-18" style="color:var(--wa-teal-deep)">verified</span>
     </div>
-    <div class="stat-card__value"><b><?= $stats['broken_links'] ?></b><span>ảnh hỏng</span></div>
-    <div class="stat-card__note" style="color:var(--wa-teal-deep)">Bảo toàn vĩnh viễn 100%</div>
+    <div class="stat-card__value"><b><?= (int) $stats['error_count'] ?></b><span>bản ghi lỗi</span></div>
+    <div class="stat-card__note" style="color:var(--wa-teal-deep)">404 / timeout / bị chặn</div>
   </div>
 
   <div class="stat-card">
@@ -127,7 +129,7 @@ require __DIR__ . '/../../templates/header_app.php';
       <span class="stat-card__label">Lưu trang thất bại</span>
       <span class="ms ms-18" style="color:var(--wa-error)">report</span>
     </div>
-    <div class="stat-card__value"><b>3</b><span>lần</span></div>
+    <div class="stat-card__value"><b><?= (int) $stats['page_count'] ?></b><span>trang</span></div>
     <div class="stat-card__note">Không chặn bản lưu hợp lệ</div>
   </div>
 </div>

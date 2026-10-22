@@ -14,21 +14,31 @@ require_once __DIR__ . '/../src/bootstrap.php';
 
 require_login();
 
-$articleId = (string) ($_GET['id'] ?? 'SNAP-8941');
-
-$article = null;
-foreach (sample_articles() as $item) {
-    if ($item['id'] === $articleId) {
-        $article = $item;
-        break;
-    }
-}
+// reader.php nhận id snapshot dạng số: ?id=<snapshot id>
+$snapshotId = (int) ($_GET['id'] ?? 0);
+$article = $snapshotId > 0 ? wa_find_snapshot($snapshotId) : null;
 
 if ($article === null) {
-    $article = sample_articles()[0];
+    // Không có snapshot hợp lệ (hoặc không có quyền xem) -> trả về 404.
+    http_response_code(404);
+    $pageTitle = 'Không tìm thấy bản lưu';
+    require __DIR__ . '/../templates/header_app.php';
+    ?>
+    <div class="empty">
+      <span class="ms ms-32">search_off</span>
+      <h3>Không tìm thấy bản lưu</h3>
+      <p>Bản lưu này không tồn tại hoặc bạn không có quyền truy cập.</p>
+      <div class="row" style="justify-content:center;margin-top:16px">
+        <a class="btn btn--primary" href="<?= wa_e(wa_url('libraries.php')) ?>">Về thư viện của tôi</a>
+      </div>
+    </div>
+    <?php
+    require __DIR__ . '/../templates/footer_app.php';
+    exit;
 }
 
-$library = sample_find_library('cntt-lap-trinh');
+$librarySlug = (string) $article['library_slug'];
+$libraryName = (string) $article['library_name'];
 
 ?>
 <!DOCTYPE html>
@@ -50,7 +60,7 @@ $library = sample_find_library('cntt-lap-trinh');
 
 <!-- ===================== THANH CÔNG CỤ ===================== -->
 <header class="reader__bar">
-  <a class="reader__back" href="<?= wa_e(wa_url('library.php?slug=cntt-lap-trinh')) ?>">
+  <a class="reader__back" href="<?= wa_e(wa_url('library.php?slug=' . urlencode($librarySlug))) ?>">
     <span class="ms ms-16">arrow_back</span>
     <span class="reader__back-label">Quay lại thư viện</span>
   </a>
@@ -60,7 +70,7 @@ $library = sample_find_library('cntt-lap-trinh');
     <span>Bài viết đã lưu trữ an toàn</span>
     <span class="t-muted">/</span>
     <span>Snapshot:</span>
-    <strong class="t-mono">#<?= wa_e($article['id']) ?></strong>
+    <strong class="t-mono">SNAP-<?= (int) $article['id'] ?></strong>
   </div>
 
   <div class="reader__tools">
@@ -98,10 +108,10 @@ $library = sample_find_library('cntt-lap-trinh');
     <div class="row row--between" style="gap:8px">
       <span class="chip chip--blue">
         <span class="ms ms-14">terminal</span>
-        LẬP TRÌNH WEB &amp; KIẾN TRÚC HỆ THỐNG
+        <?= wa_e(strtoupper($libraryName)) ?>
       </span>
       <span class="t-label-sm t-mono" style="color:var(--wa-action)">
-        Bản ghi snapshot <?= wa_e($article['version']) ?> • SHA-256 xác thực
+        Bản ghi snapshot v<?= (int) $article['version_no'] ?>.0 • SHA-256 xác thực
       </span>
     </div>
 
@@ -112,7 +122,7 @@ $library = sample_find_library('cntt-lap-trinh');
       <div class="reader__meta-row">
         <span class="row" style="gap:4px;color:var(--wa-text);font-weight:500">
           <span class="ms ms-16" style="color:var(--wa-action)">person_edit</span>
-          Tác giả: <?= wa_e($article['author']) ?>
+          Tác giả: <?= wa_e($article['creator_name']) ?>
         </span>
         <span class="t-muted">•</span>
         <span class="row" style="gap:4px">
@@ -127,13 +137,13 @@ $library = sample_find_library('cntt-lap-trinh');
       </div>
       <div class="reader__meta-row" style="padding-top:4px">
         <span class="t-label-sm t-muted">
-          Đường dẫn gốc: <span class="t-mono" style="color:var(--wa-text-soft)"><?= wa_e($article['url']) ?></span>
+          Đường dẫn gốc: <span class="t-mono" style="color:var(--wa-text-soft)"><?= wa_e($article['source_url']) ?></span>
         </span>
       </div>
       <div class="reader__meta-row" style="padding-top:4px">
         <span class="t-label-sm t-muted">
-          Dung lượng tài liệu: <strong style="color:var(--wa-text)"><?= wa_e($article['size']) ?></strong>
-          (Bao gồm <?= $article['images'] ?> ảnh đã tải về máy chủ)
+          Dung lượng tài liệu: <strong style="color:var(--wa-text)"><?= wa_e($article['size_label']) ?></strong>
+          (Bao gồm <?= (int) $article['image_count'] ?> ảnh đã tải về máy chủ)
         </span>
         <span class="t-muted">•</span>
         <span class="t-label-sm" style="color:var(--wa-teal-deep);font-weight:600" >
@@ -145,154 +155,9 @@ $library = sample_find_library('cntt-lap-trinh');
     <div class="reader__divider"></div>
   </header>
 
-  <!-- ===================== NỘI DUNG BÀI VIẾT ===================== -->
+  <!-- ===================== NỘI DUNG BÀI VIẾT (từ bảng snapshots) ===================== -->
   <div class="reader__body" id="reading-content">
-    <p class="reader__lead">
-      Trong kỷ nguyên mà nội dung số liên tục bị cập nhật, sửa đổi hoặc xóa bỏ hoàn toàn mà không để lại
-      dấu vết, nhu cầu xây dựng kho tư liệu nghiên cứu bất biến trở nên tối quan trọng. Bài phân tích này
-      giải thích giải pháp kỹ thuật bóc tách cây DOM HTML, loại bỏ mã độc tiềm ẩn, chuyển đổi liên kết
-      nội bộ và tải toàn bộ hình ảnh về bộ nhớ cục bộ để phục vụ đọc ngoại tuyến an toàn suốt nhiều thập kỷ.
-    </p>
-
-    <figure class="reader__figure">
-      <img src="<?= wa_e(wa_asset('img/reader-diagram.svg')) ?>" alt="Sơ đồ kiến trúc bóc tách nội dung HTML tĩnh và lưu trữ hình ảnh cục bộ" width="640" height="360">
-      <figcaption>
-        Hình 1 — Luồng xử lý snapshot: trang gốc → HTML tĩnh &amp; ảnh cục bộ → cơ sở dữ liệu → trình đọc ngoại tuyến.
-        Ảnh được tải về máy chủ nội bộ tại thời điểm lưu trang.
-      </figcaption>
-    </figure>
-
-    <section>
-      <h2><i>01.</i> Tại sao cần lưu trữ nội dung tĩnh độc lập?</h2>
-      <p>
-        Hầu hết các công cụ đánh dấu trang (bookmark) hiện đại chỉ lưu trữ duy nhất một
-        <em>siêu liên kết (hyperlink)</em>. Tuy nhiên, theo các nghiên cứu về độ bền của web (link rot),
-        hơn <strong>38% các đường dẫn nghiên cứu kỹ thuật từ năm 2013 hiện đã rơi vào trạng thái 404</strong>
-        hoặc bị chèn quảng cáo thay thế nội dung gốc.
-      </p>
-
-      <blockquote>
-        <p>
-          Tri thức số rất mong manh. Khi một trang web đóng cửa hoặc thay đổi cấu trúc URL, toàn bộ dữ liệu
-          tham khảo quý giá sẽ biến mất. Bản lưu HTML tĩnh cục bộ là cách duy nhất đảm bảo tính trường tồn
-          của tư liệu nghiên cứu.
-        </p>
-        <footer>— Tạp chí Kiến trúc Dữ liệu Độc lập, Số 14/2026</footer>
-      </blockquote>
-
-      <p>
-        Để đảm bảo tính toàn vẹn khi đọc mà không kích hoạt cookie theo dõi hoặc tải các tập lệnh mã độc
-        của bên thứ ba, chúng ta phải chuyển giao thức duyệt web trực tiếp thành một không gian lưu trữ
-        tĩnh cách ly hoàn toàn.
-      </p>
-    </section>
-
-    <section>
-      <h2><i>02.</i> Quy trình xử lý bóc tách và làm sạch mã nguồn</h2>
-      <p>
-        Một đường ống (pipeline) xử lý nội dung đáng tin cậy bao gồm 4 giai đoạn nghiêm ngặt, chuyển đổi mã
-        nguồn thô chứa đầy script phân tích thành định dạng HTML sạch chỉ chứa văn bản có cấu trúc và hình
-        ảnh tĩnh được xác thực:
-      </p>
-
-      <ol>
-        <li>
-          <span>1</span>
-          <div>
-            <strong style="font-family:var(--wa-font-ui);font-size:16px;font-weight:600;color:var(--wa-text)">Thu thập mã thô &amp; Chuẩn hóa bảng mã:</strong>
-            <span class="t-body-md t-soft">Sử dụng cURL với cơ chế giả lập trình duyệt nghiên cứu, ép buộc chuyển mã về định dạng UTF-8 hợp lệ.</span>
-          </div>
-        </li>
-        <li>
-          <span>2</span>
-          <div>
-            <strong style="font-family:var(--wa-font-ui);font-size:16px;font-weight:600;color:var(--wa-text)">Lọc bỏ mã thực thi (Sanitization):</strong>
-            <span class="t-body-md t-soft">Cắt tỉa triệt để toàn bộ thẻ &lt;script&gt;, &lt;iframe&gt;, &lt;object&gt;, thuộc tính onclick, inline styles và liên kết quảng cáo.</span>
-          </div>
-        </li>
-        <li>
-          <span>3</span>
-          <div>
-            <strong style="font-family:var(--wa-font-ui);font-size:16px;font-weight:600;color:var(--wa-text)">Bản địa hóa tài nguyên ảnh (Asset Localizing):</strong>
-            <span class="t-body-md t-soft">Quét các thẻ &lt;img src="..."&gt;, tải nhị phân về ổ đĩa cục bộ, tính mã băm MD5 và viết lại thuộc tính thành đường dẫn nội bộ.</span>
-          </div>
-        </li>
-        <li>
-          <span>4</span>
-          <div>
-            <strong style="font-family:var(--wa-font-ui);font-size:16px;font-weight:600;color:var(--wa-text)">Kiểm tra allowlist &amp; chống lỗi:</strong>
-            <span class="t-body-md t-soft">Mọi đích tải về — kể cả sau khi chuyển hướng — đều phải nằm trong danh sách tên miền được duyệt. Trang lỗi 404 hoặc timeout không bao giờ được lưu thành bài viết hợp lệ.</span>
-          </div>
-        </li>
-      </ol>
-
-      <h3>Ví dụ về đường dẫn cục bộ hoá</h3>
-      <pre><code>&lt;img src="https://cdn.example.com/2026/10/architecture.png"
-     alt="Sơ đồ kiến trúc"&gt;
-
-→  &lt;img src="/assets/snapshots/2026/10/architecture.png"
-     alt="Sơ đồ kiến trúc"
-     data-original="https://cdn.example.com/2026/10/architecture.png"&gt;</code></pre>
-    </section>
-
-    <section>
-      <h2><i>03.</i> Bảng tổng hợp phương pháp làm sạch</h2>
-      <p>
-        Bảng dưới đây tóm tắt cách từng thành phần HTML của trang gốc được xử lý trước khi đưa vào kho
-        snapshot và cơ chế tìm kiếm nội dung.
-      </p>
-
-      <div class="reader__table">
-        <table>
-          <thead>
-            <tr>
-              <th>Thành phần HTML</th>
-              <th>Phương thức xử lý an toàn</th>
-              <th>Kết quả lưu trữ</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td><code>&lt;script&gt;</code> &amp; <code>&lt;iframe&gt;</code></td>
-              <td style="color:var(--wa-error);font-weight:500">Bóc tách toàn bộ &amp; Hủy thẻ</td>
-              <td class="t-muted">Ngăn chặn hoàn toàn XSS &amp; Tracking</td>
-            </tr>
-            <tr>
-              <td><code>&lt;img src="https://..."&gt;</code></td>
-              <td style="color:var(--wa-teal-deep);font-weight:500">Tải nhị phân &amp; Đổi đường dẫn nội bộ</td>
-              <td class="t-muted">Hiển thị mượt mà không cần mạng Internet</td>
-            </tr>
-            <tr>
-              <td>CSS Stylesheet CDN</td>
-              <td style="font-weight:500">Thay thế bằng bộ Typographic CSS chuẩn</td>
-              <td class="t-muted">Tránh vỡ giao diện khi domain CDN die</td>
-            </tr>
-            <tr>
-              <td>Văn bản bài viết gốc</td>
-              <td style="color:var(--wa-primary);font-weight:600">Sanitize &amp; Lưu UTF8MB4 vào MySQL</td>
-              <td class="t-muted">Hỗ trợ tìm kiếm Fulltext tốc độ cao</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <p>
-        Bằng phương pháp này, trải nghiệm đọc nội dung được chuyển đổi trọn vẹn: không còn sự gián đoạn của
-        quảng cáo trượt, không còn nỗi lo các bài hướng dẫn cốt lõi bị gỡ bỏ, và người dùng hoàn toàn làm chủ
-        nguồn tri thức nghiên cứu của bản thân.
-      </p>
-    </section>
-
-    <div class="reader__note">
-      <span class="ms ms-28" style="color:var(--wa-primary);flex:0 0 28px;margin-top:2px">verified_user</span>
-      <div>
-        <b>Tóm tắt nguyên lý trường tồn kỹ thuật số</b>
-        <p>
-          Bản lưu trữ HTML tĩnh không phụ thuộc vào trạng thái trực tuyến của máy chủ tác giả. Mọi hình ảnh,
-          kiểu chữ và nội dung văn bản đều được lưu đóng gói ngay trong hệ sinh thái của WebArchive cá nhân bạn.
-        </p>
-      </div>
-    </div>
+<?= $article['content_html'] ?>
   </div>
 
   <!-- ===================== CHÂN TRANG ĐỌC ===================== -->
@@ -303,9 +168,9 @@ $library = sample_find_library('cntt-lap-trinh');
       <span class="ms ms-16 ms-fill" style="color:var(--wa-teal-deep)">check_circle</span>
       <span>Đã đọc hết bài viết • Lưu trữ bởi WebArchive</span>
     </div>
-    <a class="btn btn--primary" href="<?= wa_e(wa_url('library.php?slug=cntt-lap-trinh')) ?>">
+    <a class="btn btn--primary" href="<?= wa_e(wa_url('library.php?slug=' . urlencode($librarySlug))) ?>">
       <span class="ms ms-16">arrow_back</span>
-      <span>Trở về Thư viện CNTT &amp; Lập Trình</span>
+      <span>Trở về Thư viện <?= wa_e($libraryName) ?></span>
     </a>
   </footer>
 </article>

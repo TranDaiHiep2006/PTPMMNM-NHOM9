@@ -1,7 +1,7 @@
 # PROJECT_CONTEXT.md — WebArchive (Đề tài 16)
 
-> Tài liệu ngữ cảnh dự án. Giai đoạn hiện tại: **UI + auth shell (session)**.
-> Engine lưu trữ và MySQL sẽ được cài đặt ở các phase sau.
+> Tài liệu ngữ cảnh dự án. Giai đoạn hiện tại: **Cơ sở dữ liệu (MySQL + PDO)**.
+> Quy trình tải trang thật và engine bóc tách/sanitize sẽ được cài ở các phase sau.
 
 ---
 
@@ -52,7 +52,7 @@ stylesheet cục bộ duy nhất. Toàn bộ nội dung hiển thị bằng **ti
 | Thư viện của tôi | `public/libraries.php` | Đăng nhập | Số liệu, tab lọc, lưới thẻ thư viện, tạo thư viện (UI) |
 | Chi tiết thư viện | `public/library.php?slug=...` | Đăng nhập | Breadcrumb, số liệu, thành viên, nhãn, thẻ bài viết, phân trang, bảng lưu URL |
 | Lưu trang Web | `public/save.php` | Đăng nhập | Bảng nhập URL + 4 trạng thái mô phỏng (thành công / ngoài allowlist / 404 / timeout) |
-| Trình đọc | `public/reader.php?id=...` | Đăng nhập | Nền giấy ngà, cột 780px, A-/A+, tiến độ đọc, hộp nguồn gốc, bài viết mẫu |
+| Trình đọc | `public/reader.php?id=<snapshot id>` | Đăng nhập | Nền giấy ngà, cột 780px, A-/A+, tiến độ đọc, hộp nguồn gốc, nội dung lấy từ `snapshots.content_html` |
 | Tìm kiếm | `public/search.php` | Đăng nhập | Từ khoá, lọc theo thẻ/tên miền, kết quả có `<mark>` + thư viện + phiên bản snapshot |
 | Tổng quan hệ thống | `public/admin/index.php` | Quản trị | Tổng users/libraries/snapshots/assets/lỗi, nhật ký hoạt động |
 | Người dùng | `public/admin/users.php` | Quản trị | Bảng tài khoản, vai trò, trạng thái, số thư viện, thao tác (UI) |
@@ -71,16 +71,22 @@ Các trang admin gọi thêm `require_admin()`; người dùng thường nhận 
 prompt.md                      Đặc tả giai đoạn này
 PROJECT_CONTEXT.md             Tài liệu này
 README.md                      Hướng dẫn chạy
-config/demo_users.php          Tài khoản demo (PLACEHOLDER — sẽ thay bằng MySQL)
+database/schema.sql            Lược đồ MySQL: 10 bảng InnoDB utf8mb4, FK + UNIQUE
+database/seed.sql              Dữ liệu mẫu (INSERT) — chạy lại được nhiều lần
+scripts/setup_db.php           Cài CSDL + tạo user riêng + nạp seed (CLI, idempotent)
+config/db.php                  Nạp cấu hình, dựng DSN (KHÔNG chứa mật khẩu)
+config/db.local.php            Thông tin kết nối thật — .gitignore, KHÔNG commit
+src/db.php                     PDO singleton, chẩn đoán lỗi, trang lỗi tiếng Việt
 src/auth.php                   Session, require_login(), require_admin(), current_user()
 src/bootstrap.php              Hằng số đường dẫn, nạp src, hàm trợ giúp (wa_url/wa_e/...)
-src/sample_data.php            TOÀN BỘ dữ liệu mẫu của giao diện
+src/queries.php                TOÀN BỘ truy vấn CSDL (thay thế src/sample_data.php)
 src/mock_capture.php           MÔ PHỎNG quy trình lưu trang (không tải thật)
 templates/header_guest.php     Layout khách: thanh trên + <main>   (KHÔNG có user chip)
 templates/footer_guest.php     Đóng layout khách + chân trang
 templates/header_app.php       Layout ứng dụng: thanh trên + sidebar
 templates/footer_app.php       Đóng layout ứng dụng
 templates/error_no_permission.php   Trang 403 tiếng Việt
+templates/error_database.php   Trang lỗi CSDL tiếng Việt (503)
 public/                        WEB ROOT
 public/assets/css/app.css      Toàn bộ design token + component (không framework)
 public/assets/img/             Logo SVG, ảnh minh hoạ cục bộ
@@ -96,8 +102,27 @@ docs/design-reference/         Nguồn thiết kế (DESIGN.md + 4 màn hình th
 | `user@demo.vn` | `demo123` | Người dùng | Lê Minh Tuấn |
 | `admin@demo.vn` | `admin123` | Quản trị viên | Trần Hoàng Nam |
 
+Đây là **tài khoản thật trong bảng `users`** của MySQL (được nạp từ `database/seed.sql`).
 Mật khẩu được lưu bằng `password_hash()` (bcrypt) và kiểm tra bằng `password_verify()`.
-> **Đây là dữ liệu giả lập cho giao diện**, sẽ bị thay bằng bảng `users` ở phase MySQL.
+Ngoài ra còn có 3 tài khoản phụ dùng cho màn hình quản trị:
+`ha.nguyen@demo.vn` (Nguyễn Thu Hà), `minh.vu@demo.vn` (Vũ Quang Minh — **đang bị khoá**),
+`linh.pham@demo.vn` (Phạm Thùy Linh).
+
+---
+
+## 6b. Cơ sở dữ liệu
+
+- MySQL 8.0, database **`webarchive`**, InnoDB, `utf8mb4` / `utf8mb4_unicode_ci`.
+- Cài đặt / nạp lại dữ liệu: đặt `WA_ADMIN_USER` + `WA_ADMIN_PASS` rồi chạy `php scripts/setup_db.php`.
+- Ứng dụng kết nối bằng tài khoản riêng `'webarchive'@'localhost'`; thông tin nằm trong
+  `config/db.local.php` (**đã .gitignore, không bao giờ commit**).
+- `config/db.php` chỉ đọc cấu hình và dựng DSN, **không chứa mật khẩu**.
+- 10 bảng: `users`, `libraries`, `library_members`, `tags`, `saved_pages`, `page_tags`,
+  `snapshots`, `assets`, `notes`, `allowlist_domains`.
+- Mọi truy vấn có tham số dùng prepared statement (`PDO::ATTR_EMULATE_PREPARES = false`).
+- Quyền truy cập cơ bản: người dùng thấy thư viện mình **sở hữu** hoặc **là thành viên**;
+  quản trị viên thấy tất cả (xem `wa_library_access_sql()` trong `src/queries.php`).
+- Nếu CSDL không truy cập được, hiện `templates/error_database.php` — không lộ stack trace.
 
 ---
 
@@ -121,11 +146,10 @@ Trang `save.php` trình diễn đủ cả bốn trạng thái.
 
 | Phase | Cần làm | Chỗ cắm |
 |-------|---------|----------|
-| **Cơ sở dữ liệu** | Thay nội dung mảng trong `src/sample_data.php` bằng truy vấn PDO/MySQL; thay `demo_users()` bằng bảng `users` | `src/sample_data.php`, `config/demo_users.php` |
-| **Engine tải trang** | Thay `mock_capture()` bằng pipeline thật: cURL → kiểm tra allowlist (kể cả redirect chain) → bóc tách tiêu đề/nội dung → sanitize → tải ảnh cục bộ | `src/mock_capture.php` → `src/capture_engine.php` |
-| **Lưu trữ & tìm kiếm** | Lưu snapshot + chỉ mục nội dung; truy vấn snippet kèm `snapshot_version_id` | `public/search.php` (thay vòng lặp mô phỏng) |
-| **Phân quyền nâng cao** | Áp dụng vai trò thật khi xuất kho / tải lại | `src/auth.php` |
-| **Đăng ký thật** | Lưu tài khoản vào CSDL | `public/register.php` |
+| **Engine tải trang** | Thay `mock_capture()` bằng pipeline thật: cURL → kiểm tra allowlist (kể cả redirect chain) → bóc tách tiêu đề/nội dung → sanitize → tải ảnh cục bộ → INSERT vào `saved_pages` / `snapshots` / `assets` | `src/mock_capture.php` → `src/capture_engine.php`, `public/save.php` |
+| **Lưu trữ & tìm kiếm** | Chỉ mục FULLTEXT trên `snapshots(title, content_text)`, truy vấn snippet + `version_no` | `src/queries.php` (`wa_search_snapshots`), `public/search.php` |
+| **Phân quyền nâng cao** | Áp dụng vai trò `editor`/`viewer` khi sửa, xoá, xuất kho hoặc tải lại | `src/auth.php`, `src/queries.php` |
+| **Ghi chú & tài nguyên** | Hoàn thiện màn hình ghi chú (`notes`) và quản lý `assets` | `templates/`, `public/library.php` |
 
 Nguyên tắc: **giao diện không cần sửa**, chỉ thay lớp dữ liệu phía sau.
 

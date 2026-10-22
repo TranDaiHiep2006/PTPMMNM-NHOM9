@@ -9,18 +9,22 @@ require_once __DIR__ . '/../../src/bootstrap.php';
 
 require_admin();
 
-$allowlist = sample_allowlist();
+$allowlist = wa_allowlist();
 
 $notice = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $domain = strtolower(trim((string) ($_POST['domain'] ?? '')));
-    $valid = $domain !== '' && (bool) preg_match('/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i', $domain);
+    // Ghi thật vào bảng allowlist_domains (tài khoản đang đăng nhập là quản trị viên).
+    $user   = current_user();
+    $result = wa_allowlist_add(
+        (string) ($_POST['domain'] ?? ''),
+        (string) ($_POST['note'] ?? ''),
+        (int) ($user['id'] ?? 0)
+    );
 
-    if ($valid) {
-        $notice = ['ok' => true, 'text' => 'Đã thêm tên miền "' . $domain . '" vào danh sách được duyệt (giai đoạn giao diện: chưa lưu vào cơ sở dữ liệu).'];
-    } else {
-        $notice = ['ok' => false, 'text' => 'Tên miền không hợp lệ. Vui lòng nhập một tên miền dạng "tenmien.vn".'];
-    }
+    $notice = ['ok' => $result['ok'], 'text' => $result['message']];
+
+    // Đọc lại danh sách để phản ánh ngay thay đổi vừa ghi.
+    $allowlist = wa_allowlist();
 }
 
 $pageTitle = 'Tên miền được duyệt';
@@ -139,6 +143,11 @@ require __DIR__ . '/../../templates/header_app.php';
       <input class="input input--icon" type="text" name="domain" placeholder="tenmien.vn" required
              aria-label="Tên miền cần thêm">
     </div>
+    <div class="capture__input">
+      <span class="ms ms-18">notes</span>
+      <input class="input input--icon" type="text" name="note" placeholder="Ghi chú (không bắt buộc)"
+             aria-label="Ghi chú cho tên miền">
+    </div>
     <button class="btn btn--dark" type="submit">
       <span class="ms ms-18">add</span>
       <span>Thêm tên miền</span>
@@ -146,7 +155,8 @@ require __DIR__ . '/../../templates/header_app.php';
   </form>
 
   <p class="t-label-sm t-muted" style="margin-top:8px">
-    Giai đoạn giao diện: biểu mẫu chỉ kiểm tra định dạng và hiển thị kết quả, chưa ghi vào cơ sở dữ liệu.
+    Tên miền được ghi thật vào bảng <code>allowlist_domains</code> của cơ sở dữ liệu MySQL
+    và vẫn còn sau khi tải lại trang này.
   </p>
 </div>
 

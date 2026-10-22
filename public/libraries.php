@@ -12,8 +12,16 @@ require_once __DIR__ . '/../src/bootstrap.php';
 
 require_login();
 
-$libraries = sample_libraries();
-$stats = sample_stats();
+$libraries = wa_libraries();
+$stats = [
+    'library_count'      => count($libraries),
+    'article_count'      => array_sum(array_column($libraries, 'article_count')),
+    'image_count'        => array_sum(array_column($libraries, 'image_count')),
+    'broken_links'       => 0,
+    'storage_gb'         => wa_admin_stats()['storage_label'],
+    'personal_libraries' => count(array_filter($libraries, static fn (array $l): bool => $l['category'] === 'personal')),
+    'shared_libraries'   => count(array_filter($libraries, static fn (array $l): bool => $l['category'] === 'shared')),
+];
 
 // Lọc theo tab được chọn.
 $filter = (string) ($_GET['filter'] ?? 'all');

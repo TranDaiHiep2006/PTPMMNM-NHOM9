@@ -2,16 +2,16 @@
 /**
  * auth.php
  * -----------------------------------------------------------------------------
- * Lớp xác thực phiên (session-based) cho giao diện WebArchive.
+ * Lớp xác thực phiên (session-based) cho WebArchive.
  *
- * Trong phase UI này, danh sách tài khoản lấy từ config/demo_users.php.
- * Phase MySQL sau sẽ thay lời gọi demo_find_user() bằng truy vấn bảng `users`
- * mà giữ nguyên toàn bộ chữ ký hàm dưới đây.
+ * Tài khoản nằm trong bảng `users` của CSDL MySQL. Mật khẩu được băm bằng
+ * bcrypt (password_hash) và kiểm tra bằng password_verify().
+ * Phiên chỉ lưu ID người dùng — mọi thông tin khác được nạp lại từ CSDL.
  * -------------------------------------------------------------------------- */
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../config/demo_users.php';
+require_once __DIR__ . '/db.php';
 
 /**
  * Khởi động phiên làm việc (idempotent).
@@ -30,7 +30,7 @@ function auth_start_session(): void
     session_set_cookie_params([
         'httponly' => true,
         'samesite' => 'Lax',
-        'path' => '/',
+        'path'     => '/',
     ]);
     session_start();
 }
@@ -48,13 +48,113 @@ function current_user(): ?array
         return null;
     }
 
-    foreach (demo_users() as $user) {
-        if ($user['id'] === $_SESSION['user_id']) {
-            return $user;
-        }
+    $user = auth_find_user_by_id((int) $_SESSION['user_id']);
+
+    if ($user === null) {
+        return null;
     }
 
-    return null;
+    // Tài khoản bị khoá trong CSDL thì phiên cũng mất hiệu lực.
+    if ($user['status'] !== 'active') {
+        return null;
+    }
+
+    return $user;
+}
+
+/**
+ * Nạp một tài khoản từ bảng `users` theo id.
+ *
+ * @return array<string, mixed>|null
+ */
+function auth_find_user_by_id(int $id): ?array
+{
+    try {
+        $stmt = db()->prepare(
+            'SELECT id, full_name, email, password_hash, role, status, created_at
+               FROM `users`
+              WHERE id = ?
+              LIMIT 1'
+        );
+        $stmt->execute([$id]);
+    } catch (Throwable $e) {
+        db_fatal('Không đọc được dữ liệu tài khoản từ cơ sở dữ liệu.');
+    }
+
+    $row = $stmt->fetch();
+
+    if ($row === false) {
+        return null;
+    }
+
+    return auth_shape_user($row);
+}
+
+/**
+ * Nạp một tài khoản từ bảng `users` theo email (không phân biệt hoa thường).
+ *
+ * @return array<string, mixed>|null
+ */
+function auth_find_user_by_email(string $email): ?array
+{
+    $email = trim($email);
+
+    if ($email === '') {
+        return null;
+    }
+
+    try {
+        $stmt = db()->prepare(
+            'SELECT id, full_name, email, password_hash, role, status, created_at
+               FROM `users`
+              WHERE email = ?
+              LIMIT 1'
+        );
+        $stmt->execute([$email]);
+    } catch (Throwable $e) {
+        db_fatal('Không đọc được dữ liệu tài khoản từ cơ sở dữ liệu.');
+    }
+
+    $row = $stmt->fetch();
+
+    if ($row === false) {
+        return null;
+    }
+
+    return auth_shape_user($row);
+}
+
+/**
+ * Chuẩn hoá một bản ghi `users` thành mảng dùng trong giao diện.
+ *
+ * @param array<string, mixed> $row
+ * @return array<string, mixed>
+ */
+function auth_shape_user(array $row): array
+{
+    $roleLabels   = ['admin' => 'Quản trị viên', 'user' => 'Người dùng'];
+    $statusLabels = ['active' => 'Hoạt động', 'locked' => 'Bị khóa'];
+
+    $fullName = (string) $row['full_name'];
+    $parts = preg_split('/\s+/u', trim($fullName)) ?: [];
+    $parts = array_values(array_filter($parts, static fn (string $p): bool => $p !== ''));
+    $initials = count($parts) > 1
+        ? mb_strtoupper(mb_substr($parts[0], 0, 1, 'UTF-8') . mb_substr($parts[count($parts) - 1], 0, 1, 'UTF-8'), 'UTF-8')
+        : mb_strtoupper(mb_substr($fullName, 0, 2, 'UTF-8'), 'UTF-8');
+
+    return [
+        'id'            => (int) $row['id'],
+        'email'         => (string) $row['email'],
+        'name'          => $fullName,
+        'full_name'     => $fullName,
+        'password_hash' => (string) $row['password_hash'],
+        'role'          => (string) $row['role'],
+        'role_label'    => $roleLabels[(string) $row['role']] ?? 'Người dùng',
+        'status'        => (string) $row['status'],
+        'status_label'  => $statusLabels[(string) $row['status']] ?? 'Hoạt động',
+        'initials'      => $initials !== '' ? $initials : 'KH',
+        'created_at'    => (string) $row['created_at'],
+    ];
 }
 
 /**
@@ -67,11 +167,13 @@ function login_attempt(string $email, string $password): array
     auth_start_session();
 
     $email = trim($email);
+
     if ($email === '' || $password === '') {
         return ['ok' => false, 'message' => 'Vui lòng nhập đầy đủ email và mật khẩu.'];
     }
 
-    $user = demo_find_user($email);
+    $user = auth_find_user_by_email($email);
+
     if ($user === null) {
         return ['ok' => false, 'message' => 'Không tìm thấy tài khoản với email này.'];
     }
@@ -80,13 +182,63 @@ function login_attempt(string $email, string $password): array
         return ['ok' => false, 'message' => 'Mật khẩu không đúng. Vui lòng thử lại.'];
     }
 
+    if ($user['status'] !== 'active') {
+        return ['ok' => false, 'message' => 'Tài khoản của bạn đang bị khoá. Vui lòng liên hệ quản trị viên.'];
+    }
+
     session_regenerate_id(true);
-    $_SESSION['user_id'] = $user['id'];
+    $_SESSION['user_id']    = $user['id'];
     $_SESSION['user_email'] = $user['email'];
-    $_SESSION['user_name'] = $user['name'];
-    $_SESSION['user_role'] = $user['role'];
+    $_SESSION['user_name']  = $user['name'];
+    $_SESSION['user_role']  = $user['role'];
 
     return ['ok' => true, 'message' => 'Đăng nhập thành công.'];
+}
+
+/**
+ * Đăng ký tài khoản mới — ghi thật vào bảng `users`.
+ *
+ * @return array{ok:bool, message:string, user_id?:int}
+ */
+function register_user(string $fullName, string $email, string $password): array
+{
+    $fullName = trim($fullName);
+    $email    = trim($email);
+
+    if ($fullName === '') {
+        return ['ok' => false, 'message' => 'Vui lòng nhập họ và tên của bạn.'];
+    }
+
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return ['ok' => false, 'message' => 'Email không đúng định dạng. Ví dụ: ban@example.com'];
+    }
+
+    if ($password === '' || mb_strlen($password) < 6) {
+        return ['ok' => false, 'message' => 'Mật khẩu phải có ít nhất 6 ký tự.'];
+    }
+
+    try {
+        $stmt = db()->prepare(
+            'INSERT INTO `users` (`full_name`, `email`, `password_hash`, `role`, `status`)
+             VALUES (?, ?, ?, \'user\', \'active\')'
+        );
+        $stmt->execute([$fullName, $email, password_hash($password, PASSWORD_DEFAULT)]);
+    } catch (PDOException $e) {
+        if ($e->getCode() === '23000') {
+            return [
+                'ok'      => false,
+                'message' => 'Email "' . $email . '" đã được đăng ký. Vui lòng đăng nhập bằng tài khoản này.',
+            ];
+        }
+
+        throw $e;
+    }
+
+    return [
+        'ok'      => true,
+        'message' => 'Đăng ký thành công.',
+        'user_id' => (int) db()->lastInsertId(),
+    ];
 }
 
 /**

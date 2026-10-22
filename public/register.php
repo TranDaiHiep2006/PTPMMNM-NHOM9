@@ -2,9 +2,9 @@
 /**
  * register.php — Trang đăng ký tài khoản.
  *
- * GIAI ĐOẠN GIAO DIỆN: biểu mẫu chỉ kiểm tra dữ liệu đầu vào và hiển thị trạng
- * thái thành công rồi chuyển hướng về login.php. CHƯA LƯU tài khoản vào CSDL
- * (MySQL sẽ được cài đặt ở phase sau) — xem phần giới hạn trong README.
+ * Biểu mẫu ghi tài khoản THẬT vào bảng `users` của MySQL (vai trò 'user',
+ * trạng thái 'active'). Mật khẩu được băm bằng password_hash() (bcrypt).
+ * Email trùng sẽ báo lỗi tiếng Việt.
  */
 
 declare(strict_types=1);
@@ -54,8 +54,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($errors === []) {
-        // Giai đoạn giao diện: không lưu xuống CSDL, chỉ báo thành công.
-        $success = true;
+        // Ghi tài khoản thật vào bảng `users`.
+        $result = register_user($name, $email, $password);
+
+        if ($result['ok']) {
+            $success = true;
+        } else {
+            $errors['email'] = $result['message'];
+        }
     }
 }
 

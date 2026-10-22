@@ -6,6 +6,10 @@
 .env.*
 *.env
 
+# Thông tin kết nối CSDL cục bộ (chứa mật khẩu tài khoản MySQL riêng của ứng dụng).
+# Được sinh tự động bởi scripts/setup_db.php — TUYỆT ĐỐI KHÔNG commit.
+config/db.local.php
+
 # Log
 *.log
 logs/

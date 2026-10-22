@@ -14,46 +14,20 @@ require_once __DIR__ . '/../src/bootstrap.php';
 require_login();
 
 $query = trim((string) ($_GET['q'] ?? ''));
-$tagFilter = (string) ($_GET['tag'] ?? '');
-$domainFilter = (string) ($_GET['domain'] ?? '');
+$tagFilter = trim((string) ($_GET['tag'] ?? ''));
+$domainFilter = trim((string) ($_GET['domain'] ?? ''));
 
-$articles = sample_articles();
+// Tìm kiếm trực tiếp trên bảng snapshots (LIKE title + content_text),
+// có lọc theo quyền truy cập của thư viện.
+$results = wa_search_snapshots([
+    'q'      => $query,
+    'tag'    => $tagFilter,
+    'domain' => $domainFilter,
+]);
 
-// Lọc theo nhãn và theo tên miền nguồn.
-if ($tagFilter !== '') {
-    $articles = array_values(array_filter(
-        $articles,
-        static fn (array $a): bool => in_array($tagFilter, $a['tags'], true)
-    ));
-}
-
-if ($domainFilter !== '') {
-    $articles = array_values(array_filter(
-        $articles,
-        static fn (array $a): bool => strcasecmp($a['domain'], $domainFilter) === 0
-    ));
-}
-
-// Tìm kiếm trên nội dung đã lưu: tiêu đề + trích đoạn + nội dung.
-$results = [];
-if ($query !== '') {
-    $needle = mb_strtolower($query);
-    foreach ($articles as $article) {
-        $haystack = mb_strtolower($article['title'] . ' ' . $article['excerpt'] . ' ' . $article['snippet']);
-        if (str_contains($haystack, $needle)) {
-            $results[] = $article;
-        }
-    }
-} elseif ($tagFilter !== '' || $domainFilter !== '') {
-    $results = $articles;
-}
-
-// Danh sách tên miền có trong kho (để lọc).
-$domains = [];
-foreach (sample_articles() as $article) {
-    $domains[$article['domain']] = true;
-}
-$domains = array_keys($domains);
+// Danh sách tên miền có trong kho (để lọc) + toàn bộ thẻ đang có.
+$domains = wa_snapshot_domains();
+$allTags = wa_all_tags();
 
 $pageTitle = 'Tìm kiếm nội dung';
 require __DIR__ . '/../templates/header_app.php';
@@ -97,7 +71,7 @@ require __DIR__ . '/../templates/header_app.php';
     <label for="tag">Lọc theo thẻ</label>
     <select class="select" id="tag" name="tag">
       <option value="">Tất cả thẻ</option>
-      <?php foreach (sample_tags() as $tag): ?>
+      <?php foreach ($allTags as $tag): ?>
         <option value="<?= wa_e($tag) ?>" <?= $tagFilter === $tag ? 'selected' : '' ?>><?= wa_e($tag) ?></option>
       <?php endforeach; ?>
     </select>
@@ -143,10 +117,10 @@ require __DIR__ . '/../templates/header_app.php';
     <div class="result">
       <div class="result__top">
         <span class="chip chip--blue">
-          <span class="ms ms-14">folder_special</span><?= wa_e($hit['library']) ?>
+          <span class="ms ms-14">folder_special</span><?= wa_e($hit['library_name']) ?>
         </span>
         <span class="chip chip--plain">
-          <span class="ms ms-14">history</span>Phiên bản snapshot: <?= wa_e($hit['version']) ?>
+          <span class="ms ms-14">history</span>Phiên bản snapshot: v<?= (int) $hit['version_no'] ?>.0
         </span>
         <span class="chip chip--plain">
           <span class="ms ms-14">public</span><?= wa_e($hit['domain']) ?>
@@ -166,12 +140,15 @@ require __DIR__ . '/../templates/header_app.php';
       </div>
 
       <div class="result__foot">
-        <span><span class="ms ms-14">description</span>Snapshot: <strong>#<?= wa_e($hit['id']) ?></strong></span>
+        <span><span class="ms ms-14">description</span>Snapshot: <strong>SNAP-<?= (int) $hit['id'] ?></strong></span>
         <span><span class="ms ms-14">public</span>Nguồn: <?= wa_e($hit['domain']) ?></span>
         <span><span class="ms ms-14">history</span>Lưu lúc: <?= wa_e($hit['saved_at']) ?></span>
-        <span><span class="ms ms-14">schedule</span>Đọc: <?= wa_e($hit['reading_time']) ?></span>
+        <span><span class="ms ms-14">image</span><?= (int) $hit['image_count'] ?> ảnh</span>
         <span><span class="ms ms-14">offline_pin</span>Sẵn sàng đọc ngoại tuyến</span>
-        <a style="margin-left:auto;font-weight:600" href="<?= wa_e(wa_url('reader.php?id=' . urlencode($hit['id']))) ?>">
+        <a style="margin-left:auto;font-weight:600" href="<?= wa_e(wa_url('library.php?slug=' . urlencode((string) $hit['library_slug']))) ?>">
+          Mở thư viện →
+        </a>
+        <a style="font-weight:600" href="<?= wa_e(wa_url('reader.php?id=' . (int) $hit['id'])) ?>">
           Đọc bản đã lưu →
         </a>
       </div>

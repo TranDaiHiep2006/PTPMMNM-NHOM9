@@ -9,14 +9,8 @@ require_once __DIR__ . '/../../src/bootstrap.php';
 
 require_admin();
 
-$libraries = sample_libraries();
-$users = sample_users();
-
-// Ghép chủ sở hữu theo email trong danh sách người dùng.
-$ownerNames = [];
-foreach ($users as $user) {
-    $ownerNames[$user['email']] = $user['name'];
-}
+// Toàn bộ thư viện trên hệ thống; tên chủ sở hữu đã được JOIN sẵn trong truy vấn.
+$libraries = wa_all_libraries();
 
 $pageTitle = 'Tất cả thư viện';
 require __DIR__ . '/../../templates/header_app.php';
@@ -113,14 +107,14 @@ require __DIR__ . '/../../templates/header_app.php';
               </span>
               <span>
                 <span class="cell-main" style="display:block"><?= wa_e($lib['name']) ?></span>
-                <span class="cell-sub"><?= wa_e($lib['id']) ?></span>
+                <span class="cell-sub">Mã #<?= wa_e((string) $lib['id']) ?></span>
               </span>
             </span>
           </td>
-          <td class="t-muted"><?= wa_e($ownerNames['user@demo.vn'] ?? 'Lê Minh Tuấn') ?></td>
+          <td class="t-muted"><?= wa_e((string) $lib['owner_name']) ?></td>
           <td>
             <span class="chip <?= $lib['visibility_code'] === 'shared' ? 'chip--blue' : 'chip--plain' ?>">
-              <?= wa_e($lib['visibility']) ?>
+              <?= wa_e($lib['visibility_label']) ?>
             </span>
           </td>
           <td><?= $lib['article_count'] ?></td>

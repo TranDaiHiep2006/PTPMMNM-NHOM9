@@ -1,64 +1,129 @@
-# P-UI — WebArchive (Topic 16) UI phase: guest landing, auth shell, workspace, reader, admin
+# P-DB — MySQL schema, database-backed auth, and seed data (WebArchive, Topic 16)
 
-## Role
-You are a senior PHP developer. This phase builds the COMPLETE user interface of the WebArchive app plus a working session-based login shell. No MySQL and no real web capture in this phase. All UI text must be Vietnamese.
+Read PROJECT_CONTEXT.md and the current code first. This phase replaces the UI
+phase's placeholder data layer with a real MySQL database. Pure PHP 8.3, no
+framework, no Composer packages. All user-facing text stays Vietnamese.
 
-## Project context
-- Working directory: D:\PTPMMNM-NHOM9 (Windows). Git remote: https://github.com/TranDaiHiep2006/PTPMMNM-NHOM9.git (currently empty — initialize and push to main in this phase).
-- Product: Topic 16 — a web app that saves the CONTENT of a web page (snapshot) to reread and search later, organized in libraries with tags and per-library permissions. Full spec summary goes into PROJECT_CONTEXT.md (create it in this phase): 5 functions (libraries/tags/permissions + approved-URL intake; HTML fetch + title/article extraction with distinct errors; clean reread version with images saved locally; self-built search over saved content with snippets tied to the correct snapshot version; refetch keeps old version + notes, permission-checked export), 2 core technical requirements (never save error pages as valid articles and always read from the saved snapshot; search must be based on saved content, snapshots must block scripts and uncontrolled external resources, every fetch target including redirects must be checked against an allowlist). Later phases implement the engine and MySQL; THIS phase is UI + auth shell only.
-- Stack: pure PHP 8+ (no framework, no build step), one local CSS file, MySQL arrives in a later phase.
+## Environment facts (verified, do not re-investigate)
+- Windows, project at D:\PTPMMNM-NHOM9, run with: php -S localhost:8080 -t public
+- PHP 8.3.36 was installed via winget in the previous phase WITHOUT a php.ini,
+  so mbstring is currently missing (a polyfill exists in src/bootstrap.php).
+- MySQL Server 8.0.46 runs as Windows service MySQL80 at 127.0.0.1:3306 and is
+  healthy. Its admin account is the user's own account (username: tranhiep).
 
-## Design source of truth (read these FIRST, before writing any code)
-- docs/design-reference/stitch_webarchive_saas_ui_system/webarchive_workspace/DESIGN.md — colors, typography, spacing, components.
-- The 4 screen folders next to it: trang_ch (landing), th_vi_n_c_a_t_i (my libraries), chi_ti_t_th_vi_n (library detail), tr_nh_c_ngo_i_tuy_n (offline reader) — each has code.html and screen.png. Match layout and content closely, in Vietnamese.
-- KNOWN DEFECT in the reference, you MUST fix it: the landing page mock uses an authenticated header (user chip, Dang xuat, workspace nav). The landing page is for GUESTS. Never mix the two headers.
+## Rules before touching the database
+- ASK the user for the MySQL admin password at the start of your work. Never
+  guess it, never reset or change any existing MySQL account, never drop or
+  modify any database other than the new one named webarchive.
+- The app must connect with its OWN limited database user (created by the
+  setup script below), never with the admin account. App credentials live only
+  in config/db.local.php, which must be gitignored and never committed.
 
-## Tech constraints
-- Port the DESIGN.md tokens into ONE local stylesheet public/assets/css/app.css (CSS variables for the palette: primary #152F4A, action #315E91, teal #289C91, workspace canvas #F5F7F9, reader ivory #FAF8F4, border #E2E8F0). Do NOT use the Tailwind CDN or any CSS framework in the output.
-- Fonts: Inter (UI) and Merriweather (reader only) via Google Fonts, with system-font fallbacks so the demo still works offline.
-- Icons: Material Symbols via Google Fonts like the reference, always paired with a Vietnamese text label so nothing breaks if the font fails.
-- lang="vi", UTF-8 everywhere, correct Vietnamese diacritics (never strip accents).
-- Two shared layouts only: templates/header_guest.php + footer, and templates/header_app.php (app header + sidebar). Every page uses one of them; do not duplicate header markup per page.
-- Responsive: app sidebar collapses on narrow screens; reader column max 780px.
-- All dynamic-looking data comes from ONE file src/sample_data.php (libraries, articles, tags, members, users, allowlist, stats) so the DB phase can replace it. Keep every number consistent across pages (same library counts, article counts, storage figures as the reference screenshots).
+## Task 0 — PHP extensions
+Create a php.ini for the winget PHP install (based on php.ini-development if
+present) enabling at least: mbstring, pdo_mysql, mysqli. Verify with php -m and
+include the relevant lines in your REPORT. Keep the bootstrap polyfill in place
+as a fallback; do not remove it.
 
-## Auth shell (working, demo data)
-- src/auth.php: session start, require_login(), require_admin(), current_user().
-- config/demo_users.php: two demo accounts with password_hash() values, clearly commented as UI-phase placeholders to be replaced by MySQL: user@demo.vn / demo123 (role: user, display name Le Minh Tuan) and admin@demo.vn / admin123 (role: admin).
-- Login flow: guest clicks Dang nhap -> login.php form (email, password, Vietnamese validation errors, link to register) -> on success set session and redirect to libraries.php; on failure show a Vietnamese error on the form. Register page: full form (name, email, password, confirm) with Vietnamese validation and a success state that redirects to login (no persistence needed in this phase; state this limitation in the REPORT). Logout clears the session and returns to the landing page.
-- Route guard: every workspace, reader, search and admin page redirects guests to login.php. Admin pages additionally require the admin account; a normal user opening them gets a Vietnamese "khong co quyen truy cap" page.
+## Deliverable 1 — database/schema.sql
+Full DDL, InnoDB, utf8mb4 / utf8mb4_unicode_ci, foreign keys, DROP TABLE IF
+EXISTS in FK-safe order so the file is re-runnable. Tables:
+- users: id, full_name, email (unique), password_hash, role ('admin','user'),
+  status ('active','locked'), created_at
+- libraries: id, owner_id FK users, name, slug (unique), description,
+  visibility ('private','shared','public'), color, icon, created_at
+- library_members: library_id FK, user_id FK, role ('owner','editor','viewer'),
+  composite PK (library_id, user_id)
+- tags: id, name (unique)
+- saved_pages: id, library_id FK, source_url, domain, title, status
+  ('active','error'), created_by FK users, created_at, updated_at
+- page_tags: page_id FK saved_pages, tag_id FK tags, composite PK
+- snapshots: id, page_id FK, version_no, title, content_html (MEDIUMTEXT),
+  content_text (MEDIUMTEXT), source_url, fetched_at, http_status,
+  fetch_status ('success','error_404','error_timeout','error_blocked',
+  'error_no_content','error_http'), error_message,
+  UNIQUE (page_id, version_no)
+- assets: id, snapshot_id FK, original_url, local_path, mime_type, size_bytes
+- notes: id, snapshot_id FK, user_id FK, content, created_at, updated_at
+- allowlist_domains: id, domain (unique), note, added_by FK users, created_at
 
-## Pages to build (public/ is the web root)
-1. index.php — GUEST landing, closely following the reference landing content (hero, 3 feature blocks, 3-step flow, reader showcase, CTA) but with the corrected GUEST header.
-2. login.php — NEW, in design system: centered card on workspace canvas, brand panel, Vietnamese labels.
-3. register.php — NEW, same visual family as login.
-4. libraries.php — "Thu vien cua toi" exactly like reference image 2: sidebar, stats row, filter tabs (Tat ca / Thu vien ca nhan / Duoc chia se), library cards with role badge (Chu so huu / Bien tap vien), tags, counts, "Mo thu vien" actions, create-library button (UI only).
-5. library.php — library detail like reference image 3: breadcrumb, stats, members with roles, tags, article cards, pagination, and the save-URL panel (see mock capture below) showing the SUCCESS state.
-6. save.php — "Luu trang Web" full page: URL input panel plus a states showcase driven by the mock rules below: success, URL not in allowlist, origin returned 404, timeout. Vietnamese messages, distinct styling per state.
-7. reader.php — offline reader like reference image 4: ivory surface, 780px Merriweather column, toolbar with working A- / A+ font-size toggle (small vanilla JS), reading progress, provenance box (original URL, saved-at time, snapshot version), one full sample Vietnamese article (headings, blockquote, code block, image placeholder as a local asset, sanitization summary table).
-8. search.php — NEW search results page: query input, filters by tag and by source domain, mock results whose snippets highlight the keyword with <mark> and show which library and snapshot version each hit belongs to (this demonstrates spec Function 4's UI).
-9. Admin (NEW, admin account only), sharing the app layout plus an "Quan tri he thong" section in the sidebar:
-   - admin/index.php — system overview: total users, libraries, snapshots, local assets, failed captures; recent activity list.
-   - admin/users.php — user table: name, email, role badge (Quan tri vien / Nguoi dung), status (Hoat dong / Bi khoa), library count, actions (UI only).
-   - admin/allowlist.php — approved-domains table (domain, added by, date, status) with an add-domain form (UI only) and a note explaining that captures and redirects are checked against this list.
-   - admin/libraries.php — all libraries table with owner, visibility, article counts.
+## Deliverable 2 — database/seed.sql
+Port ALL sample content from src/sample_data.php into INSERT statements:
+the two demo users (generate real password_hash bcrypt literals for demo123 and
+admin123 and embed the hash strings), libraries with owners, members with
+roles, tags, saved pages, exactly one snapshot per article whose content_html /
+content_text hold the existing sample reader article, page-tag links, and the
+allowlist domains. Keep names, slugs and counts consistent with sample_data.php.
 
-## Mock capture rules (UI simulation — implement in src/mock_capture.php, comment it clearly as UI-phase simulation)
-- URL whose domain is in the sample allowlist and path does not contain "404" or "timeout": SUCCESS state (reuse the reference success message pattern).
-- Domain not in allowlist: error "URL khong thuoc danh sach duoc duyet".
-- Path contains "404": error "Trang goc tra ve 404".
-- Path contains "timeout": error "Het thoi gian cho khi tai trang".
-The save panel on library.php always shows SUCCESS (as in the reference); save.php exercises all four states via these rules.
+## Deliverable 3 — scripts/setup_db.php (CLI, idempotent)
+- Reads admin credentials from environment variables WA_ADMIN_USER and
+  WA_ADMIN_PASS; if missing, exits with a clear instruction message.
+- Creates database webarchive if it does not exist (utf8mb4).
+- If config/db.local.php does not exist: generates a random app password,
+  creates user 'webarchive'@'localhost' with ALL PRIVILEGES on webarchive.*
+  only, and writes config/db.local.php returning the app credentials.
+  If the file exists, reuses it.
+- Applies database/schema.sql then database/seed.sql (this resets the
+  webarchive database only), and prints the row count of every table.
 
-## Deliverables and acceptance
-- PROJECT_CONTEXT.md at repo root (spec summary above + page map + demo accounts + how later phases plug in).
-- README.md: how to run on Windows (php -S localhost:8080 -t public from the project root), demo accounts table, page map, explicit scope note "UI phase — data is sample data, capture/search are simulated".
-- .gitignore covering .local, .env, *.log. Do NOT commit docs/design-reference screen.png files if they make the repo heavy — commit DESIGN.md and code.html references only if small; otherwise list the folder in .gitignore and say so in the REPORT.
-- php -l passes on every PHP file. Every page listed above opens with no PHP warnings. Guest -> workspace redirect works. Login with both demo accounts works; admin account sees the admin section, user account does not.
-- Commit everything and push to origin main. If the remote is missing, add it from the URL above.
+## Deliverable 4 — code changes
+- config/db.php (committed): loads config/db.local.php and exposes the PDO
+  config. Add config/db.local.php to .gitignore. DELETE config/demo_users.php.
+- src/db.php: PDO singleton (utf8mb4, ERRMODE_EXCEPTION, real prepares).
+  If the database is unreachable, show a Vietnamese error page telling the
+  user to run the setup script — no raw stack traces.
+- src/auth.php: authenticate against the users table (email + password_verify);
+  session stores the user id. register.php now INSERTS a real user (role
+  'user', status 'active'); duplicate email shows a Vietnamese error.
+  require_login() / require_admin() behavior unchanged.
+- Move these pages from sample_data.php to database queries: libraries.php,
+  library.php, reader.php, search.php, admin/index.php (counts from real
+  tables), admin/users.php, admin/libraries.php, admin/allowlist.php.
+  The allowlist ADD form must really INSERT and persist.
+- Basic access rule for queries: a user sees libraries they own or are a
+  member of; admin sees everything. (Hardening comes in a later phase.)
+- reader.php now takes a numeric snapshot id (?id=<snapshot id>); display the
+  label SNAP-<id> as text only. Update all internal links to match.
+- search.php: simple database search for this phase — LIKE over
+  snapshots.title and snapshots.content_text, joined with saved_pages and
+  libraries, access-filtered, snippet with <mark> via the existing
+  wa_highlight helper, showing library name and snapshot version_no.
+  (The real self-built search engine is a later phase.)
+- save.php and src/mock_capture.php stay exactly as they are (capture engine
+  is the next phase).
+- Delete src/sample_data.php only after grepping that no file references it;
+  if anything still needs a piece of it, move that piece into mock_capture.php
+  and say so in the REPORT.
+- Use prepared statements for every query involving input. No SQL string
+  concatenation with user data anywhere.
+- Update README.md and PROJECT_CONTEXT.md: MySQL is now required; document
+  the setup_db.php step, the WA_ADMIN_USER / WA_ADMIN_PASS variables, and that
+  the demo accounts are now real database accounts with the same passwords.
 
-## Out of scope (do NOT build in this phase)
-No MySQL, no real HTTP fetching, no real extraction/sanitization engine, no real search index, no file upload, no email. Do not invent extra pages beyond this list.
+## Verification (evidence required in the REPORT)
+1. php -m lines proving mbstring and pdo_mysql are loaded.
+2. Run scripts/setup_db.php TWICE; show both outputs incl. per-table counts.
+3. php -l on every PHP file: 0 errors.
+4. Real HTTP checks against php -S: both demo accounts log in (302 to
+   libraries.php); wrong password shows the Vietnamese error; registering a
+   NEW account then logging in with it works; guest redirect and non-admin
+   403 page still behave as before.
+5. Reflection test: UPDATE one library name directly in MySQL, show that
+   libraries.php displays the new name, then revert it. Include the outputs.
+6. Add an allowlist domain through the admin form and show it persists after
+   reloading the page.
+7. Grep proof that no references to demo_users.php or sample_data.php remain
+   (or list the exact exceptions).
+8. Git: show that config/db.local.php is NOT tracked (git ls-files), working
+   tree clean after commit + push, and HEAD == origin/main.
 
-## REPORT (mandatory, end of your run)
-Files created (grouped by page/area) / How to run (exact command) / Demo accounts / Page-by-page verification (which pages you opened or lint-checked and the result) / Guest-vs-user-vs-admin header check result / Known UI-phase limitations / Git commit hash and push result / Anything blocked or guessed.
+## Out of scope
+Real page fetching/capture, extraction and sanitizing engines, image
+downloading, version refetch, export, the real search engine, and permission
+hardening. Do not start any of these.
+
+## REPORT (mandatory, end of your final message)
+Files created/changed/deleted; the schema table list with row counts after
+seed; how setup_db.php is run; every verification result from the list above
+with its actual output; anything blocked or guessed. Commit and push to origin
+main only after all verification passes, and confirm HEAD == origin/main.

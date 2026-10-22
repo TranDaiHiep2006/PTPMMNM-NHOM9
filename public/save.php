@@ -133,7 +133,7 @@ require __DIR__ . '/../templates/header_app.php';
           </div>
         </div>
         <div class="state__actions">
-          <a class="btn btn--light" href="<?= wa_e(wa_url('reader.php?id=SNAP-8941')) ?>">
+          <a class="btn btn--light" href="<?= wa_e(wa_url('reader.php?id=8941')) ?>">
             <span class="ms ms-16" style="color:var(--wa-teal-deep)">chrome_reader_mode</span>
             Mở xem ngay
           </a>

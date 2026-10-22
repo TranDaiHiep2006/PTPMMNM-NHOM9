@@ -9,7 +9,7 @@ require_once __DIR__ . '/../../src/bootstrap.php';
 
 require_admin();
 
-$users = sample_users();
+$users = wa_users();
 
 $pageTitle = 'Quản lý người dùng';
 require __DIR__ . '/../../templates/header_app.php';
