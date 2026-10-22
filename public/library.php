@@ -56,9 +56,6 @@ $totalPages = max(1, (int) ceil(count($articles) / $perPage));
 $page = max(1, min($totalPages, (int) ($_GET['page'] ?? 1)));
 $pagedArticles = array_slice($articles, ($page - 1) * $perPage, $perPage);
 
-// Bảng lưu URL luôn hiển thị trạng thái THÀNH CÔNG (đúng như bản tham chiếu).
-$capture = mock_capture('https://phptutorial.vn/kien-truc-php-mysql-webarchive');
-
 $pageTitle = $library['name'];
 require __DIR__ . '/../templates/header_app.php';
 ?>
@@ -174,15 +171,17 @@ require __DIR__ . '/../templates/header_app.php';
       </div>
     </div>
     <span class="chip chip--plain">
-      <span class="ms ms-14" style="color:var(--wa-teal-deep)">bolt</span> HTML snapshot engine
+      <span class="ms ms-14" style="color:var(--wa-teal-deep)">bolt</span> cURL + DOMDocument
     </span>
   </div>
 
   <form class="capture__form" method="post" action="<?= wa_e(wa_url('save.php')) ?>">
+    <!-- Thư viện đích chính là thư viện hiện tại nên chỉ cần gửi id. -->
+    <input type="hidden" name="library_id" value="<?= (int) $library['id'] ?>">
     <div class="capture__input">
       <span class="ms ms-18">link</span>
       <input class="input input--icon" type="url" name="url" required
-             value="https://phptutorial.vn/kien-truc-php-mysql-webarchive"
+             value=""
              placeholder="https://example.com/bai-viet-lap-trinh-web"
              aria-label="Địa chỉ trang Web cần lưu">
     </div>
@@ -218,17 +217,28 @@ require __DIR__ . '/../templates/header_app.php';
       <span class="state__icon"><span class="ms ms-18 ms-fill">check_circle</span></span>
       <div>
         <div class="row" style="gap:8px">
-          <span class="state__title">Lưu thành công:</span>
-          <span class="state__text"><?= wa_e($capture['message']) ?></span>
+          <span class="state__title">Bản đọc ngoại tuyến đã sẵn sàng</span>
+          <span class="state__text"><?= (int) $library['image_count'] ?> ảnh đã tải về máy chủ nội bộ • Dung lượng lưu trữ: <?= wa_e($library['asset_size']) ?></span>
         </div>
-        <p class="state__note">14 ảnh đã tải về máy chủ nội bộ • Dung lượng lưu trữ: 1.84 MB • Bản đọc offline đã sẵn sàng</p>
+        <p class="state__note">
+          Mỗi lần lưu tạo một phiên bản snapshot mới; kết quả được ghi vào bảng
+          <code>snapshots</code> và <code>assets</code> của cơ sở dữ liệu.
+        </p>
       </div>
     </div>
     <div class="state__actions">
-      <a class="btn btn--light" href="<?= wa_e(wa_url('reader.php?id=' . (int) ($articles[0]['snapshot_id'] ?? 0))) ?>">
-        <span class="ms ms-16" style="color:var(--wa-teal-deep)">chrome_reader_mode</span>
-        Mở xem ngay
-      </a>
+      <?php $latestSnapshotId = (int) ($articles[0]['snapshot_id'] ?? 0); ?>
+      <?php if ($latestSnapshotId > 0): ?>
+        <a class="btn btn--light" href="<?= wa_e(wa_url('reader.php?id=' . $latestSnapshotId)) ?>">
+          <span class="ms ms-16" style="color:var(--wa-teal-deep)">chrome_reader_mode</span>
+          Mở xem ngay
+        </a>
+      <?php else: ?>
+        <a class="btn btn--light" href="<?= wa_e(wa_url('search.php?q=')) ?>">
+          <span class="ms ms-16" style="color:var(--wa-teal-deep)">search</span>
+          Xem kho đã lưu
+        </a>
+      <?php endif; ?>
     </div>
   </div>
 </div>

@@ -1,129 +1,148 @@
-# P-DB — MySQL schema, database-backed auth, and seed data (WebArchive, Topic 16)
+# P-CAPTURE — Real capture engine (WebArchive, Topic 16)
 
-Read PROJECT_CONTEXT.md and the current code first. This phase replaces the UI
-phase's placeholder data layer with a real MySQL database. Pure PHP 8.3, no
-framework, no Composer packages. All user-facing text stays Vietnamese.
+Read PROJECT_CONTEXT.md and the current code first. Current state: P-DB is
+done (HEAD 7fefbbd); all data lives in MySQL; save.php still uses the
+src/mock_capture.php simulation. This phase replaces the simulation with a
+REAL capture engine. Pure PHP 8.3, no framework, no Composer packages — only
+built-in DOM/DOMDocument and cURL. All user-facing text stays Vietnamese.
 
-## Environment facts (verified, do not re-investigate)
-- Windows, project at D:\PTPMMNM-NHOM9, run with: php -S localhost:8080 -t public
-- PHP 8.3.36 was installed via winget in the previous phase WITHOUT a php.ini,
-  so mbstring is currently missing (a polyfill exists in src/bootstrap.php).
-- MySQL Server 8.0.46 runs as Windows service MySQL80 at 127.0.0.1:3306 and is
-  healthy. Its admin account is the user's own account (username: tranhiep).
+Hard rules:
+- Do NOT run scripts/setup_db.php (it resets the database) and do NOT ask for
+  the MySQL admin password. The app account in config/db.local.php is enough.
+- No schema changes are expected. If you believe one is necessary, STOP and
+  report instead of migrating silently.
+- Prepared statements only, and never reuse one named placeholder twice in a
+  single statement (the HY093 bug from last phase).
 
-## Rules before touching the database
-- ASK the user for the MySQL admin password at the start of your work. Never
-  guess it, never reset or change any existing MySQL account, never drop or
-  modify any database other than the new one named webarchive.
-- The app must connect with its OWN limited database user (created by the
-  setup script below), never with the admin account. App credentials live only
-  in config/db.local.php, which must be gitignored and never committed.
+## Task 0 — cURL extension
+This PHP build currently has no curl extension (last phase's checks used raw
+sockets). Enable curl in php.ini, verify php -m lists curl and dom. If curl
+genuinely cannot be enabled, STOP and report — do not silently switch design.
 
-## Task 0 — PHP extensions
-Create a php.ini for the winget PHP install (based on php.ini-development if
-present) enabling at least: mbstring, pdo_mysql, mysqli. Verify with php -m and
-include the relevant lines in your REPORT. Keep the bootstrap polyfill in place
-as a fallback; do not remove it.
+## Deliverable 1 — src/capture.php
+One entry function capture_url(string $url): array with keys: ok, error_code
+(null on success), http_status, final_url, title, content_html, content_text,
+images (list of original_url, local_path, mime_type, size_bytes), fetched_at.
+Pipeline, in this order:
+1. Validate: parse_url; scheme must be http or https; host required; reject
+   URLs containing credentials. Failure: error_code error_invalid_url.
+2. Allowlist check BEFORE any network traffic: the host matches the
+   allowlist_domains table when host equals a listed domain or ends with
+   dot + domain (case-insensitive). No match: error_blocked, and no HTTP
+   request may be sent at all.
+3. Fetch with cURL WITHOUT FOLLOWLOCATION: follow redirects manually, max 5
+   hops, and re-run the full allowlist check on EVERY redirect target before
+   requesting it; a redirect that leaves the allowlist stops with
+   error_blocked (put the target in error_message). Timeouts: connect 5 s,
+   total 12 s; a timeout gives error_timeout. Use a clear User-Agent string.
+   Abort downloads over 5 MB and report error_http with a size message.
+4. Status mapping: 404 gives error_404; any other 4xx/5xx gives error_http
+   with the status in the message; 2xx continues. Content-Type must be
+   text/html (or XHTML), otherwise error_no_content.
+5. Extraction with DOMDocument: title priority is og:title, then the title
+   tag, then the first h1. For the body, prefer an article element, then
+   main, then the div/section with the highest text density (paragraph text
+   length weighed against link density — a plain readability-style score).
+   Remove script, style, noscript, iframe, form, nav, header, footer, aside,
+   svg, button and input elements before extracting.
+6. If the extracted plain text is under 200 characters, return
+   error_no_content — notice-only or empty pages are never valid articles.
+7. Sanitizer (self-built whitelist): allowed tags are p, br, hr, h1 to h6,
+   ul, ol, li, blockquote, pre, code, strong, b, em, i, u, a, img, table,
+   thead, tbody, tfoot, tr, th, td, figure, figcaption, div, span, sup, sub.
+   Allowed attributes only: a href and title; img src, alt, title, width,
+   height; td and th colspan and rowspan. Strip every other attribute
+   (including all on-handlers, style, class, id). Anchor hrefs: keep only
+   http/https (resolve relative to absolute); otherwise unwrap the link and
+   keep its text. Add rel noopener noreferrer to kept links. The output must
+   contain no script tag, no javascript: URL and no event attribute — enforce
+   by construction and assert it at the end.
+8. Images: for each img in the sanitized body (max 20): resolve src to an
+   absolute URL and allowlist-check its host exactly like a page URL; a host
+   outside the allowlist means the image is skipped (removed, counted).
+   Download with the same timeout and redirect rules, cap 5 MB. Accept only
+   image/jpeg, image/png, image/gif, image/webp, verified by finfo or
+   getimagesizefromstring — never trust the extension. SVG is never accepted.
+   Files are stored under public/uploads/snapshots/<snapshot_id>/ with a hash
+   file name; because the id exists only after insert, first create the
+   snapshot row, then download images, rewrite the img src values to the
+   local paths (/uploads/snapshots/<id>/<file>), insert the assets rows and
+   update the snapshot content. After this step, content_html must contain
+   NO external image URL — every img src is local or the img is gone.
+9. content_text: strip tags from the final content_html, decode entities,
+   collapse whitespace.
 
-## Deliverable 1 — database/schema.sql
-Full DDL, InnoDB, utf8mb4 / utf8mb4_unicode_ci, foreign keys, DROP TABLE IF
-EXISTS in FK-safe order so the file is re-runnable. Tables:
-- users: id, full_name, email (unique), password_hash, role ('admin','user'),
-  status ('active','locked'), created_at
-- libraries: id, owner_id FK users, name, slug (unique), description,
-  visibility ('private','shared','public'), color, icon, created_at
-- library_members: library_id FK, user_id FK, role ('owner','editor','viewer'),
-  composite PK (library_id, user_id)
-- tags: id, name (unique)
-- saved_pages: id, library_id FK, source_url, domain, title, status
-  ('active','error'), created_by FK users, created_at, updated_at
-- page_tags: page_id FK saved_pages, tag_id FK tags, composite PK
-- snapshots: id, page_id FK, version_no, title, content_html (MEDIUMTEXT),
-  content_text (MEDIUMTEXT), source_url, fetched_at, http_status,
-  fetch_status ('success','error_404','error_timeout','error_blocked',
-  'error_no_content','error_http'), error_message,
-  UNIQUE (page_id, version_no)
-- assets: id, snapshot_id FK, original_url, local_path, mime_type, size_bytes
-- notes: id, snapshot_id FK, user_id FK, content, created_at, updated_at
-- allowlist_domains: id, domain (unique), note, added_by FK users, created_at
+## Deliverable 2 — wire save.php to the real engine
+- Form: library select (only libraries where the current user is owner or
+  editor), URL field, optional comma-separated tags field.
+- On success: if a saved_pages row already exists in that library with the
+  same source_url, create the snapshot with version_no = current max + 1;
+  otherwise create the page (status active) and snapshot version 1. Apply
+  the tags to the page. Redirect to reader.php?id=<snapshot id> with a
+  Vietnamese success message that includes the version number.
+- On failure: still record the attempt — create or find the page (status
+  error when new) and insert a snapshot row with fetch_status set to the
+  error_code, error_message filled, and empty content — so admin statistics
+  can count failures. Show the user a DISTINCT Vietnamese message per error
+  code (blocked, 404, timeout, no_content, http, invalid_url). Failed
+  snapshots must never appear as readable articles: library article lists and
+  the reader only ever use snapshots with fetch_status success.
+- DELETE src/mock_capture.php and the old 4-state demo panel; grep proof that
+  no code references it remain. Update README.md and PROJECT_CONTEXT.md:
+  capture is now real, describe the allowlist rule (subdomains allowed,
+  every redirect re-checked), the timeouts, the image localization and the
+  uploads storage path.
 
-## Deliverable 2 — database/seed.sql
-Port ALL sample content from src/sample_data.php into INSERT statements:
-the two demo users (generate real password_hash bcrypt literals for demo123 and
-admin123 and embed the hash strings), libraries with owners, members with
-roles, tags, saved pages, exactly one snapshot per article whose content_html /
-content_text hold the existing sample reader article, page-tag links, and the
-allowlist domains. Keep names, slugs and counts consistent with sample_data.php.
+## Deliverable 3 — test fixtures (tests/fixtures/)
+Served by a second php -S on port 8090 with docroot tests/fixtures:
+- article.html: a realistic article (title tag, h1, several paragraphs
+  containing one unique body-only keyword of your choosing, one img pointing
+  to pic.png, one script tag with alert, one onclick attribute, one external
+  link).
+- pic.png: a small valid PNG (generate it programmatically).
+- redir-ok.php: redirects to article.html on the same host.
+- redir-escape.php: redirects to https://example.org/ (never allowlist it).
+- slow.php: sleeps 15 seconds, then prints an article.
+- notice.html: a page whose text is under 200 characters.
+Add the domain localhost to allowlist_domains through the admin UI and KEEP
+it there at the end (it is the project's local test/demo host); say so in
+README and in your report.
 
-## Deliverable 3 — scripts/setup_db.php (CLI, idempotent)
-- Reads admin credentials from environment variables WA_ADMIN_USER and
-  WA_ADMIN_PASS; if missing, exits with a clear instruction message.
-- Creates database webarchive if it does not exist (utf8mb4).
-- If config/db.local.php does not exist: generates a random app password,
-  creates user 'webarchive'@'localhost' with ALL PRIVILEGES on webarchive.*
-  only, and writes config/db.local.php returning the app credentials.
-  If the file exists, reuses it.
-- Applies database/schema.sql then database/seed.sql (this resets the
-  webarchive database only), and prints the row count of every table.
-
-## Deliverable 4 — code changes
-- config/db.php (committed): loads config/db.local.php and exposes the PDO
-  config. Add config/db.local.php to .gitignore. DELETE config/demo_users.php.
-- src/db.php: PDO singleton (utf8mb4, ERRMODE_EXCEPTION, real prepares).
-  If the database is unreachable, show a Vietnamese error page telling the
-  user to run the setup script — no raw stack traces.
-- src/auth.php: authenticate against the users table (email + password_verify);
-  session stores the user id. register.php now INSERTS a real user (role
-  'user', status 'active'); duplicate email shows a Vietnamese error.
-  require_login() / require_admin() behavior unchanged.
-- Move these pages from sample_data.php to database queries: libraries.php,
-  library.php, reader.php, search.php, admin/index.php (counts from real
-  tables), admin/users.php, admin/libraries.php, admin/allowlist.php.
-  The allowlist ADD form must really INSERT and persist.
-- Basic access rule for queries: a user sees libraries they own or are a
-  member of; admin sees everything. (Hardening comes in a later phase.)
-- reader.php now takes a numeric snapshot id (?id=<snapshot id>); display the
-  label SNAP-<id> as text only. Update all internal links to match.
-- search.php: simple database search for this phase — LIKE over
-  snapshots.title and snapshots.content_text, joined with saved_pages and
-  libraries, access-filtered, snippet with <mark> via the existing
-  wa_highlight helper, showing library name and snapshot version_no.
-  (The real self-built search engine is a later phase.)
-- save.php and src/mock_capture.php stay exactly as they are (capture engine
-  is the next phase).
-- Delete src/sample_data.php only after grepping that no file references it;
-  if anything still needs a piece of it, move that piece into mock_capture.php
-  and say so in the REPORT.
-- Use prepared statements for every query involving input. No SQL string
-  concatenation with user data anywhere.
-- Update README.md and PROJECT_CONTEXT.md: MySQL is now required; document
-  the setup_db.php step, the WA_ADMIN_USER / WA_ADMIN_PASS variables, and that
-  the demo accounts are now real database accounts with the same passwords.
-
-## Verification (evidence required in the REPORT)
-1. php -m lines proving mbstring and pdo_mysql are loaded.
-2. Run scripts/setup_db.php TWICE; show both outputs incl. per-table counts.
-3. php -l on every PHP file: 0 errors.
-4. Real HTTP checks against php -S: both demo accounts log in (302 to
-   libraries.php); wrong password shows the Vietnamese error; registering a
-   NEW account then logging in with it works; guest redirect and non-admin
-   403 page still behave as before.
-5. Reflection test: UPDATE one library name directly in MySQL, show that
-   libraries.php displays the new name, then revert it. Include the outputs.
-6. Add an allowlist domain through the admin form and show it persists after
-   reloading the page.
-7. Grep proof that no references to demo_users.php or sample_data.php remain
-   (or list the exact exceptions).
-8. Git: show that config/db.local.php is NOT tracked (git ls-files), working
-   tree clean after commit + push, and HEAD == origin/main.
+## Verification (evidence required in the REPORT, real outputs)
+1. php -m lines proving curl is loaded; php -l on all PHP files: 0 errors.
+2. Capture article.html through the real save.php flow (logged-in HTTP POST):
+   DB shows the page row and a snapshot version 1 with fetch_status success;
+   content_html contains the body-only keyword; content_html contains no
+   script tag and no onclick (show the grep); every img src in content_html
+   starts with /uploads/; the assets row exists and the file exists on disk
+   with matching size.
+3. Origin-down test: stop the fixture server, then GET the new snapshot in
+   reader.php: HTTP 200, body still contains the keyword and the local image
+   path.
+4. Error matrix — each case lands in the DB with the right fetch_status and
+   shows its distinct Vietnamese message: missing file on the fixture server
+   gives error_404; slow.php gives error_timeout; notice.html gives
+   error_no_content; https://example.com/ (not allowlisted) gives
+   error_blocked; redir-escape.php gives error_blocked; redir-ok.php gives
+   success.
+5. Versioning: change article.html by adding one marker sentence, capture the
+   same URL into the same library again: a snapshot with version_no 2 exists
+   and version 1 is unchanged.
+6. One real public capture: allowlist the domain of
+   https://vi.wikipedia.org/wiki/PHP through the admin UI and capture that
+   URL: report the resulting snapshot id, title and fetch_status. If the
+   network blocks it, report the actual error honestly instead of faking it.
+7. Git: add public/uploads/ to .gitignore (with a .gitkeep exception) so
+   captured binaries stay out of the repo; commit and push to origin main;
+   confirm HEAD == origin/main and a clean working tree.
 
 ## Out of scope
-Real page fetching/capture, extraction and sanitizing engines, image
-downloading, version refetch, export, the real search engine, and permission
-hardening. Do not start any of these.
+Notes UI, a refetch button (data-level versioning through save.php is
+enough), export, the real search engine, the 15 sample pages and 10 queries
+set, and permission hardening beyond the owner/editor check on save.
 
 ## REPORT (mandatory, end of your final message)
-Files created/changed/deleted; the schema table list with row counts after
-seed; how setup_db.php is run; every verification result from the list above
-with its actual output; anything blocked or guessed. Commit and push to origin
-main only after all verification passes, and confirm HEAD == origin/main.
+Files created/changed/deleted; how the allowlist, redirect and timeout rules
+are implemented; the full verification table from items 1 to 6 with actual
+outputs; the final allowlist contents; anything blocked or guessed. Commit
+and push only after all verification passes, confirming HEAD == origin/main.

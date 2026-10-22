@@ -7,7 +7,7 @@
  * Nhiệm vụ:
  *   - Xác định đường dẫn gốc của ứng dụng (để trang trong public/admin/ vẫn
  *     trỏ đúng về tài nguyên và trang khác).
- *   - Nạp các tệp dùng chung: db.php, auth.php, queries.php, mock_capture.php.
+ *   - Nạp các tệp dùng chung: db.php, auth.php, queries.php, capture.php.
  *   - Cung cấp các hàm trợ giúp: wa_e() (escape), wa_url(), wa_asset().
  * -------------------------------------------------------------------------- */
 
@@ -113,7 +113,7 @@ define('WA_PUBLIC', WA_ROOT . '/public');
 require_once WA_SRC . '/db.php';
 require_once WA_SRC . '/auth.php';
 require_once WA_SRC . '/queries.php';
-require_once WA_SRC . '/mock_capture.php';
+require_once WA_SRC . '/capture.php';
 
 /**
  * Đường dẫn gốc của ứng dụng trên web.

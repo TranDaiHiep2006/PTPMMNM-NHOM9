@@ -15,6 +15,14 @@ config/db.local.php
 logs/
 *.log.*
 
+# Tệp nhị phân do capture tải về (ảnh trong bài viết). Giữ cấu trúc thư mục bằng
+# .gitkeep, KHÔNG commit ảnh đã tải.
+public/uploads/*
+!public/uploads/.gitkeep
+!public/uploads/snapshots/
+public/uploads/snapshots/*
+!public/uploads/snapshots/.gitkeep
+
 # Hệ điều hành / trình soạn thảo
 .DS_Store
 Thumbs.db

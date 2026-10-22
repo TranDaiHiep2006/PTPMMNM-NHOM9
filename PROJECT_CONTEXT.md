@@ -1,7 +1,8 @@
 # PROJECT_CONTEXT.md — WebArchive (Đề tài 16)
 
-> Tài liệu ngữ cảnh dự án. Giai đoạn hiện tại: **Cơ sở dữ liệu (MySQL + PDO)**.
-> Quy trình tải trang thật và engine bóc tách/sanitize sẽ được cài ở các phase sau.
+> Tài liệu ngữ cảnh dự án. Giai đoạn hiện tại: **P-CAPTURE — engine tải trang thật**.
+> `src/mock_capture.php` đã bị xoá; `public/save.php` gọi thẳng `capture_url()`.
+> Ghi chú/xuất kho vẫn để các phase sau.
 
 ---
 
@@ -51,7 +52,7 @@ stylesheet cục bộ duy nhất. Toàn bộ nội dung hiển thị bằng **ti
 | Đăng xuất | `public/logout.php` | — | Xoá session, quay về trang chủ |
 | Thư viện của tôi | `public/libraries.php` | Đăng nhập | Số liệu, tab lọc, lưới thẻ thư viện, tạo thư viện (UI) |
 | Chi tiết thư viện | `public/library.php?slug=...` | Đăng nhập | Breadcrumb, số liệu, thành viên, nhãn, thẻ bài viết, phân trang, bảng lưu URL |
-| Lưu trang Web | `public/save.php` | Đăng nhập | Bảng nhập URL + 4 trạng thái mô phỏng (thành công / ngoài allowlist / 404 / timeout) |
+| Lưu trang Web | `public/save.php` | Đăng nhập | Chọn thư viện (chủ sở hữu/biên tập viên) + URL + nhãn → `capture_url()` thật, lưu `saved_pages`/`snapshots`/`assets`, chuyển tới trình đọc kèm số phiên bản |
 | Trình đọc | `public/reader.php?id=<snapshot id>` | Đăng nhập | Nền giấy ngà, cột 780px, A-/A+, tiến độ đọc, hộp nguồn gốc, nội dung lấy từ `snapshots.content_html` |
 | Tìm kiếm | `public/search.php` | Đăng nhập | Từ khoá, lọc theo thẻ/tên miền, kết quả có `<mark>` + thư viện + phiên bản snapshot |
 | Tổng quan hệ thống | `public/admin/index.php` | Quản trị | Tổng users/libraries/snapshots/assets/lỗi, nhật ký hoạt động |
@@ -80,7 +81,8 @@ src/db.php                     PDO singleton, chẩn đoán lỗi, trang lỗi t
 src/auth.php                   Session, require_login(), require_admin(), current_user()
 src/bootstrap.php              Hằng số đường dẫn, nạp src, hàm trợ giúp (wa_url/wa_e/...)
 src/queries.php                TOÀN BỘ truy vấn CSDL (thay thế src/sample_data.php)
-src/mock_capture.php           MÔ PHỎNG quy trình lưu trang (không tải thật)
+src/capture.php                ENGINE TẢI TRANG THẬT: capture_url() (allowlist → cURL → DOM → sanitize → tải ảnh cục bộ)
+tests/fixtures/                Trang thử cho fixture server (php -S localhost:8090 -t tests/fixtures)
 templates/header_guest.php     Layout khách: thanh trên + <main>   (KHÔNG có user chip)
 templates/footer_guest.php     Đóng layout khách + chân trang
 templates/header_app.php       Layout ứng dụng: thanh trên + sidebar
@@ -90,6 +92,7 @@ templates/error_database.php   Trang lỗi CSDL tiếng Việt (503)
 public/                        WEB ROOT
 public/assets/css/app.css      Toàn bộ design token + component (không framework)
 public/assets/img/             Logo SVG, ảnh minh hoạ cục bộ
+public/uploads/snapshots/<id>/ Ảnh đã tải của từng snapshot (.gitignore, chỉ giữ .gitkeep)
 docs/design-reference/         Nguồn thiết kế (DESIGN.md + 4 màn hình tham chiếu)
 ```
 
@@ -126,19 +129,55 @@ Ngoài ra còn có 3 tài khoản phụ dùng cho màn hình quản trị:
 
 ---
 
-## 7. Quy tắc mô phỏng lưu trang (UI phase)
+## 7. Engine tải trang thật (`src/capture.php`)
 
-`src/mock_capture.php` **không tải trang thật**. Trạng thái được suy ra từ URL:
+`capture_url(string $url): array` trả về `ok, error_code, http_status, final_url,
+title, content_html, content_text, images, fetched_at` (kèm `error_message`,
+`images_skipped`). `src/mock_capture.php` **đã bị xoá** hoàn toàn.
 
-| Điều kiện | Trạng thái | Thông báo tiếng Việt |
-|-----------|-----------|----------------------|
-| Tên miền trong allowlist, đường dẫn không chứa `404`/`timeout` | Thành công | “Lưu thành công: …” |
-| Tên miền **không** trong allowlist | Lỗi | “URL không thuộc danh sách được duyệt” |
-| Đường dẫn chứa `404` | Lỗi | “Trang gốc trả về 404” |
-| Đường dẫn chứa `timeout` | Lỗi | “Hết thời gian chờ khi tải trang” |
+Thứ tự pipeline (đúng đặc tả P-CAPTURE):
 
-Bảng lưu URL trên `library.php` **luôn hiển thị trạng thái thành công**, đúng như bản tham chiếu.
-Trang `save.php` trình diễn đủ cả bốn trạng thái.
+| Bước | Việc | Mã lỗi |
+|------|------|--------|
+| 1 | `parse_url`; chỉ `http`/`https`; bắt buộc có host; từ chối URL có `user:pass` | `error_invalid_url` |
+| 2 | Kiểm tra allowlist **trước khi gửi bất kỳ byte nào**: host bằng đúng một domain trong bảng, hoặc kết thúc bằng `.` + domain (không phân biệt hoa thường) | `error_blocked` |
+| 3 | cURL **không** `FOLLOWLOCATION`; tự đi theo redirect tối đa **5** bước; **kiểm tra allowlist lại ở mỗi đích redirect** trước khi tải; kết nối **5 s**, tổng **12 s**; dừng nếu tải vượt **5 MB** | `error_timeout`, `error_http` |
+| 4 | 404 → `error_404`; 4xx/5xx khác → `error_http` (kèm mã); `Content-Type` không phải HTML/XHTML → `error_no_content` | — |
+| 5 | DOMDocument: tiêu đề `og:title` → `<title>` → `<h1>` đầu; thân ưu tiên `<article>` → `<main>` → div/section có **điểm mật độ chữ** cao nhất; gỡ `script, style, noscript, iframe, form, nav, header, footer, aside, svg, button, input` | — |
+| 6 | Text < 200 ký tự → `error_no_content` | `error_no_content` |
+| 7 | Sanitizer **whitelist tự viết**: chỉ giữ tag và thuộc tính trong danh sách cho phép; `a` chỉ giữ `href` http/https (đã giải phân giải tuyệt đối) + `title`, mọi link được thêm `rel="noopener noreferrer"`; `img` chỉ giữ `src, alt, title, width, height`; `td/th` chỉ giữ `colspan, rowspan`; link không hợp lệ bị **unwrap** giữ chữ; cuối cùng **assert** không còn `<script>`, `javascript:` hay thuộc tính sự kiện | — |
+| 8 | Ảnh (tối đa **20**): `src` → tuyệt đối, kiểm tra allowlist host như URL trang (ngoài allowlist thì **xoá ảnh** và đếm); tải cùng luật timeout/redirect, cap 5 MB; chỉ nhận `image/jpeg, image/png, image/gif, image/webp` kiểm bằng `finfo`/`getimagesizefromstring` (**không tin phần mở rộng**, **không SVG**); lưu `public/uploads/snapshots/<snapshot_id>/<hash>.<ext>`; INSERT `assets`; ghi lại `content_html` — sau bước này **không còn URL ảnh ngoài** | — |
+| 9 | `content_text`: bỏ thẻ, giải mã entity, gộp khoảng trắng | — |
+
+**Mã lỗi → thông báo tiếng Việt** (mỗi mã một thông báo riêng, xem `wa_capture_error_text()`):
+`error_invalid_url`, `error_blocked`, `error_404`, `error_http`, `error_timeout`,
+`error_no_content`.
+
+**Ghi bản ghi lỗi:** `save.php` vẫn tạo/find `saved_pages` và INSERT một `snapshots`
+với `fetch_status = error_code`, `error_message` đầy đủ và nội dung rỗng, để thống kê
+quản trị đếm được lỗi. Các truy vấn `wa_library_articles()`, `wa_find_snapshot()` và
+`wa_search_snapshots()` **luôn lọc `fetch_status = 'success'`**, nên bản ghi lỗi không bao
+giờ hiện như bài đọc được.
+
+**Allowlist hiện có (giữ nguyên, gồm `localhost` làm host thử nghiệm cục bộ):**
+`phptutorial.vn`, `techblog.dev`, `tapchicongnghe.vn`, `dev-insights.org`,
+`themorningnews.org`, `old-forum.example.net`, `localhost` (fixture server cổng 8090),
+`vi.wikipedia.org` + `thumb.wikimedia.org` (kiểm thử lưu trang thật P-CAPTURE).
+`example.com` và `example.org` **cố ý không có trong danh sách** — chúng là nguồn cho các
+ca kiểm thử `error_blocked` và `redir-escape.php` chuyển hướng tới `example.org`.
+
+### Máy chủ thử nghiệm (fixture server)
+
+`tests/fixtures/` được phục vụ bằng máy chủ thứ hai:
+
+```powershell
+php -S localhost:8090 -t tests/fixtures
+```
+
+Gồm `article.html` (có `og:title`, `<h1>`, khoá chỉ có trong thân, `<img src="pic.png">`,
+`<script>`, `onclick`, link ngoài), `pic.png` (PNG 64×64 hợp lệ), `redir-ok.php`,
+`redir-escape.php` (→ `https://example.org/`, không bao giờ cho vào allowlist),
+`slow.php` (ngủ 15 s), `notice.html` (text < 200 ký tự).
 
 ---
 
@@ -146,7 +185,7 @@ Trang `save.php` trình diễn đủ cả bốn trạng thái.
 
 | Phase | Cần làm | Chỗ cắm |
 |-------|---------|----------|
-| **Engine tải trang** | Thay `mock_capture()` bằng pipeline thật: cURL → kiểm tra allowlist (kể cả redirect chain) → bóc tách tiêu đề/nội dung → sanitize → tải ảnh cục bộ → INSERT vào `saved_pages` / `snapshots` / `assets` | `src/mock_capture.php` → `src/capture_engine.php`, `public/save.php` |
+| ~~**Engine tải trang**~~ **XONG (P-CAPTURE)** | Pipeline thật: cURL → allowlist (kể cả chuỗi redirect) → bóc tách → sanitize → tải ảnh cục bộ → INSERT `saved_pages`/`snapshots`/`assets` | `src/capture.php` (thay `src/mock_capture.php`), `public/save.php` |
 | **Lưu trữ & tìm kiếm** | Chỉ mục FULLTEXT trên `snapshots(title, content_text)`, truy vấn snippet + `version_no` | `src/queries.php` (`wa_search_snapshots`), `public/search.php` |
 | **Phân quyền nâng cao** | Áp dụng vai trò `editor`/`viewer` khi sửa, xoá, xuất kho hoặc tải lại | `src/auth.php`, `src/queries.php` |
 | **Ghi chú & tài nguyên** | Hoàn thiện màn hình ghi chú (`notes`) và quản lý `assets` | `templates/`, `public/library.php` |

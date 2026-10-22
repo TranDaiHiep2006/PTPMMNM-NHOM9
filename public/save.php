@@ -1,13 +1,17 @@
 <?php
 /**
- * save.php — Trang "Lưu trang Web".
+ * save.php — Trang "Lưu trang Web" (P-CAPTURE: dùng engine tải trang THẬT).
  *
- * Gồm bảng nhập URL và phần trình diễn đầy đủ 4 trạng thái theo quy tắc mô phỏng
- * trong src/mock_capture.php:
- *   1. Thành công
- *   2. URL không thuộc danh sách được duyệt
- *   3. Trang gốc trả về 404
- *   4. Hết thời gian chờ khi tải trang
+ * Biểu mẫu gồm: chọn thư viện (chỉ thư viện mà người dùng là chủ sở hữu hoặc
+ * biên tập viên), ô URL, và ô nhãn tuỳ chọn (phân tách bằng dấu phẩy).
+ *
+ * Thành công: chuyển hướng tới reader.php?id=<snapshot id> kèm thông báo
+ * tiếng Việt có số phiên bản.
+ *
+ * Thất bại: vẫn ghi lại lần thử (tạo/tìm trang + dòng snapshot với fetch_status
+ * là mã lỗi và error_message đầy đủ) để thống kê quản trị đếm được lỗi, đồng
+ * thời hiện thông báo tiếng Việt RIÊNG cho từng mã lỗi. Snapshot lỗi không bao
+ * giờ hiện trong danh sách bài viết và không mở được trong trình đọc.
  */
 
 declare(strict_types=1);
@@ -16,43 +20,159 @@ require_once __DIR__ . '/../src/bootstrap.php';
 
 require_login();
 
-$result = null;
-$submittedUrl = '';
+$user     = current_user();
+$userId   = (int) ($user['id'] ?? 0);
+$libraries = wa_writable_libraries();
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $submittedUrl = trim((string) ($_POST['url'] ?? ''));
-    $result = mock_capture($submittedUrl);
-}
-
-// Bảng trạng thái mô phỏng (dùng để trình diễn, không phải kết quả thật).
-$showcases = [
-    [
-        'state' => MOCK_STATE_SUCCESS,
-        'url' => 'https://phptutorial.vn/kien-truc-php-mysql-webarchive',
-        'label' => 'Thành công',
-        'hint' => 'Tên miền nằm trong danh sách được duyệt và đường dẫn hợp lệ.',
-    ],
-    [
-        'state' => MOCK_STATE_NOT_ALLOWED,
-        'url' => 'https://khong-duoc-duyet.vn/bai-viet-moi',
-        'label' => 'URL không thuộc danh sách được duyệt',
-        'hint' => 'Tên miền không có trong allowlist — kể cả khi nội dung trả về hợp lệ.',
-    ],
-    [
-        'state' => MOCK_STATE_HTTP_404,
-        'url' => 'https://phptutorial.vn/bai-viet-404',
-        'label' => 'Trang gốc trả về 404',
-        'hint' => 'Trang lỗi không bao giờ được lưu thành một bài viết hợp lệ.',
-    ],
-    [
-        'state' => MOCK_STATE_TIMEOUT,
-        'url' => 'https://techblog.dev/bai-viet-timeout',
-        'label' => 'Hết thời gian chờ khi tải trang',
-        'hint' => 'Máy chủ nguồn không phản hồi trong thời gian cho phép.',
-    ],
+/** Thông báo trả về sau khi xử lý: @var array{type:string, text:string, snapshot_id?:int}|null */
+$notice = null;
+/** Dữ liệu form để hiển thị lại sau khi POST. */
+$form = [
+    'url'      => '',
+    'library'  => '',
+    'tags'     => '',
 ];
 
-$stateLabels = mock_state_labels();
+/* ---------------------------------------------------------------------------
+ * XỬ LÝ POST — lưu trang thật
+ * ------------------------------------------------------------------------- */
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $form['url']     = trim((string) ($_POST['url'] ?? ''));
+    $form['library'] = trim((string) ($_POST['library_id'] ?? ''));
+    $form['tags']    = trim((string) ($_POST['tags'] ?? ''));
+
+    $libraryId = (int) $form['library'];
+    $tagNames  = wa_parse_tag_input($form['tags']);
+
+    // --- Kiểm tra quyền ghi vào thư viện (chủ sở hữu / biên tập viên) ---
+    if ($libraryId <= 0) {
+        $notice = ['type' => 'error', 'text' => 'Vui lòng chọn thư viện để lưu trang.'];
+    } elseif (!wa_can_write_library($libraryId)) {
+        $notice = ['type' => 'error', 'text' => 'Bạn không có quyền lưu trang vào thư viện này.'];
+    } else {
+        // --- Chạy engine tải trang thật ---
+        $result = capture_url($form['url']);
+
+        $sourceUrl = $result['final_url'] !== '' ? $result['final_url'] : $form['url'];
+        $domain    = wa_capture_host($sourceUrl);
+
+        // Tìm trang đã lưu với cùng nguồn trong thư viện này để quyết định
+        // tạo bản mới (v1) hay thêm phiên bản tiếp theo.
+        $page = wa_find_page_by_url($libraryId, $form['url']);
+
+        if ($page === null) {
+            $pageId = wa_create_page(
+                $libraryId,
+                $form['url'],
+                $domain !== '' ? $domain : 'khong-ro',
+                (string) $result['title'],
+                $result['ok'] ? 'active' : 'error',
+                $userId
+            );
+        } else {
+            $pageId  = (int) $page['id'];
+            $version = wa_max_snapshot_version($pageId) + 1;
+        }
+
+        if (!isset($version)) {
+            $version = 1;
+        }
+
+        if ($result['ok'] === true) {
+            /* ---------------- THÀNH CÔNG ---------------- */
+
+            // 1) Tạo dòng snapshot trước để có id cho thư mục ảnh.
+            $snapshotId = wa_create_snapshot(
+                $pageId,
+                $version,
+                (string) $result['title'],
+                '',
+                '',
+                $sourceUrl,
+                (string) $result['fetched_at'],
+                (int) $result['http_status'],
+                'success',
+                null
+            );
+
+            // 2) Tải ảnh về máy chủ nội bộ và nối lại bằng đường dẫn cục bộ.
+            $localized = wa_capture_localize_images((string) $result['content_html'], $snapshotId);
+            $finalHtml = (string) $localized['html'];
+            $images    = $localized['images'];
+
+            // 3) Cập nhật nội dung snapshot (bỏ qua nếu còn sót ảnh ngoài — không bao giờ xảy ra).
+            if (!wa_capture_localize_images_ok($finalHtml)) {
+                $finalHtml = (string) $result['content_html'];
+                $images    = [];
+            }
+            $finalText = wa_capture_clean_text(wa_capture_text_only($finalHtml));
+            wa_update_snapshot_content($snapshotId, $finalHtml, $finalText);
+
+            // 4) Ghi các dòng assets.
+            wa_insert_assets($snapshotId, $images);
+
+            // 5) Cập nhật trang + gắn nhãn.
+            wa_update_page($pageId, (string) $result['title'], 'active');
+            wa_apply_page_tags($pageId, $tagNames);
+
+            // 6) Chuyển hướng tới trình đọc kèm thông báo thành công.
+            $imageCount = count($images);
+            $session = [
+                'type'        => 'success',
+                'text'        => 'Lưu thành công phiên bản ' . $version . ' của “'
+                                 . (string) $result['title'] . '”'
+                                 . ($imageCount > 0 ? ' — đã tải ' . $imageCount . ' ảnh về máy chủ nội bộ.' : '.'),
+                'snapshot_id' => $snapshotId,
+            ];
+
+            $_SESSION['wa_flash'] = $session;
+            header('Location: ' . wa_url('reader.php?id=' . $snapshotId));
+            exit;
+        }
+
+        /* ---------------- THẤT BẠI — vẫn ghi lại lần thử ---------------- */
+
+        $errorCode = (string) ($result['error_code'] ?? WA_ERR_HTTP);
+        $errorText = wa_capture_error_text($errorCode, (string) ($result['error_message'] ?? ''));
+
+        // Ghi lại snapshot lỗi: fetch_status = mã lỗi, error_message đầy đủ,
+        // nội dung rỗng. Thống kê quản trị dùng chính cột này để đếm lỗi.
+        wa_create_snapshot(
+            $pageId,
+            $version,
+            $errorText['title'],
+            '',
+            '',
+            $sourceUrl,
+            (string) $result['fetched_at'],
+            (int) $result['http_status'],
+            $errorCode,
+            $errorText['message']
+        );
+
+        if ($tagNames !== []) {
+            wa_apply_page_tags($pageId, $tagNames);
+        }
+
+        $notice = [
+            'type'  => 'error',
+            'text'  => $errorText['message'],
+            'title' => $errorText['title'],
+            'code'  => $errorCode,
+        ];
+    }
+}
+
+/* ---------------------------------------------------------------------------
+ * Biến cho giao diện
+ * ------------------------------------------------------------------------- */
+
+// Thông báo thành công do reader.php gửi lại sau khi chuyển hướng.
+$flash = null;
+if (isset($_SESSION['wa_flash']) && is_array($_SESSION['wa_flash'])) {
+    $flash = $_SESSION['wa_flash'];
+    unset($_SESSION['wa_flash']);
+}
 
 $pageTitle = 'Lưu trang Web';
 require __DIR__ . '/../templates/header_app.php';
@@ -64,7 +184,7 @@ require __DIR__ . '/../templates/header_app.php';
       <div class="ribbon__eyebrow">
         <span class="t-label-sm t-upper t-accent" style="font-weight:600">Workspace / Bảo tồn nội dung</span>
         <span class="dot" style="width:6px;height:6px;background:var(--wa-secondary-fixed-dim)"></span>
-        <span class="t-label-sm" style="color:#74777E">Offline Ready</span>
+        <span class="t-label-sm" style="color:#74777E">Engine tải trang thật</span>
       </div>
       <h1 class="ribbon__title">Lưu trang Web</h1>
       <p class="ribbon__sub">
@@ -73,7 +193,7 @@ require __DIR__ . '/../templates/header_app.php';
     </div>
 
     <div class="row" style="flex-shrink:0">
-      <a class="btn btn--outline" href="<?= wa_e(wa_url('library.php?slug=cntt-lap-trinh')) ?>">
+      <a class="btn btn--outline" href="<?= wa_e(wa_url('libraries.php')) ?>">
         <span class="ms ms-18">arrow_back</span>
         <span>Về thư viện</span>
       </a>
@@ -88,22 +208,47 @@ require __DIR__ . '/../templates/header_app.php';
       <span class="capture__title-icon"><span class="ms ms-22">archive</span></span>
       <div>
         <h2 class="t-headline-sm" style="color:var(--wa-primary)">Lưu một trang Web vào kho của bạn</h2>
-        <p class="t-body-sm t-muted">Trích xuất nội dung văn bản, tải ảnh về máy chủ cục bộ và tạo bản đọc ngoại tuyến.</p>
+        <p class="t-body-sm t-muted">Trích xuất nội dung văn bản, tải ảnh về máy chủ nội bộ và tạo bản đọc ngoại tuyến.</p>
       </div>
     </div>
     <span class="chip chip--plain">
-      <span class="ms ms-14" style="color:var(--wa-teal-deep)">bolt</span> HTML snapshot engine
+      <span class="ms ms-14" style="color:var(--wa-teal-deep)">bolt</span>
+      cURL + DOMDocument
     </span>
   </div>
 
   <form class="capture__form" method="post" action="<?= wa_e(wa_url('save.php')) ?>">
+    <!-- Chọn thư viện: chỉ hiện thư viện người dùng có quyền ghi -->
+    <div class="capture__input">
+      <span class="ms ms-18">folder_special</span>
+      <select class="input input--icon" name="library_id" required aria-label="Thư viện để lưu trang">
+        <option value="">— Chọn thư viện —</option>
+        <?php foreach ($libraries as $library): ?>
+          <option value="<?= (int) $library['id'] ?>"
+            <?= (string) $form['library'] === (string) $library['id'] ? 'selected' : '' ?>>
+            <?= wa_e($library['name']) ?>
+            (<?= wa_e($library['role'] === 'owner' ? 'chủ sở hữu' : 'biên tập viên') ?>)
+          </option>
+        <?php endforeach; ?>
+      </select>
+    </div>
+
     <div class="capture__input">
       <span class="ms ms-18">link</span>
       <input class="input input--icon" type="url" name="url" required
-             value="<?= wa_e($submittedUrl !== '' ? $submittedUrl : 'https://phptutorial.vn/kien-truc-php-mysql-webarchive') ?>"
+             value="<?= wa_e($form['url']) ?>"
              placeholder="https://example.com/bai-viet-lap-trinh-web"
              aria-label="Địa chỉ trang Web cần lưu">
     </div>
+
+    <div class="capture__input">
+      <span class="ms ms-18">sell</span>
+      <input class="input input--icon" type="text" name="tags"
+             value="<?= wa_e($form['tags']) ?>"
+             placeholder="nhãn 1, nhãn 2"
+             aria-label="Nhãn phân loại, phân tách bằng dấu phẩy">
+    </div>
+
     <button class="btn btn--dark" type="submit">
       <span class="ms ms-18">download_for_offline</span>
       <span>Lưu trang Web</span>
@@ -111,149 +256,114 @@ require __DIR__ . '/../templates/header_app.php';
   </form>
 
   <div class="capture__hint">
-    <p>Chỉ những URL thuộc danh sách tên miền được duyệt mới có thể lưu. Mọi đích chuyển hướng cũng được kiểm tra lại.</p>
+    <p>Chỉ những URL thuộc danh sách tên miền được duyệt mới có thể lưu. Mọi đích chuyển hướng và cả ảnh trong bài cũng được kiểm tra lại.</p>
     <a class="linkish" href="<?= wa_e(wa_url('admin/allowlist.php')) ?>">
       <span class="ms ms-16">verified_user</span>
       Xem danh sách tên miền được duyệt
     </a>
   </div>
 
-  <?php if ($result !== null): ?>
-    <!-- KẾT QUẢ MÔ PHỎNG TỪ URL VỪA NHẬP -->
-    <?php if ($result['ok']): ?>
-      <div class="state state--success">
-        <div class="state__body">
-          <span class="state__icon"><span class="ms ms-18 ms-fill">check_circle</span></span>
-          <div>
-            <div class="row" style="gap:8px">
-              <span class="state__title">Lưu thành công:</span>
-              <span class="state__text"><?= wa_e($result['message']) ?></span>
-            </div>
-            <p class="state__note"><?= wa_e($result['detail']) ?></p>
-          </div>
-        </div>
-        <div class="state__actions">
-          <a class="btn btn--light" href="<?= wa_e(wa_url('reader.php?id=8941')) ?>">
-            <span class="ms ms-16" style="color:var(--wa-teal-deep)">chrome_reader_mode</span>
-            Mở xem ngay
-          </a>
+  <?php if ($flash !== null): ?>
+    <div class="state state--success">
+      <div class="state__body">
+        <span class="state__icon"><span class="ms ms-18 ms-fill">check_circle</span></span>
+        <div>
+          <span class="state__title">Lưu thành công:</span>
+          <p class="state__text"><?= wa_e((string) $flash['text']) ?></p>
         </div>
       </div>
-    <?php elseif ($result['state'] === MOCK_STATE_NOT_ALLOWED): ?>
-      <div class="state state--error">
-        <div class="state__body">
-          <span class="state__icon"><span class="ms ms-18 ms-fill">gpp_bad</span></span>
-          <div>
-            <div class="row" style="gap:8px">
-              <span class="state__title">Không thể lưu trang</span>
-            </div>
-            <p class="state__text"><?= wa_e($result['message']) ?></p>
-            <p class="state__note"><?= wa_e($result['detail']) ?></p>
-          </div>
-        </div>
-        <div class="state__actions">
-          <a class="btn btn--outline" href="<?= wa_e(wa_url('admin/allowlist.php')) ?>">Xem danh sách được duyệt</a>
-        </div>
-      </div>
-    <?php elseif ($result['state'] === MOCK_STATE_HTTP_404): ?>
-      <div class="state state--error">
-        <div class="state__body">
-          <span class="state__icon"><span class="ms ms-18 ms-fill">error_outline</span></span>
-          <div>
-            <div class="row" style="gap:8px">
-              <span class="state__title">Không thể lưu trang</span>
-            </div>
-            <p class="state__text"><?= wa_e($result['message']) ?></p>
-            <p class="state__note"><?= wa_e($result['detail']) ?></p>
-          </div>
+    </div>
+  <?php endif; ?>
+
+  <?php if ($notice !== null): ?>
+    <div class="state state--error">
+      <div class="state__body">
+        <span class="state__icon"><span class="ms ms-18 ms-fill">error_outline</span></span>
+        <div>
+          <span class="state__title"><?= wa_e((string) ($notice['title'] ?? 'Không thể lưu trang')) ?></span>
+          <p class="state__text"><?= wa_e($notice['text']) ?></p>
+          <?php if (isset($notice['code'])): ?>
+            <p class="state__note">Mã lỗi lưu vào hệ thống: <code><?= wa_e((string) $notice['code']) ?></code></p>
+          <?php endif; ?>
         </div>
       </div>
-    <?php else: ?>
-      <div class="state state--warning">
-        <div class="state__body">
-          <span class="state__icon"><span class="ms ms-18 ms-fill">timer_off</span></span>
-          <div>
-            <div class="row" style="gap:8px">
-              <span class="state__title">Không thể lưu trang</span>
-            </div>
-            <p class="state__text"><?= wa_e($result['message']) ?></p>
-            <p class="state__note"><?= wa_e($result['detail']) ?></p>
-          </div>
-        </div>
+      <div class="state__actions">
+        <a class="btn btn--outline" href="<?= wa_e(wa_url('admin/allowlist.php')) ?>">Xem danh sách được duyệt</a>
       </div>
-    <?php endif; ?>
+    </div>
   <?php endif; ?>
 </div>
 
-<!-- ===================== BẢNG TRẠNG THÁI MÔ PHỎNG ===================== -->
+<!-- ===================== QUY TẮC LƯU TRANG ===================== -->
 <div class="pagehead" style="margin-bottom:16px">
   <div>
     <div class="pagehead__eyebrow">
-      <span class="t-label-sm t-upper t-accent" style="font-weight:600">Trạng thái hệ thống</span>
+      <span class="t-label-sm t-upper t-accent" style="font-weight:600">Nguyên tắc hệ thống</span>
     </div>
-    <h2 class="t-headline-md" style="color:var(--wa-primary)">Bốn trạng thái lưu trang</h2>
+    <h2 class="t-headline-md" style="color:var(--wa-primary)">Bảy quy tắc khi lưu một trang</h2>
     <p class="pagehead__desc">
-      Giai đoạn giao diện: các trạng thái dưới đây được mô phỏng bằng quy tắc URL
-      (xem <code>src/mock_capture.php</code>), chưa có tải trang thật.
+      Mỗi lần lưu đều đi qua engine tải trang thật trong <code>src/capture.php</code>.
+      Trang lỗi không bao giờ trở thành một bài viết hợp lệ.
     </p>
   </div>
 </div>
 
 <div class="state-list">
-  <?php foreach ($showcases as $case): ?>
-    <?php $caseResult = mock_capture($case['url']); ?>
-    <div class="state-item">
-      <div class="state-item__head">
-        <span class="state-item__name">
-          <span class="ms ms-18"><?= $caseResult['ok'] ? 'check_circle' : 'error_outline' ?></span>
-          <?= wa_e($case['label']) ?>
-        </span>
-        <span class="chip <?= $caseResult['ok'] ? 'chip--teal' : 'chip--error' ?>">
-          <?= wa_e($stateLabels[$caseResult['state']]) ?>
-        </span>
-      </div>
-
-      <form class="capture__form" method="post" action="<?= wa_e(wa_url('save.php')) ?>" style="margin-bottom:12px">
-        <div class="capture__input">
-          <span class="ms ms-18">link</span>
-          <input class="input input--icon input--sm" type="url" name="url" value="<?= wa_e($case['url']) ?>"
-                 aria-label="URL ví dụ">
-        </div>
-        <button class="btn btn--outline btn--sm" type="submit">
-          <span class="ms ms-16">play_arrow</span>
-          <span>Mô phỏng</span>
-        </button>
-      </form>
-
-      <?php if ($caseResult['ok']): ?>
-        <div class="state state--success" style="margin-top:0">
-          <div class="state__body">
-            <span class="state__icon"><span class="ms ms-18 ms-fill">check_circle</span></span>
-            <div>
-              <span class="state__title">Lưu thành công:</span>
-              <p class="state__text"><?= wa_e($caseResult['message']) ?></p>
-              <p class="state__note"><?= wa_e($caseResult['detail']) ?></p>
-            </div>
-          </div>
-        </div>
-      <?php else: ?>
-        <div class="state state--<?= $caseResult['state'] === MOCK_STATE_TIMEOUT ? 'warning' : 'error' ?>" style="margin-top:0">
-          <div class="state__body">
-            <span class="state__icon">
-              <span class="ms ms-18 ms-fill"><?= wa_e($caseResult['icon']) ?></span>
-            </span>
-            <div>
-              <span class="state__title">Không thể lưu trang</span>
-              <p class="state__text"><?= wa_e($caseResult['message']) ?></p>
-              <p class="state__note"><?= wa_e($caseResult['detail']) ?></p>
-            </div>
-          </div>
-        </div>
-      <?php endif; ?>
-
-      <p class="t-label-sm t-muted" style="margin-top:8px"><?= wa_e($case['hint']) ?></p>
+  <div class="state-item">
+    <div class="state-item__head">
+      <span class="state-item__name"><span class="ms ms-18">gpp_bad</span>Kiểm tra danh sách được duyệt trước</span>
+      <span class="chip chip--teal">error_blocked</span>
     </div>
-  <?php endforeach; ?>
+    <p class="t-body-sm t-muted" style="margin-top:8px">
+      Tên miền phải khớp một mục trong danh sách được duyệt (cho phép cả subdomain).
+      Việc kiểm tra diễn ra <b>trước khi</b> gửi bất kỳ yêu cầu mạng nào, và được kiểm tra
+      lại ở mỗi lần chuyển hướng cũng như với từng ảnh trong bài.
+    </p>
+  </div>
+
+  <div class="state-item">
+    <div class="state-item__head">
+      <span class="state-item__name"><span class="ms ms-18">timer_off</span>Giới hạn thời gian chờ</span>
+      <span class="chip chip--warn">error_timeout</span>
+    </div>
+    <p class="t-body-sm t-muted" style="margin-top:8px">
+      Chờ kết nối tối đa 5 giây và tổng thời gian tải tối đa 12 giây; tối đa 5 lần chuyển
+      hướng và 5 MB cho mỗi tài nguyên.
+    </p>
+  </div>
+
+  <div class="state-item">
+    <div class="state-item__head">
+      <span class="state-item__name"><span class="ms ms-18">error_outline</span>Phân biệt từng nguyên nhân lỗi</span>
+      <span class="chip chip--error">error_404 · error_http · error_no_content</span>
+    </div>
+    <p class="t-body-sm t-muted" style="margin-top:8px">
+      Mỗi nguyên nhân có một mã trạng thái riêng và một thông báo tiếng Việt riêng.
+      Lần lưu thất bại vẫn được ghi lại để thống kê quản trị đếm được lỗi.
+    </p>
+  </div>
+
+  <div class="state-item">
+    <div class="state-item__head">
+      <span class="state-item__name"><span class="ms ms-18">image</span>Ảnh tải về máy chủ nội bộ</span>
+      <span class="chip chip--teal">assets</span>
+    </div>
+    <p class="t-body-sm t-muted" style="margin-top:8px">
+      Tối đa 20 ảnh mỗi bài, chỉ nhận JPEG/PNG/GIF/WebP đã kiểm tra nội dung thật, lưu vào
+      <code>public/uploads/snapshots/&lt;id&gt;/</code> và được nối lại bằng đường dẫn cục bộ.
+    </p>
+  </div>
+
+  <div class="state-item">
+    <div class="state-item__head">
+      <span class="state-item__name"><span class="ms ms-18">history</span>Mỗi lần lưu là một phiên bản</span>
+      <span class="chip chip--plain">version_no</span>
+    </div>
+    <p class="t-body-sm t-muted" style="margin-top:8px">
+      Lưu lại cùng một URL trong cùng thư viện sẽ tạo phiên bản tiếp theo; các phiên bản
+      cũ vẫn được giữ nguyên.
+    </p>
+  </div>
 </div>
 
 <?php require __DIR__ . '/../templates/footer_app.php'; ?>

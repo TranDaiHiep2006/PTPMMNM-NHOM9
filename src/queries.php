@@ -445,6 +445,11 @@ function wa_library_members(int $libraryId): array
 /**
  * Các bài viết (saved_pages) của một thư viện, kèm phiên bản snapshot mới nhất.
  *
+ * QUY TẮC: danh sách bài viết chỉ gồm những trang CÓ ÍT NHẤT một snapshot
+ * fetch_status = 'success'. Một lần lưu thất bại (blocked / 404 / timeout /
+ * http / no_content) vẫn được ghi vào CSDL để thống kê quản trị đếm lỗi, nhưng
+ * trang đó không bao giờ hiện ra trong danh sách bài viết hay mở được trong trình đọc.
+ *
  * @return array<int, array<string, mixed>>
  */
 function wa_library_articles(int $libraryId): array
@@ -461,9 +466,10 @@ function wa_library_articles(int $libraryId): array
                JOIN `snapshots` s2 ON s2.id = a.snapshot_id
               WHERE s2.page_id = sp.id)                                       AS size_bytes
           FROM `saved_pages` sp
-          LEFT JOIN `snapshots` s ON s.id = (
+          JOIN `snapshots` s ON s.id = (
                 SELECT s2.id FROM `snapshots` s2
                  WHERE s2.page_id = sp.id
+                   AND s2.fetch_status = 'success'
                  ORDER BY s2.version_no DESC
                  LIMIT 1
           )
@@ -549,6 +555,9 @@ function wa_page_tags(int $pageId): array
  * Lấy một phiên bản snapshot theo id, kèm thông tin trang và thư viện.
  * Tôn trọng quy tắc truy cập của người dùng hiện tại.
  *
+ * QUY TẮC: chỉ trả về snapshot có fetch_status = 'success'. Snapshot lỗi vẫn còn
+ * trong CSDL để thống kê quản trị, nhưng không bao giờ mở được như bài viết hợp lệ.
+ *
  * @return array<string, mixed>|null
  */
 function wa_find_snapshot(int $snapshotId, ?array $actor = null): ?array
@@ -569,7 +578,7 @@ function wa_find_snapshot(int $snapshotId, ?array $actor = null): ?array
           JOIN `saved_pages` sp ON sp.id = s.page_id
           JOIN `libraries` l ON l.id = sp.library_id
           JOIN `users` u ON u.id = sp.created_by
-         WHERE s.id = :snapshot_id AND {$accessSql}
+         WHERE s.id = :snapshot_id AND s.fetch_status = 'success' AND {$accessSql}
          LIMIT 1
     ";
 
@@ -602,6 +611,9 @@ function wa_find_snapshot(int $snapshotId, ?array $actor = null): ?array
 /**
  * Tìm kiếm trên nội dung snapshot đã lưu (LIKE trên title + content_text).
  *
+ * QUY TẮC: chỉ tìm trong snapshot có fetch_status = 'success' — kết quả tìm kiếm
+ * luôn trỏ tới một bản đọc hợp lệ, không bao giờ tới một lần lưu thất bại.
+ *
  * @param array{q?:string,tag?:string,domain?:string} $filters
  * @return array<int, array<string, mixed>>
  */
@@ -614,7 +626,7 @@ function wa_search_snapshots(array $filters, ?array $actor = null): array
     $tag     = trim((string) ($filters['tag'] ?? ''));
     $domain  = trim((string) ($filters['domain'] ?? ''));
 
-    $where  = [$accessSql];
+    $where  = ["s.fetch_status = 'success'", $accessSql];
     $bind   = $params;
 
     if ($query !== '') {
@@ -844,20 +856,26 @@ function wa_allowlist(): array
 /**
  * Thêm một tên miền vào allowlist.
  *
+ * Chấp nhận cả tên miền nhiều nhãn ("tenmien.vn") và tên máy chủ một nhãn
+ * ("localhost") — máy chủ kiểm thử cục bộ của dự án dùng dạng một nhãn.
+ *
  * @return array{ok:bool, message:string}
  */
 function wa_allowlist_add(string $domain, string $note, int $addedBy): array
 {
-    $domain = strtolower(trim($domain));
+    $domain = strtolower(rtrim(trim($domain), '.'));
     $note   = trim($note);
 
-    $valid = $domain !== ''
-        && (bool) preg_match('/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i', $domain);
+    // Một nhãn: localhost. Nhiều nhãn: tenmien.vn, a.b.example.org.
+    $valid = (bool) preg_match(
+        '/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i',
+        $domain
+    );
 
     if (!$valid) {
         return [
             'ok'      => false,
-            'message' => 'Tên miền không hợp lệ. Vui lòng nhập một tên miền dạng "tenmien.vn".',
+            'message' => 'Tên miền không hợp lệ. Vui lòng nhập một tên miền dạng "tenmien.vn" hoặc "localhost".',
         ];
     }
 
@@ -974,4 +992,289 @@ function wa_recent_activity(int $limit = 6): array
     });
 
     return array_slice($items, 0, $limit);
+}
+
+/* =============================================================================
+    LƯU TRANG — dữ liệu cho public/save.php (P-CAPTURE)
+    ============================================================================= */
+
+/**
+ * Các thư viện mà người dùng được PHÉP LƯU TRANG vào (chủ sở hữu hoặc biên tập viên).
+ *
+ * Người xem (viewer) không thấy thư viện trong danh sách này.
+ *
+ * @return array<int, array{id:int, name:string, slug:string, role:string}>
+ */
+function wa_writable_libraries(?array $actor = null): array
+{
+    $actor = $actor ?? wa_actor();
+
+    if ($actor === null) {
+        return [];
+    }
+
+    $userId = (int) $actor['id'];
+
+    $stmt = db()->prepare(
+        "SELECT l.id, l.name, l.slug,
+                CASE WHEN l.owner_id = :owner_check THEN 'owner' ELSE lm.role END AS role
+           FROM `libraries` l
+           LEFT JOIN `library_members` lm ON lm.library_id = l.id AND lm.user_id = :member_check
+          WHERE l.owner_id = :owner_where
+             OR lm.role IN ('owner', 'editor')
+          ORDER BY l.name"
+    );
+
+    // Ba vị trí so sánh cần BA tên tham số khác nhau (prepares thật của PDO không
+    // cho phép lặp lại một tên tham số trong cùng câu lệnh — lỗi SQLSTATE[HY093]).
+    $stmt->execute([
+        ':owner_check'  => $userId,
+        ':member_check' => $userId,
+        ':owner_where'  => $userId,
+    ]);
+
+    $rows = [];
+    foreach ($stmt->fetchAll() as $row) {
+        $rows[] = [
+            'id'   => (int) $row['id'],
+            'name' => (string) $row['name'],
+            'slug' => (string) $row['slug'],
+            'role' => (string) $row['role'],
+        ];
+    }
+
+    return $rows;
+}
+
+/**
+ * Người dùng có quyền lưu trang vào thư viện này không (chủ sở hữu hoặc biên tập viên)?
+ */
+function wa_can_write_library(int $libraryId, ?array $actor = null): bool
+{
+    foreach (wa_writable_libraries($actor) as $library) {
+        if ($library['id'] === $libraryId) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
+ * Tìm trang đã lưu trong một thư viện theo URL nguồn (để quyết định tạo bản mới
+ * hay thêm phiên bản tiếp theo).
+ *
+ * Thử cả dạng có và không có dấu "/" ở cuối để việc gõ tay không sinh ra hai
+ * trang khác nhau cho cùng một nguồn.
+ *
+ * @return array<string, mixed>|null
+ */
+function wa_find_page_by_url(int $libraryId, string $sourceUrl): ?array
+{
+    $candidates = [$sourceUrl, rtrim($sourceUrl, '/')];
+
+    foreach ($candidates as $candidate) {
+        $stmt = db()->prepare(
+            'SELECT id, library_id, source_url, domain, title, status, created_by
+               FROM `saved_pages`
+              WHERE library_id = ? AND source_url = ?
+              LIMIT 1'
+        );
+        $stmt->execute([$libraryId, $candidate]);
+
+        $row = $stmt->fetch();
+        if ($row !== false) {
+            $row['id'] = (int) $row['id'];
+            return $row;
+        }
+    }
+
+    return null;
+}
+
+/**
+ * Tạo mới một dòng saved_pages.
+ *
+ * @return int id của trang vừa tạo
+ */
+function wa_create_page(
+    int $libraryId,
+    string $sourceUrl,
+    string $domain,
+    string $title,
+    string $status,
+    int $createdBy
+): int {
+    $stmt = db()->prepare(
+        "INSERT INTO `saved_pages` (`library_id`, `source_url`, `domain`, `title`, `status`, `created_by`)
+         VALUES (?, ?, ?, ?, ?, ?)"
+    );
+    $stmt->execute([
+        $libraryId,
+        $sourceUrl,
+        $domain,
+        $title !== '' ? $title : $domain,
+        $status,
+        $createdBy,
+    ]);
+
+    return (int) db()->lastInsertId();
+}
+
+/**
+ * Cập nhật tiêu đề và trạng thái của một trang đã lưu.
+ */
+function wa_update_page(int $pageId, string $title, string $status): void
+{
+    $stmt = db()->prepare(
+        'UPDATE `saved_pages` SET `title` = ?, `status` = ? WHERE id = ?'
+    );
+    $stmt->execute([$title !== '' ? $title : 'Trang chưa có tiêu đề', $status, $pageId]);
+}
+
+/**
+ * Số phiên bản lớn nhất đã có của một trang (0 nghĩa là chưa có phiên bản nào).
+ */
+function wa_max_snapshot_version(int $pageId): int
+{
+    $stmt = db()->prepare(
+        'SELECT COALESCE(MAX(version_no), 0) FROM `snapshots` WHERE page_id = ?'
+    );
+    $stmt->execute([$pageId]);
+
+    return (int) $stmt->fetchColumn();
+}
+
+/**
+ * Tạo mới một dòng snapshots.
+ *
+ * Hàm này được gọi TRƯỚC khi tải ảnh, vì thư mục lưu ảnh là
+ * public/uploads/snapshots/<snapshot_id>/ nên phải có id trước.
+ *
+ * @return int id của snapshot vừa tạo
+ */
+function wa_create_snapshot(
+    int $pageId,
+    int $versionNo,
+    string $title,
+    string $contentHtml,
+    string $contentText,
+    string $sourceUrl,
+    string $fetchedAt,
+    int $httpStatus,
+    string $fetchStatus,
+    ?string $errorMessage
+): int {
+    $stmt = db()->prepare(
+        "INSERT INTO `snapshots`
+            (`page_id`, `version_no`, `title`, `content_html`, `content_text`,
+             `source_url`, `fetched_at`, `http_status`, `fetch_status`, `error_message`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    );
+    $stmt->execute([
+        $pageId,
+        $versionNo,
+        $title !== '' ? $title : 'Trang chưa có tiêu đề',
+        $contentHtml,
+        $contentText,
+        $sourceUrl,
+        $fetchedAt,
+        $httpStatus,
+        $fetchStatus,
+        $errorMessage,
+    ]);
+
+    return (int) db()->lastInsertId();
+}
+
+/**
+ * Cập nhật nội dung của một snapshot sau khi ảnh đã được nối lại đường dẫn cục bộ.
+ */
+function wa_update_snapshot_content(int $snapshotId, string $contentHtml, string $contentText): void
+{
+    $stmt = db()->prepare(
+        'UPDATE `snapshots` SET `content_html` = ?, `content_text` = ? WHERE id = ?'
+    );
+    $stmt->execute([$contentHtml, $contentText, $snapshotId]);
+}
+
+/**
+ * Ghi các dòng assets cho một snapshot (ảnh đã tải về máy chủ nội bộ).
+ *
+ * @param array<int, array{original_url:string, local_path:string, mime_type:string, size_bytes:int}> $images
+ */
+function wa_insert_assets(int $snapshotId, array $images): void
+{
+    if ($images === []) {
+        return;
+    }
+
+    $stmt = db()->prepare(
+        "INSERT INTO `assets` (`snapshot_id`, `original_url`, `local_path`, `mime_type`, `size_bytes`)
+         VALUES (?, ?, ?, ?, ?)"
+    );
+
+    foreach ($images as $image) {
+        $stmt->execute([
+            $snapshotId,
+            (string) $image['original_url'],
+            (string) $image['local_path'],
+            (string) ($image['mime_type'] !== '' ? $image['mime_type'] : 'application/octet-stream'),
+            (int) $image['size_bytes'],
+        ]);
+    }
+}
+
+/**
+ * Gắn nhãn cho một trang đã lưu (tạo nhãn nếu chưa có).
+ *
+ * @param string[] $tagNames
+ */
+function wa_apply_page_tags(int $pageId, array $tagNames): void
+{
+    $names = [];
+    foreach ($tagNames as $name) {
+        $name = trim(preg_replace('/\s+/u', ' ', (string) $name) ?? '');
+        if ($name !== '' && mb_strlen($name) <= 64) {
+            $names[$name] = $name;
+        }
+    }
+
+    if ($names === []) {
+        return;
+    }
+
+    $findTag   = db()->prepare('SELECT id FROM `tags` WHERE name = ? LIMIT 1');
+    $insertTag = db()->prepare('INSERT IGNORE INTO `tags` (`name`) VALUES (?)');
+    $getTagId  = db()->prepare('SELECT id FROM `tags` WHERE name = ? LIMIT 1');
+    $attachTag = db()->prepare(
+        'INSERT IGNORE INTO `page_tags` (`page_id`, `tag_id`) VALUES (?, ?)'
+    );
+
+    foreach ($names as $name) {
+        $findTag->execute([$name]);
+
+        if ($findTag->fetchColumn() === false) {
+            $insertTag->execute([$name]);
+        }
+
+        $getTagId->execute([$name]);
+        $tagId = $getTagId->fetchColumn();
+
+        if ($tagId !== false) {
+            $attachTag->execute([$pageId, (int) $tagId]);
+        }
+    }
+}
+
+/**
+ * Tách chuỗi nhãn người dùng nhập (phân tách bằng dấu phẩy) thành mảng tên.
+ *
+ * @return string[]
+ */
+function wa_parse_tag_input(string $input): array
+{
+    $parts = preg_split('/[,;\r\n]+/u', $input) ?: [];
+
+    return array_values(array_filter(array_map('trim', $parts), static fn (string $p): bool => $p !== ''));
 }
