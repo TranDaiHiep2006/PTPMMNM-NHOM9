@@ -1,148 +1,117 @@
-# P-CAPTURE — Real capture engine (WebArchive, Topic 16)
+# P-READ — Version history, refetch, and per-snapshot notes (WebArchive, Topic 16)
 
-Read PROJECT_CONTEXT.md and the current code first. Current state: P-DB is
-done (HEAD 7fefbbd); all data lives in MySQL; save.php still uses the
-src/mock_capture.php simulation. This phase replaces the simulation with a
-REAL capture engine. Pure PHP 8.3, no framework, no Composer packages — only
-built-in DOM/DOMDocument and cURL. All user-facing text stays Vietnamese.
+Read PROJECT_CONTEXT.md and the current code first. Current state: P-CAPTURE
+is done (HEAD 812476b). The capture engine (src/capture.php, capture_url) is
+real and wired into save.php; reader.php renders one snapshot by numeric id.
+This phase turns the reader into the version-aware workspace the spec asks
+for. Pure PHP 8.3, no framework, no Composer packages. All user-facing text
+stays Vietnamese.
 
 Hard rules:
-- Do NOT run scripts/setup_db.php (it resets the database) and do NOT ask for
-  the MySQL admin password. The app account in config/db.local.php is enough.
-- No schema changes are expected. If you believe one is necessary, STOP and
-  report instead of migrating silently.
-- Prepared statements only, and never reuse one named placeholder twice in a
-  single statement (the HY093 bug from last phase).
+- Do NOT run scripts/setup_db.php and do NOT ask for the MySQL admin
+  password; the app account in config/db.local.php is enough.
+- No schema changes are expected (the notes and snapshots tables already
+  carry everything). If you believe one is necessary, STOP and report.
+- Prepared statements only; never reuse one named placeholder twice in a
+  single statement.
 
-## Task 0 — cURL extension
-This PHP build currently has no curl extension (last phase's checks used raw
-sockets). Enable curl in php.ini, verify php -m lists curl and dom. If curl
-genuinely cannot be enabled, STOP and report — do not silently switch design.
+## Deliverable 0 — one shared store path
+Refactor the persistence half of the current save flow (find-or-create the
+saved_pages row by library + source_url, insert the snapshot, download and
+rewrite images, insert assets rows, record failures as error snapshots)
+into ONE shared function in src/queries.php or src/capture.php — name it in
+your report — called by BOTH public/save.php and the new refetch action
+below. save.php behavior must stay identical after the refactor; the
+verification includes a regression capture through save.php.
 
-## Deliverable 1 — src/capture.php
-One entry function capture_url(string $url): array with keys: ok, error_code
-(null on success), http_status, final_url, title, content_html, content_text,
-images (list of original_url, local_path, mime_type, size_bytes), fetched_at.
-Pipeline, in this order:
-1. Validate: parse_url; scheme must be http or https; host required; reject
-   URLs containing credentials. Failure: error_code error_invalid_url.
-2. Allowlist check BEFORE any network traffic: the host matches the
-   allowlist_domains table when host equals a listed domain or ends with
-   dot + domain (case-insensitive). No match: error_blocked, and no HTTP
-   request may be sent at all.
-3. Fetch with cURL WITHOUT FOLLOWLOCATION: follow redirects manually, max 5
-   hops, and re-run the full allowlist check on EVERY redirect target before
-   requesting it; a redirect that leaves the allowlist stops with
-   error_blocked (put the target in error_message). Timeouts: connect 5 s,
-   total 12 s; a timeout gives error_timeout. Use a clear User-Agent string.
-   Abort downloads over 5 MB and report error_http with a size message.
-4. Status mapping: 404 gives error_404; any other 4xx/5xx gives error_http
-   with the status in the message; 2xx continues. Content-Type must be
-   text/html (or XHTML), otherwise error_no_content.
-5. Extraction with DOMDocument: title priority is og:title, then the title
-   tag, then the first h1. For the body, prefer an article element, then
-   main, then the div/section with the highest text density (paragraph text
-   length weighed against link density — a plain readability-style score).
-   Remove script, style, noscript, iframe, form, nav, header, footer, aside,
-   svg, button and input elements before extracting.
-6. If the extracted plain text is under 200 characters, return
-   error_no_content — notice-only or empty pages are never valid articles.
-7. Sanitizer (self-built whitelist): allowed tags are p, br, hr, h1 to h6,
-   ul, ol, li, blockquote, pre, code, strong, b, em, i, u, a, img, table,
-   thead, tbody, tfoot, tr, th, td, figure, figcaption, div, span, sup, sub.
-   Allowed attributes only: a href and title; img src, alt, title, width,
-   height; td and th colspan and rowspan. Strip every other attribute
-   (including all on-handlers, style, class, id). Anchor hrefs: keep only
-   http/https (resolve relative to absolute); otherwise unwrap the link and
-   keep its text. Add rel noopener noreferrer to kept links. The output must
-   contain no script tag, no javascript: URL and no event attribute — enforce
-   by construction and assert it at the end.
-8. Images: for each img in the sanitized body (max 20): resolve src to an
-   absolute URL and allowlist-check its host exactly like a page URL; a host
-   outside the allowlist means the image is skipped (removed, counted).
-   Download with the same timeout and redirect rules, cap 5 MB. Accept only
-   image/jpeg, image/png, image/gif, image/webp, verified by finfo or
-   getimagesizefromstring — never trust the extension. SVG is never accepted.
-   Files are stored under public/uploads/snapshots/<snapshot_id>/ with a hash
-   file name; because the id exists only after insert, first create the
-   snapshot row, then download images, rewrite the img src values to the
-   local paths (/uploads/snapshots/<id>/<file>), insert the assets rows and
-   update the snapshot content. After this step, content_html must contain
-   NO external image URL — every img src is local or the img is gone.
-9. content_text: strip tags from the final content_html, decode entities,
-   collapse whitespace.
+## Deliverable 1 — reader.php upgrades
+- Access control first: resolve snapshot -> page -> library. The current
+  user must be an admin or a member of that library (any role); otherwise
+  render the existing Vietnamese 403 page. Snapshots whose fetch_status is
+  not success keep returning 404.
+- Provenance header wired to real data: article title; library name linking
+  back to library.php?slug=...; source URL shown as text and as an external
+  link; domain; the label "Phiên bản N" together with SNAP-<id>; fetched_at
+  formatted for Vietnamese readers; HTTP status of that fetch.
+- Version switcher: a list (or select) of ALL successful versions of the
+  same page, version_no descending, each with its fetched_at; the current
+  version is highlighted; choosing one opens reader.php?id=<that snapshot>.
+  Add previous/next version links when they exist.
+- Refetch button "Lấy phiên bản mới": visible only to users whose library
+  role is owner or editor (admins always see it). It POSTs to the shared
+  store path with the page's stored source_url. On success, redirect to the
+  NEW snapshot with a Vietnamese success message naming the new version
+  number. On failure, the shared path records the failed snapshot as usual;
+  stay on the current snapshot and show the distinct Vietnamese error
+  message for that error code. Old versions and their notes are never
+  touched by a refetch.
+- Notes panel for THIS snapshot, under the article: list the notes whose
+  snapshot_id is the current snapshot (author full name, created_at, and an
+  edited marker when updated_at is later than created_at), oldest first.
+  An add-note form (textarea) is available to every user who can view the
+  library. Edit and delete controls appear only on the note's own author;
+  an admin may delete any note. Notes belong to one snapshot only: another
+  version of the same page shows its own notes, never these.
+- Add a small session CSRF helper (wa_csrf_token / wa_csrf_check) and use
+  it on the refetch and notes forms.
+- Keep the existing A- / A+ control, background toggle and reading
+  progress working.
 
-## Deliverable 2 — wire save.php to the real engine
-- Form: library select (only libraries where the current user is owner or
-  editor), URL field, optional comma-separated tags field.
-- On success: if a saved_pages row already exists in that library with the
-  same source_url, create the snapshot with version_no = current max + 1;
-  otherwise create the page (status active) and snapshot version 1. Apply
-  the tags to the page. Redirect to reader.php?id=<snapshot id> with a
-  Vietnamese success message that includes the version number.
-- On failure: still record the attempt — create or find the page (status
-  error when new) and insert a snapshot row with fetch_status set to the
-  error_code, error_message filled, and empty content — so admin statistics
-  can count failures. Show the user a DISTINCT Vietnamese message per error
-  code (blocked, 404, timeout, no_content, http, invalid_url). Failed
-  snapshots must never appear as readable articles: library article lists and
-  the reader only ever use snapshots with fetch_status success.
-- DELETE src/mock_capture.php and the old 4-state demo panel; grep proof that
-  no code references it remain. Update README.md and PROJECT_CONTEXT.md:
-  capture is now real, describe the allowlist rule (subdomains allowed,
-  every redirect re-checked), the timeouts, the image localization and the
-  uploads storage path.
+## Deliverable 2 — library.php article list polish
+- Each saved page shows: title of its latest successful snapshot, a badge
+  with the successful version count ("N phiên bản"), the latest fetched_at,
+  its tags; the row links to the reader at the latest successful snapshot.
+- Pages with no successful snapshot appear in a separate small section
+  "Lưu thất bại gần đây" (URL, error message, time; most recent 5) instead
+  of the article list, visible to users who can edit the library.
 
-## Deliverable 3 — test fixtures (tests/fixtures/)
-Served by a second php -S on port 8090 with docroot tests/fixtures:
-- article.html: a realistic article (title tag, h1, several paragraphs
-  containing one unique body-only keyword of your choosing, one img pointing
-  to pic.png, one script tag with alert, one onclick attribute, one external
-  link).
-- pic.png: a small valid PNG (generate it programmatically).
-- redir-ok.php: redirects to article.html on the same host.
-- redir-escape.php: redirects to https://example.org/ (never allowlist it).
-- slow.php: sleeps 15 seconds, then prints an article.
-- notice.html: a page whose text is under 200 characters.
-Add the domain localhost to allowlist_domains through the admin UI and KEEP
-it there at the end (it is the project's local test/demo host); say so in
-README and in your report.
+## Deliverable 3 — queries (src/queries.php)
+Add what you need with prepared statements, for example:
+wa_page_versions(page_id) — successful snapshots of a page, version_no DESC;
+wa_notes_for_snapshot(snapshot_id) — notes joined with author names;
+wa_note_add / wa_note_update / wa_note_delete — update and delete must
+include the author id in the WHERE clause so ownership is enforced in SQL,
+not only in the UI (admin delete is a separate explicit path);
+wa_library_failed_attempts(library_id, limit).
 
-## Verification (evidence required in the REPORT, real outputs)
-1. php -m lines proving curl is loaded; php -l on all PHP files: 0 errors.
-2. Capture article.html through the real save.php flow (logged-in HTTP POST):
-   DB shows the page row and a snapshot version 1 with fetch_status success;
-   content_html contains the body-only keyword; content_html contains no
-   script tag and no onclick (show the grep); every img src in content_html
-   starts with /uploads/; the assets row exists and the file exists on disk
-   with matching size.
-3. Origin-down test: stop the fixture server, then GET the new snapshot in
-   reader.php: HTTP 200, body still contains the keyword and the local image
-   path.
-4. Error matrix — each case lands in the DB with the right fetch_status and
-   shows its distinct Vietnamese message: missing file on the fixture server
-   gives error_404; slow.php gives error_timeout; notice.html gives
-   error_no_content; https://example.com/ (not allowlisted) gives
-   error_blocked; redir-escape.php gives error_blocked; redir-ok.php gives
-   success.
-5. Versioning: change article.html by adding one marker sentence, capture the
-   same URL into the same library again: a snapshot with version_no 2 exists
-   and version 1 is unchanged.
-6. One real public capture: allowlist the domain of
-   https://vi.wikipedia.org/wiki/PHP through the admin UI and capture that
-   URL: report the resulting snapshot id, title and fetch_status. If the
-   network blocks it, report the actual error honestly instead of faking it.
-7. Git: add public/uploads/ to .gitignore (with a .gitkeep exception) so
-   captured binaries stay out of the repo; commit and push to origin main;
-   confirm HEAD == origin/main and a clean working tree.
+## Verification (real HTTP against php -S, fixture server on port 8090;
+evidence required in the REPORT)
+1. php -l on all PHP files: 0 errors. Grep proof that save.php and the
+   refetch action both call the shared store function.
+2. Regression: capture http://localhost:8090/article.html through save.php
+   again — success, a new version is created (the refactor broke nothing).
+3. Notes: as user@demo.vn, add a note on version 1 of the fixture page; it
+   renders with the author name. Edit it: new text plus the edited marker.
+   Switch to another version: that note is NOT there; add a different note
+   on that version; switch back: the first note is intact.
+4. Refetch: change tests/fixtures/article.html by adding one marker
+   sentence; from the reader of the latest version, submit the refetch
+   form; you land on a new snapshot whose version_no is previous max + 1
+   and whose body contains the marker; the version list now shows every
+   version; version 1 still opens with its original body and its note.
+5. Refetch failure: stop the fixture server; submit refetch again; you
+   stay on the current version, see the distinct Vietnamese error message,
+   a new failed snapshot row exists in the DB (show its fetch_status), and
+   the current version still returns HTTP 200.
+6. Permissions (test scaffolding is allowed: register throwaway accounts
+   through register.php and insert their library_members rows with a
+   .local helper using the app DB account; delete the throwaway rows and
+   accounts afterwards and say so): a viewer-role member sees NO refetch
+   button and a direct refetch POST from them is rejected; a viewer CAN
+   add a note but CANNOT edit another user's note (the POST is rejected
+   and the note is unchanged in the DB); a registered non-member opening
+   reader.php?id=<fixture snapshot> gets the Vietnamese 403 page; a guest
+   is redirected to login.
+7. Git: commit and push to origin main; confirm HEAD == origin/main and a
+   clean working tree.
 
 ## Out of scope
-Notes UI, a refetch button (data-level versioning through save.php is
-enough), export, the real search engine, the 15 sample pages and 10 queries
-set, and permission hardening beyond the owner/editor check on save.
+Export, search engine changes, library creation and member-management UI,
+allowlist changes. Do not start any of these.
 
 ## REPORT (mandatory, end of your final message)
-Files created/changed/deleted; how the allowlist, redirect and timeout rules
-are implemented; the full verification table from items 1 to 6 with actual
-outputs; the final allowlist contents; anything blocked or guessed. Commit
-and push only after all verification passes, confirming HEAD == origin/main.
+Files created/changed/deleted; the shared store function's name and its
+call sites; verification results for items 1 to 6 with actual outputs
+(including the DB rows you inspected); test scaffolding created and
+removed; anything blocked or guessed. Commit and push only after all
+verification passes, confirming HEAD == origin/main.

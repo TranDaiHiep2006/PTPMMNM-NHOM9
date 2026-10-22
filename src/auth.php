@@ -322,3 +322,68 @@ function current_page(): string
 {
     return basename($_SERVER['SCRIPT_NAME'] ?? '');
 }
+
+/* =============================================================================
+    CSRF — TOKEN PHIÊN CHO CÁC BIỂU MẪU POST
+    -----------------------------------------------------------------------------
+    Mọi biểu mẫu POST mới (tải lại phiên bản, thêm/sửa/xoá ghi chú) phải kèm
+    token. Token sinh một lần cho mỗi phiên, lưu trong $_SESSION và so khớp
+    bằng hash_equals() nên không bị đoán dần từ phản hồi thời gian.
+    -------------------------------------------------------------------------- */
+
+/** Tên trường ẩn chứa token trong các biểu mẫu POST. */
+const WA_CSRF_FIELD = 'wa_csrf';
+
+/** Khoá lưu token trong phiên. */
+const WA_CSRF_SESSION_KEY = 'wa_csrf_token';
+
+/**
+ * Lấy token CSRF của phiên, sinh mới nếu chưa có.
+ */
+function wa_csrf_token(): string
+{
+    auth_start_session();
+
+    if (
+        isset($_SESSION[WA_CSRF_SESSION_KEY])
+        && is_string($_SESSION[WA_CSRF_SESSION_KEY])
+        && $_SESSION[WA_CSRF_SESSION_KEY] !== ''
+    ) {
+        return $_SESSION[WA_CSRF_SESSION_KEY];
+    }
+
+    $token = bin2hex(random_bytes(32));
+    $_SESSION[WA_CSRF_SESSION_KEY] = $token;
+
+    return $token;
+}
+
+/**
+ * Kiểm tra token CSRF gửi lên.
+ *
+ * So khớp bằng hash_equals() (hằng thời gian) và so sánh kiểu rút gọn, nên một
+ * yêu cầu không có token — hoặc sai token — luôn bị từ chối.
+ */
+function wa_csrf_check(?string $token = null): bool
+{
+    auth_start_session();
+
+    $token ??= (string) ($_POST[WA_CSRF_FIELD] ?? '');
+
+    $expected = $_SESSION[WA_CSRF_SESSION_KEY] ?? '';
+
+    if (!is_string($expected) || $expected === '' || $token === '') {
+        return false;
+    }
+
+    return hash_equals($expected, $token);
+}
+
+/**
+ * Chuỗi thẻ <input type="hidden"> chứa token CSRF — dùng trong mọi biểu mẫu POST.
+ */
+function wa_csrf_field(): string
+{
+    return '<input type="hidden" name="' . WA_CSRF_FIELD . '" value="'
+        . wa_e(wa_csrf_token()) . '">';
+}

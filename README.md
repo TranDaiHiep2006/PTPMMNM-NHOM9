@@ -1,9 +1,11 @@
 # WebArchive — Lưu trang Web & đọc lại ngoại tuyến (Đề tài 16)
 
-> **GIAI ĐOẠN LƯU TRANG THẬT — P-CAPTURE phase.**
-> Dữ liệu nằm trong **MySQL** (database `webarchive`). Quy trình lưu trang đã là **bản thật**:
+> **GIAI ĐOẠN PHIÊN BẢN & GHI CHÚ — P-READ phase.**
+> Dữ liệu nằm trong **MySQL** (database `webarchive`). Quy trình lưu trang là **bản thật**:
 > `public/save.php` gọi engine `capture_url()` trong `src/capture.php` (cURL + DOMDocument),
 > kiểm tra allowlist trước mọi kết nối, tải ảnh về `public/uploads/snapshots/…`.
+> Toàn bộ phần ghi CSDL đã gom về **một hàm dùng chung** `wa_store_page_capture()`, được gọi
+> bởi cả `save.php` lẫn `refetch.php` (nút "Lấy phiên bản mới" trong trình đọc).
 
 Ứng dụng lưu nội dung (snapshot) của trang web để đọc lại và tìm kiếm về sau, tổ chức trong
 thư viện theo chủ đề, gắn nhãn và phân quyền thành viên. Toàn bộ giao diện bằng **tiếng Việt**,
@@ -92,8 +94,10 @@ khoá, `linh.pham@demo.vn`) dùng để minh hoạ màn hình quản trị.
 | Đăng xuất | `/logout.php` | Đã đăng nhập |
 | Thư viện của tôi | `/libraries.php` | Đăng nhập |
 | Chi tiết thư viện | `/library.php?slug=cntt-lap-trinh` | Đăng nhập |
-| Lưu trang Web | `/save.php` | Đăng nhập |
-| Trình đọc ngoại tuyến | `/reader.php?id=8941` | Đăng nhập |
+| Lưu trang Web | `/save.php` | Chủ sở hữu / biên tập viên |
+| Tải lại phiên bản | `/refetch.php` | Chủ sở hữu / biên tập viên (chỉ POST) |
+| Ghi chú theo phiên bản | `/note.php` | Đăng nhập (chỉ POST) |
+| Trình đọc ngoại tuyến | `/reader.php?id=8943` | Đăng nhập + thành viên thư viện |
 | Tìm kiếm nội dung | `/search.php?q=snapshot` | Đăng nhập |
 | Tổng quan hệ thống | `/admin/index.php` | **Quản trị** |
 | Người dùng | `/admin/users.php` | **Quản trị** |
@@ -174,16 +178,42 @@ trang nội bộ thì xoá dòng đó trong `/admin/allowlist.php`.
 - Mọi truy vấn có tham số đều dùng **prepared statement** — không nối chuỗi SQL với dữ liệu người dùng.
 - Trình đọc có nút **A- / A+**, đổi nền đọc và **tiến độ đọc** thật (JavaScript thuần).
 - Biểu mẫu lưu trang dùng **engine thật** (xem mục 5): cURL + allowlist + DOMDocument + tải ảnh cục bộ.
+- **Phiên bản & ghi chú (P-READ):** mỗi lần lưu là một bản ghi `snapshots` với `version_no` riêng.
+  Trình đọc có **header nguồn gốc** (URL gốc, domain, số phiên bản, thời điểm lưu, HTTP status),
+  **bộ chuyển phiên bản** (danh sách mọi phiên bản + nút phiên bản trước/sau),
+  nút **"Lấy phiên bản mới"** cho chủ sở hữu/biên tập viên/quản trị, và **ghi chú riêng theo từng phiên bản**
+  (ai cũng thêm được; **sửa/xoá bị ép trong SQL** theo `user_id` nên không lách được qua giao diện).
+- **Phân quyền P-READ:** người đọc không thuộc thư viện → trang lỗi **403 tiếng Việt**;
+  snapshot lỗi / không tồn tại → **404**; khách chưa đăng nhập → chuyển hướng `login.php`.
+- **Chống giả mạo:** mọi form POST mới (tải lại, thêm/sửa/xoá ghi chú) đều có token CSRF
+  sinh bằng `random_bytes()` trong session và kiểm tra bằng `hash_equals()`.
+- Trang thư viện hiện **số phiên bản** trên từng thẻ bài viết (link tới bản mới nhất) và mục
+  **"Lưu thất bại gần đây"** (5 lần lỗi gần nhất: URL, lý do, thời điểm) cho người có quyền sửa.
 
 **Chưa có (để phase sau):**
-- ❌ Tải trang thật — ~~`src/mock_capture.php` chỉ **mô phỏng** trạng thái theo URL.~~ **ĐÃ LÀM (P-CAPTURE).**
-- ~~❌ Engine bóc tách tiêu đề/nội dung và sanitize HTML.~~ **ĐÃ LÀM (P-CAPTURE).**
-- ~~❌ Tải ảnh về máy chủ và ghi vào bảng `assets` khi lưu trang.~~ **ĐÃ LÀM (P-CAPTURE).**
-- ❌ Tìm kiếm thật — `search.php` hiện dùng `LIKE` trên `snapshots.title` / `content_text`.
-- ❌ Các nút "tạo thư viện", "mời người dùng" chỉ hiển thị giao diện.
-- ❌ Siết chặt phân quyền editor/viewer (hiện mới lọc ở mức thư viện).
+- ~~Tải trang thật — `src/mock_capture.php` chỉ mô phỏng trạng thái theo URL.~~ **ĐÃ LÀM (P-CAPTURE).**
+- ~~Engine bóc tách tiêu đề/nội dung và sanitize HTML.~~ **ĐÃ LÀM (P-CAPTURE).**
+- ~~Tải ảnh về máy chủ và ghi vào bảng `assets` khi lưu trang.~~ **ĐÃ LÀM (P-CAPTURE).**
+- ~~Tải lại bản đã lưu (nút "Lấy phiên bản mới" chưa nối engine).~~ **ĐÃ LÀM (P-READ).**
+- ~~Ghi chú trên từng phiên bản (mới hiện khung giao diện).~~ **ĐÃ LÀM (P-READ).**
+- ~~Siết chặt phân quyền editor/viewer cho tải lại và ghi chú.~~ **ĐÃ LÀM (P-READ).**
+- Tìm kiếm thật — `search.php` hiện dùng `LIKE` trên `snapshots.title` / `content_text`.
+- Các nút "tạo thư viện", "mời người dùng" chỉ hiển thị giao diện.
+- Xuất kho — nút "Xuất PDF" trong trình đọc hiện mới gọi `window.print()`.
 
 ---
+
+## 6.2 Cách thử phiên bản & ghi chú (P-READ)
+
+1. Đăng nhập `user@demo.vn` / `demo123`, mở **Lưu trang Web** và lưu
+   `http://localhost:8090/article.html` (nhớ bật fixture server ở bước 7 mục 6).
+2. Bấm **Đọc bản đã lưu** → thấy header nguồn gốc và bộ chuyển phiên bản.
+3. Bấm **Lấy phiên bản mới** → trang chuyển sang `SNAP-…` mới, `version_no` tăng 1,
+   danh sách phiên bản bên dưới liệt kê đủ hai bản và bản cũ **giữ nguyên nội dung**.
+4. Ghi chú: viết ghi chú ở bản 1, sang bản 2 thì ghi chú **không còn** — mỗi phiên bản một
+   bộ ghi chú riêng. Sửa ghi chú của mình sẽ hiện nhãn **"đã sửa"**.
+5. Thử bằng tài khoản khác: gửi thẳng form sửa/xoá ghi chú của người khác → bị từ chối,
+   dữ liệu trong CSDL **không đổi**.
 
 ## 6. Cách trải nghiệm nhanh
 

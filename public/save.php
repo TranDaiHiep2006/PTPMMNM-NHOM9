@@ -1,17 +1,22 @@
 <?php
 /**
- * save.php — Trang "Lưu trang Web" (P-CAPTURE: dùng engine tải trang THẬT).
+ * save.php — Trang "Lưu trang Web" (P-READ: dùng đường lưu dùng chung).
  *
  * Biểu mẫu gồm: chọn thư viện (chỉ thư viện mà người dùng là chủ sở hữu hoặc
  * biên tập viên), ô URL, và ô nhãn tuỳ chọn (phân tách bằng dấu phẩy).
  *
+ * Toàn bộ phần GHI CSDL (tìm/tạo saved_pages, tạo snapshot, tải và nối lại ảnh
+ * cục bộ, ghi assets, cập nhật trang, gắn nhãn, ghi bản ghi lỗi) đã được gom về
+ * HÀM DUY NHẤT wa_store_page_capture() trong src/queries.php — cùng hàm mà nút
+ * "Lấy phiên bản mới" của public/refetch.php gọi. Hành vi của trang giữ nguyên.
+ *
  * Thành công: chuyển hướng tới reader.php?id=<snapshot id> kèm thông báo
  * tiếng Việt có số phiên bản.
  *
- * Thất bại: vẫn ghi lại lần thử (tạo/tìm trang + dòng snapshot với fetch_status
- * là mã lỗi và error_message đầy đủ) để thống kê quản trị đếm được lỗi, đồng
- * thời hiện thông báo tiếng Việt RIÊNG cho từng mã lỗi. Snapshot lỗi không bao
- * giờ hiện trong danh sách bài viết và không mở được trong trình đọc.
+ * Thất bại: vẫn ghi lại lần thử (dòng snapshot với fetch_status là mã lỗi và
+ * error_message đầy đủ) để thống kê quản trị đếm được lỗi, đồng thời hiện
+ * thông báo tiếng Việt RIÊNG cho từng mã lỗi. Snapshot lỗi không bao giờ hiện
+ * trong danh sách bài viết và không mở được trong trình đọc.
  */
 
 declare(strict_types=1);
@@ -24,7 +29,7 @@ $user     = current_user();
 $userId   = (int) ($user['id'] ?? 0);
 $libraries = wa_writable_libraries();
 
-/** Thông báo trả về sau khi xử lý: @var array{type:string, text:string, snapshot_id?:int}|null */
+/** Thông báo trả về sau khi xử lý: @var array{type:string, text:string}|null */
 $notice = null;
 /** Dữ liệu form để hiển thị lại sau khi POST. */
 $form = [
@@ -49,116 +54,40 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $notice = ['type' => 'error', 'text' => 'Vui lòng chọn thư viện để lưu trang.'];
     } elseif (!wa_can_write_library($libraryId)) {
         $notice = ['type' => 'error', 'text' => 'Bạn không có quyền lưu trang vào thư viện này.'];
+    } elseif (!wa_csrf_check()) {
+        $notice = ['type' => 'error', 'text' => 'Phiên làm việc đã thay đổi. Vui lòng tải lại trang và thử lại.'];
     } else {
-        // --- Chạy engine tải trang thật ---
-        $result = capture_url($form['url']);
-
-        $sourceUrl = $result['final_url'] !== '' ? $result['final_url'] : $form['url'];
-        $domain    = wa_capture_host($sourceUrl);
-
-        // Tìm trang đã lưu với cùng nguồn trong thư viện này để quyết định
-        // tạo bản mới (v1) hay thêm phiên bản tiếp theo.
-        $page = wa_find_page_by_url($libraryId, $form['url']);
-
-        if ($page === null) {
-            $pageId = wa_create_page(
-                $libraryId,
-                $form['url'],
-                $domain !== '' ? $domain : 'khong-ro',
-                (string) $result['title'],
-                $result['ok'] ? 'active' : 'error',
-                $userId
-            );
-        } else {
-            $pageId  = (int) $page['id'];
-            $version = wa_max_snapshot_version($pageId) + 1;
-        }
-
-        if (!isset($version)) {
-            $version = 1;
-        }
+        /* ---------------------------------------------------------------------------
+         * ĐƯỜNG LƯU DÙNG CHUNG — cùng hàm với public/refetch.php.
+         * Hàm tự tìm/tạo trang, tự tính version_no = MAX + 1, tự tải ảnh cục bộ,
+         * tự ghi assets, và tự ghi bản ghi lỗi khi thất bại.
+         * ------------------------------------------------------------------------- */
+        $result = wa_store_page_capture($libraryId, $form['url'], $tagNames, $userId);
 
         if ($result['ok'] === true) {
             /* ---------------- THÀNH CÔNG ---------------- */
+            $imageCount = (int) $result['image_count'];
 
-            // 1) Tạo dòng snapshot trước để có id cho thư mục ảnh.
-            $snapshotId = wa_create_snapshot(
-                $pageId,
-                $version,
-                (string) $result['title'],
-                '',
-                '',
-                $sourceUrl,
-                (string) $result['fetched_at'],
-                (int) $result['http_status'],
-                'success',
-                null
-            );
-
-            // 2) Tải ảnh về máy chủ nội bộ và nối lại bằng đường dẫn cục bộ.
-            $localized = wa_capture_localize_images((string) $result['content_html'], $snapshotId);
-            $finalHtml = (string) $localized['html'];
-            $images    = $localized['images'];
-
-            // 3) Cập nhật nội dung snapshot (bỏ qua nếu còn sót ảnh ngoài — không bao giờ xảy ra).
-            if (!wa_capture_localize_images_ok($finalHtml)) {
-                $finalHtml = (string) $result['content_html'];
-                $images    = [];
-            }
-            $finalText = wa_capture_clean_text(wa_capture_text_only($finalHtml));
-            wa_update_snapshot_content($snapshotId, $finalHtml, $finalText);
-
-            // 4) Ghi các dòng assets.
-            wa_insert_assets($snapshotId, $images);
-
-            // 5) Cập nhật trang + gắn nhãn.
-            wa_update_page($pageId, (string) $result['title'], 'active');
-            wa_apply_page_tags($pageId, $tagNames);
-
-            // 6) Chuyển hướng tới trình đọc kèm thông báo thành công.
-            $imageCount = count($images);
-            $session = [
+            $_SESSION['wa_flash'] = [
                 'type'        => 'success',
-                'text'        => 'Lưu thành công phiên bản ' . $version . ' của “'
+                'text'        => 'Lưu thành công phiên bản ' . (int) $result['version'] . ' của “'
                                  . (string) $result['title'] . '”'
-                                 . ($imageCount > 0 ? ' — đã tải ' . $imageCount . ' ảnh về máy chủ nội bộ.' : '.'),
-                'snapshot_id' => $snapshotId,
+                                 . ($imageCount > 0
+                                     ? ' — đã tải ' . $imageCount . ' ảnh về máy chủ nội bộ.'
+                                     : '.'),
+                'snapshot_id' => (int) $result['snapshot_id'],
             ];
 
-            $_SESSION['wa_flash'] = $session;
-            header('Location: ' . wa_url('reader.php?id=' . $snapshotId));
+            header('Location: ' . wa_url('reader.php?id=' . (int) $result['snapshot_id']));
             exit;
         }
 
-        /* ---------------- THẤT BẠI — vẫn ghi lại lần thử ---------------- */
-
-        $errorCode = (string) ($result['error_code'] ?? WA_ERR_HTTP);
-        $errorText = wa_capture_error_text($errorCode, (string) ($result['error_message'] ?? ''));
-
-        // Ghi lại snapshot lỗi: fetch_status = mã lỗi, error_message đầy đủ,
-        // nội dung rỗng. Thống kê quản trị dùng chính cột này để đếm lỗi.
-        wa_create_snapshot(
-            $pageId,
-            $version,
-            $errorText['title'],
-            '',
-            '',
-            $sourceUrl,
-            (string) $result['fetched_at'],
-            (int) $result['http_status'],
-            $errorCode,
-            $errorText['message']
-        );
-
-        if ($tagNames !== []) {
-            wa_apply_page_tags($pageId, $tagNames);
-        }
-
+        /* ---------------- THẤT BẠI — bản ghi lỗi đã được ghi trong hàm dùng chung ---------------- */
         $notice = [
             'type'  => 'error',
-            'text'  => $errorText['message'],
-            'title' => $errorText['title'],
-            'code'  => $errorCode,
+            'text'  => (string) $result['error_message'],
+            'title' => (string) $result['error_title'],
+            'code'  => (string) $result['error_code'],
         ];
     }
 }
@@ -218,6 +147,8 @@ require __DIR__ . '/../templates/header_app.php';
   </div>
 
   <form class="capture__form" method="post" action="<?= wa_e(wa_url('save.php')) ?>">
+    <?= wa_csrf_field() ?>
+
     <!-- Chọn thư viện: chỉ hiện thư viện người dùng có quyền ghi -->
     <div class="capture__input">
       <span class="ms ms-18">folder_special</span>
@@ -302,7 +233,8 @@ require __DIR__ . '/../templates/header_app.php';
     </div>
     <h2 class="t-headline-md" style="color:var(--wa-primary)">Bảy quy tắc khi lưu một trang</h2>
     <p class="pagehead__desc">
-      Mỗi lần lưu đều đi qua engine tải trang thật trong <code>src/capture.php</code>.
+      Mỗi lần lưu đều đi qua engine tải trang thật trong <code>src/capture.php</code> và
+      ghi CSDL qua một đường dùng chung <code>wa_store_page_capture()</code>.
       Trang lỗi không bao giờ trở thành một bài viết hợp lệ.
     </p>
   </div>
@@ -361,7 +293,8 @@ require __DIR__ . '/../templates/header_app.php';
     </div>
     <p class="t-body-sm t-muted" style="margin-top:8px">
       Lưu lại cùng một URL trong cùng thư viện sẽ tạo phiên bản tiếp theo; các phiên bản
-      cũ vẫn được giữ nguyên.
+      cũ vẫn được giữ nguyên. Nút <b>Lấy phiên bản mới</b> trong trình đọc dùng chung
+      đúng đường lưu này.
     </p>
   </div>
 </div>

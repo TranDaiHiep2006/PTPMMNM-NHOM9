@@ -450,21 +450,26 @@ function wa_library_members(int $libraryId): array
  * http / no_content) vẫn được ghi vào CSDL để thống kê quản trị đếm lỗi, nhưng
  * trang đó không bao giờ hiện ra trong danh sách bài viết hay mở được trong trình đọc.
  *
+ * P-READ: mỗi thẻ bài viết mang thêm `version_count` (số bản THÀNH CÔNG) để
+ * hiển thị huy hiệu "N phiên bản", và tiêu đề lấy từ bản thành công mới nhất.
+ *
  * @return array<int, array<string, mixed>>
  */
 function wa_library_articles(int $libraryId): array
 {
     $stmt = db()->prepare(
         "SELECT
-            sp.id, sp.title, sp.source_url, sp.domain, sp.status, sp.created_at, sp.updated_at,
-            s.id AS snapshot_id, s.version_no, s.fetched_at, s.http_status, s.fetch_status,
+            sp.id, sp.source_url, sp.domain, sp.status, sp.created_at, sp.updated_at,
+            s.id AS snapshot_id, s.version_no, s.title, s.fetched_at, s.http_status, s.fetch_status,
             s.content_text,
+            (SELECT COUNT(*) FROM `snapshots` s3
+              WHERE s3.page_id = sp.id AND s3.fetch_status = 'success')                  AS version_count,
             (SELECT COUNT(*) FROM `assets` a
                JOIN `snapshots` s2 ON s2.id = a.snapshot_id
-              WHERE s2.page_id = sp.id AND a.mime_type LIKE 'image/%')      AS image_count,
+              WHERE s2.page_id = sp.id AND a.mime_type LIKE 'image/%')                    AS image_count,
             (SELECT COALESCE(SUM(a.size_bytes), 0) FROM `assets` a
                JOIN `snapshots` s2 ON s2.id = a.snapshot_id
-              WHERE s2.page_id = sp.id)                                       AS size_bytes
+              WHERE s2.page_id = sp.id)                                                   AS size_bytes
           FROM `saved_pages` sp
           JOIN `snapshots` s ON s.id = (
                 SELECT s2.id FROM `snapshots` s2
@@ -484,12 +489,17 @@ function wa_library_articles(int $libraryId): array
         $row['id']          = (int) $row['id'];
         $row['snapshot_id'] = $row['snapshot_id'] !== null ? (int) $row['snapshot_id'] : null;
         $row['version_no']  = $row['version_no'] !== null ? (int) $row['version_no'] : 1;
+        $row['version_count'] = (int) $row['version_count'];
         $row['image_count'] = (int) $row['image_count'];
         $row['size_bytes']  = (int) $row['size_bytes'];
         $row['size_label']  = wa_format_bytes($row['size_bytes']);
-        $row['saved_at']    = wa_datetime((string) $row['created_at']);
+        // P-READ: thời điểm tải của bản thành công mới nhất (không phải ngày
+        // tạo dòng saved_pages) — đúng ý nghĩa "lần cập nhật gần nhất".
+        $row['saved_at']    = wa_datetime((string) $row['fetched_at']);
+        $row['title']       = (string) $row['title'];
         $row['tags']        = wa_page_tags((int) $row['id']);
         $row['version']     = 'v' . $row['version_no'] . '.0';
+        $row['version_label'] = $row['version_count'] . ' phiên bản';
 
         // Đoạn trích hiển thị trên thẻ bài viết, lấy từ nội dung snapshot đã lưu.
         $row['excerpt'] = wa_trim((string) ($row['content_text'] ?? ''), 180);
@@ -1277,4 +1287,611 @@ function wa_parse_tag_input(string $input): array
     $parts = preg_split('/[,;\r\n]+/u', $input) ?: [];
 
     return array_values(array_filter(array_map('trim', $parts), static fn (string $p): bool => $p !== ''));
+}
+
+/* =============================================================================
+    ĐƯỜNG LƯU DÙNG CHUNG — P-READ
+    -----------------------------------------------------------------------------
+    Hàm DUY NHẤT ghi một lần lưu trang xong CSDL. Cả hai nơi gọi đều dùng chung:
+      1. public/save.php    — lưu trang mới / thêm phiên bản tiếp theo.
+      2. public/refetch.php — nút "Lấy phiên bản mới" trong trình đọc.
+    Việc gom về một hàm bảo đảm hai nơi không thể lệch nhau: find-or-create
+    saved_pages, version_no = MAX + 1, INSERT snapshots, tải + nối lại ảnh cục bộ,
+    INSERT assets, cập nhật trang + gắn nhãn, và ghi bản ghi lỗi.
+    -------------------------------------------------------------------------- */
+
+/**
+ * Lưu một lần tải trang vào CSDL theo đúng một đường duy nhất.
+ *
+ * Luồng (khác với capture_url() ở chỗ đây là ghi CSDL):
+ *   1. capture_url($url)                        — tải + bóc tách + sanitize
+ *   2. tìm hoặc tạo saved_pages theo (library_id, source_url)
+ *   3. version_no = MAX(version_no) + 1
+ *   4. THÀNH CÔNG: INSERT snapshots -> tải ảnh về máy chủ nội bộ -> UPDATE
+ *      content_html/content_text -> INSERT assets -> UPDATE saved_pages -> gắn nhãn
+ *   5. THẤT BẠI: INSERT snapshots với fetch_status = mã lỗi và error_message
+ *      tiếng Việt riêng cho từng mã (bản ghi lỗi KHÔNG bao giờ mở được để đọc)
+ *
+ * Refetch dùng ĐÚNG hàm này nên: phiên bản cũ (kể cả ghi chú của chúng) không
+ * bị đụng tới — hàm chỉ INSERT thêm một dòng snapshots mới.
+ *
+ * @param int      $libraryId Thư viện đích (đã kiểm tra quyền ở nơi gọi).
+ * @param string   $url       URL nguồn (dùng đúng URL này để tìm trang đã lưu).
+ * @param string[] $tagNames  Danh sách tên nhãn tuỳ chọn.
+ * @param int      $userId    Tài khoản thực hiện lưu (saved_pages.created_by).
+ *
+ * @return array{
+ *   ok:bool, error_code:?string, error_title:string, error_message:string,
+ *   page_id:int, version:int, snapshot_id:?int, title:string, source_url:string,
+ *   domain:string, http_status:int, fetched_at:string, image_count:int
+ * }
+ */
+function wa_store_page_capture(int $libraryId, string $url, array $tagNames, int $userId): array
+{
+    $url = trim($url);
+
+    /* ---------- BƯỚC 1: chạy engine tải trang thật ---------- */
+    $result = capture_url($url);
+
+    $sourceUrl = (string) $result['final_url'] !== '' ? (string) $result['final_url'] : $url;
+    $domain    = wa_capture_host($sourceUrl);
+
+    /* ---------- BƯỚC 2: tìm hoặc tạo saved_pages ---------- */
+    $page = wa_find_page_by_url($libraryId, $url);
+
+    if ($page === null) {
+        $pageId = wa_create_page(
+            $libraryId,
+            $url,
+            $domain !== '' ? $domain : 'khong-ro',
+            (string) $result['title'],
+            $result['ok'] === true ? 'active' : 'error',
+            $userId
+        );
+        $version = 1;
+    } else {
+        $pageId  = (int) $page['id'];
+        $version = wa_max_snapshot_version($pageId) + 1;
+    }
+
+    /* ---------- BƯỚC 3 + 4: ghi snapshot theo kết quả tải ---------- */
+    if ($result['ok'] === true) {
+        // 4a) Tạo dòng snapshot trước để có id cho thư mục ảnh.
+        $snapshotId = wa_create_snapshot(
+            $pageId,
+            $version,
+            (string) $result['title'],
+            '',
+            '',
+            $sourceUrl,
+            (string) $result['fetched_at'],
+            (int) $result['http_status'],
+            'success',
+            null
+        );
+
+        // 4b) Tải ảnh về máy chủ nội bộ và nối lại bằng đường dẫn cục bộ.
+        $localized = wa_capture_localize_images((string) $result['content_html'], $snapshotId);
+        $finalHtml = (string) $localized['html'];
+        $images    = $localized['images'];
+
+        // 4c) Bỏ qua nếu còn sót ảnh ngoài — không bao giờ xảy ra (phòng vệ).
+        if (!wa_capture_localize_images_ok($finalHtml)) {
+            $finalHtml = (string) $result['content_html'];
+            $images    = [];
+        }
+
+        $finalText = wa_capture_clean_text(wa_capture_text_only($finalHtml));
+        wa_update_snapshot_content($snapshotId, $finalHtml, $finalText);
+
+        // 4d) Ghi các dòng assets.
+        wa_insert_assets($snapshotId, $images);
+
+        // 4e) Cập nhật trang + gắn nhãn.
+        wa_update_page($pageId, (string) $result['title'], 'active');
+        wa_apply_page_tags($pageId, $tagNames);
+
+        return [
+            'ok'            => true,
+            'error_code'    => null,
+            'error_title'   => '',
+            'error_message' => '',
+            'page_id'       => $pageId,
+            'version'       => $version,
+            'snapshot_id'   => $snapshotId,
+            'title'         => (string) $result['title'],
+            'source_url'    => $sourceUrl,
+            'domain'        => $domain,
+            'http_status'   => (int) $result['http_status'],
+            'fetched_at'    => (string) $result['fetched_at'],
+            'image_count'   => count($images),
+        ];
+    }
+
+    /* ---------- THẤT BẠI — vẫn ghi lại lần thử để thống kê lỗi ---------- */
+    $errorCode = (string) ($result['error_code'] ?? WA_ERR_HTTP);
+    $errorText = wa_capture_error_text($errorCode, (string) ($result['error_message'] ?? ''));
+
+    $failedSnapshotId = wa_create_snapshot(
+        $pageId,
+        $version,
+        $errorText['title'],
+        '',
+        '',
+        $sourceUrl,
+        (string) $result['fetched_at'],
+        (int) $result['http_status'],
+        $errorCode,
+        $errorText['message']
+    );
+
+    if ($tagNames !== []) {
+        wa_apply_page_tags($pageId, $tagNames);
+    }
+
+    return [
+        'ok'            => false,
+        'error_code'    => $errorCode,
+        'error_title'   => $errorText['title'],
+        'error_message' => $errorText['message'],
+        'page_id'       => $pageId,
+        'version'       => $version,
+        'snapshot_id'   => $failedSnapshotId,
+        'title'         => $errorText['title'],
+        'source_url'    => $sourceUrl,
+        'domain'        => $domain,
+        'http_status'   => (int) $result['http_status'],
+        'fetched_at'    => (string) $result['fetched_at'],
+        'image_count'   => 0,
+    ];
+}
+
+/* =============================================================================
+    PHIÊN BẢN & GHI CHÚ THEO TỪNG SNAPSHOT — P-READ
+    ============================================================================= */
+
+/**
+ * Các phiên bản THÀNH CÔNG của một trang, version_no giảm dần.
+ *
+ * Chỉ lấy fetch_status = 'success': một lần tải lại thất bại vẫn còn trong CSDL
+ * để đếm lỗi, nhưng không bao giờ xuất hiện trong bộ chuyển phiên bản.
+ *
+ * @return array<int, array{id:int, version_no:int, fetched_at:string, fetched_label:string,
+ *                          http_status:int, title:string, is_current:bool}>
+ */
+function wa_page_versions(int $pageId, int $currentSnapshotId = 0): array
+{
+    $stmt = db()->prepare(
+        "SELECT id, version_no, fetched_at, http_status, title
+           FROM `snapshots`
+          WHERE page_id = ? AND fetch_status = 'success'
+       ORDER BY version_no DESC, id DESC"
+    );
+    $stmt->execute([$pageId]);
+
+    $rows = [];
+
+    foreach ($stmt->fetchAll() as $row) {
+        $id        = (int) $row['id'];
+        $fetchedAt = (string) $row['fetched_at'];
+
+        $rows[] = [
+            'id'            => $id,
+            'version_no'    => (int) $row['version_no'],
+            'fetched_at'    => $fetchedAt,
+            'fetched_label' => wa_datetime($fetchedAt),
+            'http_status'   => (int) $row['http_status'],
+            'title'         => (string) $row['title'],
+            'is_current'    => $id === $currentSnapshotId,
+        ];
+    }
+
+    return $rows;
+}
+
+/**
+ * Phiên bản liền trước / liền sau của snapshot đang xem (theo version_no).
+ *
+ * @return array{prev:?array<string,mixed>, next:?array<string,mixed>}
+ */
+function wa_page_neighbour_versions(int $pageId, int $currentSnapshotId): array
+{
+    $versions = wa_page_versions($pageId, $currentSnapshotId);
+
+    $index = null;
+    foreach ($versions as $position => $version) {
+        if ($version['id'] === $currentSnapshotId) {
+            $index = $position;
+            break;
+        }
+    }
+
+    if ($index === null) {
+        return ['prev' => null, 'next' => null];
+    }
+
+    return [
+        // Danh sách đang sắp xếp GIẢM DẦN: phần tử sau là phiên bản cũ hơn.
+        'prev' => $versions[$index - 1] ?? null,
+        'next' => $versions[$index + 1] ?? null,
+    ];
+}
+
+/**
+ * Ghi chú của MỘT phiên bản snapshot, cùng tên tác giả, cũ nhất trước.
+ *
+ * `edited` = true khi updated_at muộn hơn created_at, để giao diện đánh dấu.
+ *
+ * @return array<int, array{id:int, user_id:int, author_name:string, content:string,
+ *                          created_at:string, created_label:string, edited:bool, edited_label:string}>
+ */
+function wa_notes_for_snapshot(int $snapshotId): array
+{
+    $stmt = db()->prepare(
+        'SELECT n.id, n.user_id, n.content, n.created_at, n.updated_at, u.full_name
+           FROM `notes` n
+           JOIN `users` u ON u.id = n.user_id
+          WHERE n.snapshot_id = ?
+       ORDER BY n.created_at, n.id'
+    );
+    $stmt->execute([$snapshotId]);
+
+    $rows = [];
+
+    foreach ($stmt->fetchAll() as $row) {
+        $createdAt = (string) $row['created_at'];
+        $updatedAt = (string) $row['updated_at'];
+
+        $rows[] = [
+            'id'            => (int) $row['id'],
+            'user_id'       => (int) $row['user_id'],
+            'author_name'   => (string) $row['full_name'],
+            'content'       => (string) $row['content'],
+            'created_at'    => $createdAt,
+            'created_label' => wa_datetime($createdAt),
+            'edited'        => $updatedAt > $createdAt,
+            'edited_label'  => wa_datetime($updatedAt),
+        ];
+    }
+
+    return $rows;
+}
+
+/**
+ * Thêm một ghi chú vào một snapshot.
+ *
+ * @return array{ok:bool, message:string, note_id?:int}
+ */
+function wa_note_add(int $snapshotId, int $userId, string $content): array
+{
+    $content = trim(preg_replace('/[ \t]+/u', ' ', $content) ?? '');
+
+    if ($content === '') {
+        return ['ok' => false, 'message' => 'Vui lòng nhập nội dung ghi chú.'];
+    }
+
+    if (mb_strlen($content, 'UTF-8') > 2000) {
+        return ['ok' => false, 'message' => 'Ghi chú không được vượt quá 2000 ký tự.'];
+    }
+
+    $stmt = db()->prepare('INSERT INTO `notes` (`snapshot_id`, `user_id`, `content`) VALUES (?, ?, ?)');
+    $stmt->execute([$snapshotId, $userId, $content]);
+
+    return [
+        'ok'      => true,
+        'message' => 'Đã lưu ghi chú cho phiên bản này.',
+        'note_id' => (int) db()->lastInsertId(),
+    ];
+}
+
+/**
+ * Sửa một ghi chú — CHỈ tác giả của chính ghi chú đó mới sửa được.
+ *
+ * Điều kiện `user_id = ?` nằm TRONG CÂU UPDATE (không chỉ kiểm tra ở giao diện):
+ * nếu ai đó gửi thẳng POST bằng tay, câu lệnh vẫn không đụng tới dòng dữ liệu
+ * của người khác và hàm trả về ok = false.
+ *
+ * @return array{ok:bool, message:string}
+ */
+function wa_note_update(int $noteId, int $userId, string $content): array
+{
+    $content = trim(preg_replace('/[ \t]+/u', ' ', $content) ?? '');
+
+    if ($content === '') {
+        return ['ok' => false, 'message' => 'Vui lòng nhập nội dung ghi chú.'];
+    }
+
+    if (mb_strlen($content, 'UTF-8') > 2000) {
+        return ['ok' => false, 'message' => 'Ghi chú không được vượt quá 2000 ký tự.'];
+    }
+
+    $stmt = db()->prepare('UPDATE `notes` SET `content` = ? WHERE `id` = ? AND `user_id` = ?');
+    $stmt->execute([$content, $noteId, $userId]);
+
+    if ($stmt->rowCount() === 0) {
+        return [
+            'ok'      => false,
+            'message' => 'Bạn chỉ có thể sửa ghi chú do chính mình viết.',
+        ];
+    }
+
+    return ['ok' => true, 'message' => 'Đã cập nhật ghi chú.'];
+}
+
+/**
+ * Xoá ghi chú — CHỈ tác giả của chính ghi chú đó mới xoá được.
+ *
+ * Điều kiện `user_id = ?` nằm trong câu DELETE; quyền xoá của quản trị viên là
+ * một đường riêng (wa_note_delete_by_admin) chứ không đi qua đây.
+ *
+ * @return array{ok:bool, message:string}
+ */
+function wa_note_delete(int $noteId, int $userId): array
+{
+    $stmt = db()->prepare('DELETE FROM `notes` WHERE `id` = ? AND `user_id` = ?');
+    $stmt->execute([$noteId, $userId]);
+
+    if ($stmt->rowCount() === 0) {
+        return [
+            'ok'      => false,
+            'message' => 'Bạn chỉ có thể xoá ghi chú do chính mình viết.',
+        ];
+    }
+
+    return ['ok' => true, 'message' => 'Đã xoá ghi chú.'];
+}
+
+/**
+ * Quản trị viên xoá bất kỳ ghi chú nào (đường xoá riêng, không kiểm tra tác giả).
+ *
+ * @return array{ok:bool, message:string}
+ */
+function wa_note_delete_by_admin(int $noteId): array
+{
+    $stmt = db()->prepare('DELETE FROM `notes` WHERE `id` = ?');
+    $stmt->execute([$noteId]);
+
+    if ($stmt->rowCount() === 0) {
+        return ['ok' => false, 'message' => 'Không tìm thấy ghi chú cần xoá.'];
+    }
+
+    return ['ok' => true, 'message' => 'Quản trị viên đã xoá ghi chú.'];
+}
+
+/**
+ * Các lần lưu THẤT BẠI gần đây của một thư viện (mới nhất trước).
+ *
+ * Những trang chưa từng có snapshot thành công không xuất hiện trong danh sách
+ * bài viết, nên trang library.php hiển thị chúng ở mục riêng cho người có
+ * quyền biên tập.
+ *
+ * @return array<int, array<string, mixed>>
+ */
+function wa_library_failed_attempts(int $libraryId, int $limit = 5): array
+{
+    $limit = max(1, min(20, $limit));
+
+    // $limit là int đã ép kiểu ở trên nên nối thẳng được (không phải dữ liệu người
+    // dùng); các điều kiện khác đều dùng tham số có tên.
+    $stmt = db()->prepare(
+        "SELECT p.id AS page_id, p.source_url, p.domain, p.title,
+                s.id AS snapshot_id, s.version_no, s.fetch_status, s.http_status,
+                s.fetched_at, s.error_message
+           FROM `snapshots` s
+           JOIN `saved_pages` p ON p.id = s.page_id
+          WHERE p.library_id = ?
+            AND s.fetch_status <> 'success'
+            AND NOT EXISTS (
+                SELECT 1 FROM `snapshots` s2
+                 WHERE s2.page_id = p.id AND s2.fetch_status = 'success'
+            )
+       ORDER BY s.fetched_at DESC, s.id DESC
+          LIMIT {$limit}"
+    );
+    $stmt->execute([$libraryId]);
+
+    $rows = [];
+
+    foreach ($stmt->fetchAll() as $row) {
+        $fetchedAt = (string) $row['fetched_at'];
+
+        $rows[] = [
+            'page_id'       => (int) $row['page_id'],
+            'snapshot_id'   => (int) $row['snapshot_id'],
+            'version_no'    => (int) $row['version_no'],
+            'source_url'    => (string) $row['source_url'],
+            'domain'        => (string) $row['domain'],
+            'title'         => (string) $row['title'],
+            'fetch_status'  => (string) $row['fetch_status'],
+            'status_label'  => wa_fetch_status_label((string) $row['fetch_status']),
+            'http_status'   => (int) $row['http_status'],
+            'fetched_at'    => $fetchedAt,
+            'fetched_label' => wa_datetime($fetchedAt),
+            'error_message' => (string) ($row['error_message'] ?? ''),
+        ];
+    }
+
+    return $rows;
+}
+
+/**
+ * Nhãn tiếng Việt của một mã trạng thái tải trang (dùng cho snapshot lỗi).
+ */
+function wa_fetch_status_label(string $status): string
+{
+    return match ($status) {
+        'success'           => 'Thành công',
+        'error_404'         => 'Trang gốc trả về 404',
+        'error_timeout'     => 'Hết thời gian chờ',
+        'error_blocked'     => 'Ngoài danh sách được duyệt',
+        'error_no_content'  => 'Không có nội dung đọc được',
+        'error_http'        => 'Máy chủ nguồn trả về lỗi',
+        'error_invalid_url' => 'URL không hợp lệ',
+        default             => 'Lỗi không xác định',
+    };
+}
+
+/**
+ * Người dùng có được tải lại (refetch) trang trong thư viện này không?
+ *
+ * Chủ sở hữu và biên tập viên được tải lại; người xem thì không.
+ * Quản trị viên luôn được phép (đã kiểm tra trước ở nơi gọi).
+ */
+function wa_can_refetch_library(int $libraryId, ?array $actor = null): bool
+{
+    return wa_can_write_library($libraryId, $actor);
+}
+
+/**
+ * Người dùng có quyền XEM thư viện này không (chủ sở hữu, thành viên, hoặc quản trị)?
+ */
+function wa_can_read_library(int $libraryId, ?array $actor = null): bool
+{
+    $actor = $actor ?? wa_actor();
+
+    if ($actor === null) {
+        return false;
+    }
+
+    if ($actor['role'] === 'admin') {
+        return true;
+    }
+
+    // Ba vị trí so sánh dùng BA tên tham số khác nhau (prepares thật của PDO không
+    // cho phép lặp lại một tên tham số trong cùng câu lệnh — SQLSTATE[HY093]).
+    $stmt = db()->prepare(
+        'SELECT 1
+           FROM `libraries` l
+           LEFT JOIN `library_members` lm ON lm.library_id = l.id AND lm.user_id = :actor
+          WHERE l.id = :library_id
+            AND (l.owner_id = :owner_id OR lm.user_id IS NOT NULL)
+          LIMIT 1'
+    );
+    $stmt->execute([
+        ':actor'      => (int) $actor['id'],
+        ':owner_id'   => (int) $actor['id'],
+        ':library_id' => $libraryId,
+    ]);
+
+    return $stmt->fetchColumn() !== false;
+}
+
+/* =============================================================================
+    NGỮ CẢNH ĐỌC MỘT SNAPSHOT — P-READ
+    -----------------------------------------------------------------------------
+    reader.php cần biết trước khi vẽ gì: ai đang đọc, họ có quyền xem thư viện
+    không, họ có quyền tải lại không, và các phiên bản + ghi chú của đúng snapshot
+    đang mở. Hàm này gộp phần giải quyết đó lại một chỗ.
+    ============================================================================= */
+
+/**
+ * Giải quyết ngữ cảnh đọc của một snapshot id.
+ *
+ * @return array{status:string, article?:array<string,mixed>, library_id?:int,
+ *               page_id?:int, role?:string, can_refetch?:bool, versions?:array,
+ *               prev?:?array, next?:?array, notes?:array}
+ *
+ * status:
+ *   - 'ok'       : đọc được.
+ *   - 'denied'   : đã đăng nhập nhưng không thuộc thư viện của snapshot -> hiện 403.
+ *   - 'not_found': không tồn tại, không phải success, hoặc không có quyền xem
+ *                  -> hiện 404 (đúng quy tắc: bản ghi lỗi không mở được).
+ */
+function wa_reader_context(int $snapshotId): array
+{
+    $actor = wa_actor();
+
+    // --- Bước 1: chỉ lấy snapshot có fetch_status = 'success' (bản ghi lỗi -> 404).
+    $stmt = db()->prepare(
+        'SELECT s.id, s.page_id, s.fetch_status, p.library_id
+           FROM `snapshots` s
+           JOIN `saved_pages` p ON p.id = s.page_id
+          WHERE s.id = ?
+          LIMIT 1'
+    );
+    $stmt->execute([$snapshotId]);
+    $row = $stmt->fetch();
+
+    if ($row === false || (string) $row['fetch_status'] !== 'success') {
+        return ['status' => 'not_found'];
+    }
+
+    // Khách: require_login() đã chuyển hướng, nhưng để phòng thủ vẫn trả not_found.
+    if ($actor === null) {
+        return ['status' => 'not_found'];
+    }
+
+    $pageId    = (int) $row['page_id'];
+    $libraryId = (int) $row['library_id'];
+
+    // --- Bước 2: nạp đầy đủ bài + kiểm tra truy cập ở tầng SQL (wa_find_snapshot).
+    $article = wa_find_snapshot($snapshotId, $actor);
+
+    if ($article === null) {
+        // Không nạp được dù có quyền (chặn bởi access sql) hoặc dữ liệu lệch.
+        return wa_can_read_library($libraryId, $actor)
+            ? ['status' => 'not_found']
+            : ['status' => 'denied'];
+    }
+
+    // --- Bước 3: vai trò người dùng trong thư viện + quyền tải lại.
+    $role = wa_library_role($libraryId, $actor);
+
+    $canRefetch = $actor['role'] === 'admin' || in_array($role, ['owner', 'editor'], true);
+
+    // --- Bước 4: phiên bản + ghi chú của ĐÚNG snapshot đang mở.
+    $versions = wa_page_versions($pageId, $snapshotId);
+    $neighbours = wa_page_neighbour_versions($pageId, $snapshotId);
+
+    return [
+        'status'       => 'ok',
+        'article'      => $article,
+        'library_id'   => $libraryId,
+        'page_id'      => $pageId,
+        'role'         => $role,
+        'can_refetch'  => $canRefetch,
+        'versions'     => $versions,
+        'prev'         => $neighbours['prev'],
+        'next'         => $neighbours['next'],
+        'notes'        => wa_notes_for_snapshot($snapshotId),
+    ];
+}
+
+/**
+ * Vai trò của người dùng trong một thư viện: owner | editor | viewer | null.
+ *
+ * Chủ sở hữu (libraries.owner_id) luôn là 'owner' kể cả khi không có dòng
+ * trong library_members.
+ */
+function wa_library_role(int $libraryId, ?array $actor = null): ?string
+{
+    $actor = $actor ?? wa_actor();
+
+    if ($actor === null) {
+        return null;
+    }
+
+    $stmt = db()->prepare(
+        'SELECT l.owner_id, lm.role
+           FROM `libraries` l
+           LEFT JOIN `library_members` lm ON lm.library_id = l.id AND lm.user_id = :actor
+          WHERE l.id = :library_id
+          LIMIT 1'
+    );
+    $stmt->execute([
+        ':actor'      => (int) $actor['id'],
+        ':library_id' => $libraryId,
+    ]);
+
+    $row = $stmt->fetch();
+
+    if ($row === false) {
+        return null;
+    }
+
+    if ((int) $row['owner_id'] === (int) $actor['id']) {
+        return 'owner';
+    }
+
+    return $row['role'] !== null ? (string) $row['role'] : null;
 }

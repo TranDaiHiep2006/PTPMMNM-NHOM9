@@ -37,6 +37,14 @@ if ($library === null) {
 $articles = wa_library_articles((int) $library['id']);
 $members = wa_library_members((int) $library['id']);
 
+// P-READ: những trang CHƯA từng có bản thành công không hiện trong danh sách bài
+// viết; chúng hiện ở mục "Lưu thất bại gần đây" bên dưới, chỉ dành cho người có
+// quyền biên tập (chủ sở hữu / biên tập viên / quản trị viên).
+$canEditLibrary = wa_can_write_library((int) $library['id']) || wa_is_admin();
+$failedAttempts = $canEditLibrary
+    ? wa_library_failed_attempts((int) $library['id'], 5)
+    : [];
+
 // Số liệu tổng hợp của thư viện (lấy từ CSDL).
 $library['article_count'] = count($articles);
 $library['image_count']   = array_sum(array_column($articles, 'image_count'));
@@ -336,6 +344,11 @@ require __DIR__ . '/../templates/header_app.php';
           <span class="article-card__status">
             <span class="ms ms-16">offline_pin</span>
             Bản đọc ngoại tuyến sẵn sàng
+            <!-- P-READ: số phiên bản thành công của trang này -->
+            <span class="chip chip--teal" style="margin-left:auto">
+              <span class="ms ms-14">history</span>
+              <?= (int) $article['version_count'] ?> phiên bản
+            </span>
           </span>
         </div>
       </div>
@@ -371,6 +384,45 @@ require __DIR__ . '/../templates/header_app.php';
     Trang <?= $page ?>/<?= $totalPages ?> • Hiển thị <?= count($pagedArticles) ?> trong tổng <?= $library['article_count'] ?> bài viết
   </span>
 </div>
+
+<!-- ===================== LƯU THẤT BẠI GẦN ĐÂY (P-READ) =====================
+     Các trang chưa từng có bản thành công KHÔNG nằm trong lưới bài viết ở trên
+     (nguyên tắc: trang lỗi không bao giờ thành bài đọc được). Chúng hiện ở mục
+     riêng này, tối đa 5 lần mới nhất, chỉ với người có quyền biên tập thư viện. -->
+<?php if ($canEditLibrary && $failedAttempts !== []): ?>
+  <div class="two-col__side panel" style="margin-top:24px">
+    <div class="panel__head">
+      <span class="panel__label">
+        <span class="ms ms-16">error_outline</span>
+        Lưu thất bại gần đây (<?= count($failedAttempts) ?>)
+      </span>
+      <span class="t-label-sm t-muted">5 lần gần nhất</span>
+    </div>
+
+    <div class="state-list" style="margin-top:4px" id="wa-failed-list">
+      <?php foreach ($failedAttempts as $failed): ?>
+        <div class="state-item wa-failed__row">
+          <div class="state-item__head">
+            <span class="state-item__name">
+              <span class="ms ms-18">link</span>
+              <span class="t-mono wa-failed__url" style="font-weight:500"><?= wa_e($failed['source_url']) ?></span>
+            </span>
+            <span class="chip chip--error"><?= wa_e($failed['status_label']) ?></span>
+          </div>
+          <p class="t-body-sm t-muted" style="margin-top:8px">
+            <?= wa_e($failed['error_message']) ?>
+          </p>
+          <p class="t-label-sm t-muted" style="margin-top:6px">
+            Lần thử thứ <?= (int) $failed['version_no'] ?> · mã lỗi
+            <code><?= wa_e($failed['fetch_status']) ?></code>
+            · HTTP <?= (int) $failed['http_status'] ?>
+            · <?= wa_e($failed['fetched_label']) ?>
+          </p>
+        </div>
+      <?php endforeach; ?>
+    </div>
+  </div>
+<?php endif; ?>
 
 <script>
   var guidanceToggle = document.getElementById('guidance-toggle');

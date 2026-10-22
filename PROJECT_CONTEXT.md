@@ -1,8 +1,9 @@
 # PROJECT_CONTEXT.md — WebArchive (Đề tài 16)
 
-> Tài liệu ngữ cảnh dự án. Giai đoạn hiện tại: **P-CAPTURE — engine tải trang thật**.
-> `src/mock_capture.php` đã bị xoá; `public/save.php` gọi thẳng `capture_url()`.
-> Ghi chú/xuất kho vẫn để các phase sau.
+> Tài liệu ngữ cảnh dự án. Giai đoạn hiện tại: **P-READ — lịch sử phiên bản, tải lại và ghi chú theo từng snapshot**.
+> `capture_url()` vẫn là engine tải trang thật; phần ghi CSDL đã gom về một hàm
+> dùng chung `wa_store_page_capture()` mà cả `save.php` lẫn `refetch.php` đều gọi.
+> Ghi chú / xuất kho vẫn để các phase sau (xuất kho chưa làm).
 
 ---
 
@@ -51,9 +52,11 @@ stylesheet cục bộ duy nhất. Toàn bộ nội dung hiển thị bằng **ti
 | Đăng ký | `public/register.php` | Khách | Biểu mẫu đầy đủ, kiểm tra dữ liệu, trạng thái thành công (chưa lưu CSDL) |
 | Đăng xuất | `public/logout.php` | — | Xoá session, quay về trang chủ |
 | Thư viện của tôi | `public/libraries.php` | Đăng nhập | Số liệu, tab lọc, lưới thẻ thư viện, tạo thư viện (UI) |
-| Chi tiết thư viện | `public/library.php?slug=...` | Đăng nhập | Breadcrumb, số liệu, thành viên, nhãn, thẻ bài viết, phân trang, bảng lưu URL |
-| Lưu trang Web | `public/save.php` | Đăng nhập | Chọn thư viện (chủ sở hữu/biên tập viên) + URL + nhãn → `capture_url()` thật, lưu `saved_pages`/`snapshots`/`assets`, chuyển tới trình đọc kèm số phiên bản |
-| Trình đọc | `public/reader.php?id=<snapshot id>` | Đăng nhập | Nền giấy ngà, cột 780px, A-/A+, tiến độ đọc, hộp nguồn gốc, nội dung lấy từ `snapshots.content_html` |
+| Chi tiết thư viện | `public/library.php?slug=...` | Đăng nhập | Breadcrumb, số liệu, thành viên, nhãn, thẻ bài viết (kèm huy hiệu "N phiên bản"), mục "Lưu thất bại gần đây", phân trang |
+| Lưu trang Web | `public/save.php` | Chủ sở hữu / biên tập viên | Chọn thư viện + URL + nhãn → `wa_store_page_capture()`, chuyển tới trình đọc kèm số phiên bản |
+| Tải lại phiên bản | `public/refetch.php` | Chủ sở hữu / biên tập viên (POST) | Gọi CHUNG `wa_store_page_capture()` với `source_url` đã lưu; thành công chuyển tới bản mới, thất bại ở lại bản hiện tại kèm lỗi riêng |
+| Ghi chú | `public/note.php` | Đăng nhập (POST) | Thêm / sửa / xoá ghi chú của một snapshot; sở hữu ép bằng `user_id` trong SQL |
+| Trình đọc | `public/reader.php?id=<snapshot id>` | Đăng nhập + thành viên thư viện | Đầu nguồn gốc, bộ chuyển phiên bản, nút "Lấy phiên bản mới", bảng ghi chú, A-/A+, tiến độ đọc |
 | Tìm kiếm | `public/search.php` | Đăng nhập | Từ khoá, lọc theo thẻ/tên miền, kết quả có `<mark>` + thư viện + phiên bản snapshot |
 | Tổng quan hệ thống | `public/admin/index.php` | Quản trị | Tổng users/libraries/snapshots/assets/lỗi, nhật ký hoạt động |
 | Người dùng | `public/admin/users.php` | Quản trị | Bảng tài khoản, vai trò, trạng thái, số thư viện, thao tác (UI) |
@@ -63,6 +66,16 @@ stylesheet cục bộ duy nhất. Toàn bộ nội dung hiển thị bằng **ti
 **Bảo vệ trang:** mọi trang workspace/reader/search/admin đều gọi `require_login()`.
 Các trang admin gọi thêm `require_admin()`; người dùng thường nhận trang
 “Không có quyền truy cập” bằng tiếng Việt (`templates/error_no_permission.php`).
+
+**Phân quyền P-READ (siết thêm so với trước đây):**
+- `reader.php` giải quyết snapshot → trang → thư viện: người dùng phải là **quản trị
+  viên hoặc thành viên** của thư viện (mọi vai trò), nếu không nhận trang **403 tiếng Việt**.
+- Nút **“Lấy phiên bản mới”** và `refetch.php` chỉ dành cho **chủ sở hữu / biên tập viên**
+  (quản trị viên luôn được phép). Người xem không thấy nút **và** bị từ chối ở server.
+- **Mọi người xem được thư viện** đều thêm được ghi chú; **sửa/xoá** chỉ dành cho tác giả,
+  điều kiện `user_id` nằm trong câu `UPDATE`/`DELETE`; quản trị viên xoá được mọi ghi chú
+  qua một đường riêng.
+- Mọi biểu mẫu POST mới dùng **token CSRF theo phiên**: `wa_csrf_token()` / `wa_csrf_check()`.
 
 ---
 
@@ -78,9 +91,9 @@ scripts/setup_db.php           Cài CSDL + tạo user riêng + nạp seed (CLI, 
 config/db.php                  Nạp cấu hình, dựng DSN (KHÔNG chứa mật khẩu)
 config/db.local.php            Thông tin kết nối thật — .gitignore, KHÔNG commit
 src/db.php                     PDO singleton, chẩn đoán lỗi, trang lỗi tiếng Việt
-src/auth.php                   Session, require_login(), require_admin(), current_user()
+src/auth.php                   Session, require_login(), require_admin(), current_user(), CSRF (wa_csrf_token/wa_csrf_check)
 src/bootstrap.php              Hằng số đường dẫn, nạp src, hàm trợ giúp (wa_url/wa_e/...)
-src/queries.php                TOÀN BỘ truy vấn CSDL (thay thế src/sample_data.php)
+src/queries.php                TOÀN BỘ truy vấn CSDL + wa_store_page_capture() (đường lưu dùng chung) + phiên bản/ghi chú
 src/capture.php                ENGINE TẢI TRANG THẬT: capture_url() (allowlist → cURL → DOM → sanitize → tải ảnh cục bộ)
 tests/fixtures/                Trang thử cho fixture server (php -S localhost:8090 -t tests/fixtures)
 templates/header_guest.php     Layout khách: thanh trên + <main>   (KHÔNG có user chip)
@@ -183,12 +196,57 @@ Gồm `article.html` (có `og:title`, `<h1>`, khoá chỉ có trong thân, `<img
 
 ## 8. Các phase sau cắm vào thế nào
 
+### 8b. Kiến trúc P-READ (đường lưu dùng chung + phiên bản + ghi chú)
+
+**Một đường ghi CSDL duy nhất.** `wa_store_page_capture(int $libraryId, string $url,
+array $tagNames, int $userId)` trong `src/queries.php` là nơi DUY NHẤT biết cách
+tạo ra một bản ghi lưu trang. Nó làm đúng một loạt việc, theo đúng thứ tự:
+
+1. `capture_url($url)` — tải + bóc tách + sanitize.
+2. Tìm hoặc tạo dòng `saved_pages` theo `(library_id, source_url)`.
+3. `version_no = MAX(version_no) + 1`.
+4. **Thành công**: `INSERT snapshots` → tải ảnh về máy chủ nội bộ → `UPDATE content_html/content_text`
+   → `INSERT assets` → `UPDATE saved_pages` → gắn nhãn.
+5. **Thất bại**: `INSERT snapshots` với `fetch_status` = mã lỗi và `error_message` tiếng Việt riêng.
+
+Hai nơi gọi hàm này:
+
+| Nơi gọi | URL nguồn lấy từ đâu | Kết quả |
+|---------|----------------------|---------|
+| `public/save.php` | ô nhập của người dùng | chuyển tới `reader.php?id=<snapshot mới>` |
+| `public/refetch.php` | `source_url` **đã lưu trong CSDL** (không nhận từ POST) | chuyển tới bản mới, hoặc ở lại bản hiện tại kèm lỗi |
+
+Nhờ gọi chung một hàm, **tải lại không bao giờ đụng tới phiên bản cũ** (kể cả ghi chú
+của chúng): hàm chỉ `INSERT` thêm một dòng `snapshots`.
+
+**Phiên bản.** `wa_page_versions(page_id)` lấy các bản `fetch_status = 'success'`,
+sắp `version_no` giảm dần; `wa_page_neighbour_versions()` tìm bản liền trước/sau.
+`wa_reader_context(snapshot_id)` gộp lại: nạp bài, kiểm tra quyền, vai trò, quyền
+tải lại, danh sách phiên bản và ghi chú — `reader.php` chỉ cần một lần gọi.
+
+**Ghi chú theo từng snapshot.** Bảng `notes` gắn với `snapshot_id` nên mỗi phiên bản
+có danh sách ghi chú riêng. `wa_note_update()` và `wa_note_delete()` đặt điều kiện
+`user_id = ?` **trong câu lệnh SQL**, nên gửi POST thẳng bằng tay cũng không sửa/xoá
+được ghi chú của người khác. Quản trị viên xoá mọi ghi chú qua `wa_note_delete_by_admin()`
+— một đường riêng, không đi qua hàm của tác giả.
+
+**CSRF.** `wa_csrf_token()` sinh token 32 byte cho mỗi phiên; `wa_csrf_check()` so khớp
+bằng `hash_equals()`. `refetch.php`, `note.php` và `save.php` đều kiểm tra TRƯỚC khi
+ghi bất cứ thứ gì vào CSDL.
+
+### 8c. Các phase sau cắm vào thế nào
+
 | Phase | Cần làm | Chỗ cắm |
 |-------|---------|----------|
 | ~~**Engine tải trang**~~ **XONG (P-CAPTURE)** | Pipeline thật: cURL → allowlist (kể cả chuỗi redirect) → bóc tách → sanitize → tải ảnh cục bộ → INSERT `saved_pages`/`snapshots`/`assets` | `src/capture.php` (thay `src/mock_capture.php`), `public/save.php` |
 | **Lưu trữ & tìm kiếm** | Chỉ mục FULLTEXT trên `snapshots(title, content_text)`, truy vấn snippet + `version_no` | `src/queries.php` (`wa_search_snapshots`), `public/search.php` |
 | **Phân quyền nâng cao** | Áp dụng vai trò `editor`/`viewer` khi sửa, xoá, xuất kho hoặc tải lại | `src/auth.php`, `src/queries.php` |
 | **Ghi chú & tài nguyên** | Hoàn thiện màn hình ghi chú (`notes`) và quản lý `assets` | `templates/`, `public/library.php` |
+
+**Đã chốt trong P-READ:** vai trò `editor`/`viewer` cho **tải lại** và **sửa/xoá ghi chú**
+(quyền ép ngay trong SQL), cùng màn hình ghi chú theo từng phiên bản.
+**Còn lại cho phase sau:** xuất kho (nút "Xuất PDF" hiện mới gọi `window.print()`)
+và FULLTEXT cho tìm kiếm.
 
 Nguyên tắc: **giao diện không cần sửa**, chỉ thay lớp dữ liệu phía sau.
 
