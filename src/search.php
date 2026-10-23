@@ -502,14 +502,18 @@ function wa_search_snippet(string $text, array $terms, int $window = WA_SEARCH_S
 
     $firstPos = $anchor[0];
 
-    // 4) Cắt cửa sổ ~200 ký tự quanh từ khớp đầu tiên. Vị trí byte của preg
-    //    không trùng với vị trí ký tự của mb_*, nên quy đổi một lần rồi mới
-    //    cắt/cân đối để "khoảng 200 ký tự" đúng nghĩa ký tự Unicode.
-    $charLen = mb_strlen($text, 'UTF-8');
-    $startCh = max(0, mb_strlen(mb_substr($text, 0, $firstPos, 'UTF-8'), 'UTF-8') - intdiv($window, 2));
-    $startCh = min($startCh, max(0, $charLen - 1));
-    $endCh   = min($charLen, $startCh + $window);
-    $startCh = max(0, $endCh - $window);
+    // 4) Cắt cửa sổ ~200 ký tự quanh chùm từ khớp đã chọn. Vị trí byte do
+    //    preg trả về (PREG_OFFSET_CAPTURE) phải quy đổi sang vị trí KÝ TỰ
+    //    đúng một lần bằng mb_strlen(substr(...)). mb_substr() nhận tham số
+    //    theo KÝ TỰ, nên truyền thẳng vị trí byte sẽ dịch cửa sổ lệch (văn bản
+    //    tiếng Việt có nhiều byte trên mỗi ký tự) và đoạn trích có thể trượt
+    //    khỏi từ khoá — khiến <mark> không bao giờ hiện.
+    $charLen  = mb_strlen($text, 'UTF-8');
+    $anchorCh = mb_strlen(substr($text, 0, $firstPos), 'UTF-8');
+    $startCh  = max(0, $anchorCh - intdiv($window, 2));
+    $startCh  = min($startCh, max(0, $charLen - 1));
+    $endCh    = min($charLen, $startCh + $window);
+    $startCh  = max(0, $endCh - $window);
 
     $snippet = mb_substr($text, $startCh, $endCh - $startCh, 'UTF-8');
     $base    = strlen(mb_substr($text, 0, $startCh, 'UTF-8'));   // byte của điểm bắt đầu

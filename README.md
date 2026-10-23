@@ -1,24 +1,43 @@
 # WebArchive — Lưu trang Web & đọc lại ngoại tuyến (Đề tài 16)
 
-> **GIAI ĐOẠN PHIÊN BẢN & GHI CHÚ — P-READ phase.**
-> Dữ liệu nằm trong **MySQL** (database `webarchive`). Quy trình lưu trang là **bản thật**:
-> `public/save.php` gọi engine `capture_url()` trong `src/capture.php` (cURL + DOMDocument),
-> kiểm tra allowlist trước mọi kết nối, tải ảnh về `public/uploads/snapshots/…`.
-> Toàn bộ phần ghi CSDL đã gom về **một hàm dùng chung** `wa_store_page_capture()`, được gọi
-> bởi cả `save.php` lẫn `refetch.php` (nút "Lấy phiên bản mới" trong trình đọc).
+Ứng dụng lưu nội dung (snapshot) của trang web để đọc lại và tìm kiếm về sau,
+tổ chức trong thư viện theo chủ đề, gắn nhãn và phân quyền thành viên.
+Toàn bộ giao diện bằng **tiếng Việt**, viết bằng **PHP thuần** — không framework,
+không Composer, không bước build.
 
-> **GIAI ĐOẠN TÌM KIẾM — P-SEARCH phase.**
-> `public/search.php` **không quét `LIKE`** nữa. Trang đọc trên **chỉ mục đảo tự xây** — bảng
-> `search_terms` do chính dự án dựng (`wa_search_index_snapshot()`), **không** dùng
-> FULLTEXT / `MATCH ... AGAINST` của MySQL. Chi tiết ở mục 5.1.
->
-> **GIAI ĐOẠN QUẢN LÝ — P-LIB phase.**
-> Tạo / đổi tên / xoá thư viện, thêm – đổi vai trò – gỡ thành viên, sửa nhãn của từng bài và
-> **xuất bản lưu** ra một tệp HTML độc lập đều **ghi thật vào MySQL**. Chi tiết ở mục 5.2.
+## Tóm tắt sản phẩm
 
-Ứng dụng lưu nội dung (snapshot) của trang web để đọc lại và tìm kiếm về sau, tổ chức trong
-thư viện theo chủ đề, gắn nhãn và phân quyền thành viên. Toàn bộ giao diện bằng **tiếng Việt**,
-viết bằng **PHP thuần** — không framework, không bước build.
+| Năng lực | Mô tả ngắn |
+|----------|-----------|
+| **Lưu trang thật** | cURL + `DOMDocument`; kiểm tra allowlist **trước mọi** byte gửi đi và **lại ở từng bước chuyển hướng** |
+| **Ảnh về máy chủ nội bộ** | mọi ảnh trong bài được tải về `public/uploads/snapshots/…`, tên đặt theo SHA256 |
+| **Làm sạch HTML** | whitelist thẻ/thuộc tính — `<script>`, `onclick`, `<iframe>` không thể chạy trong bản lưu |
+| **Lịch sử phiên bản** | mỗi lần lưu là một bản `snapshots` với `version_no` riêng; nút “Lấy phiên bản mới” |
+| **Ghi chú theo từng phiên bản** | ghi chú thuộc **đúng một phiên bản**, tải lại không làm mất ghi chú cũ |
+| **Tìm kiếm tự xây** | chỉ mục đảo do dự án tự dựng — **không** `LIKE`, **không** FULLTEXT; ngữ nghĩa AND, bỏ dấu tiếng Việt |
+| **Thư viện & thành viên** | tạo/đổi tên/xoá thư viện, thêm–đổi vai trò–gỡ thành viên, nhãn theo từng bài |
+| **Xuất bản lưu** | tải về một tệp HTML **độc lập** (ảnh nhúng base64), mở được ngoại tuyến |
+| **Phân quyền** | khách → login; đã đăng nhập nhưng ngoài thư viện → **403 tiếng Việt**; không có quyền sửa → bị từ chối ngay trong SQL |
+
+Dữ liệu nằm trong **MySQL** (database `webarchive`). Mọi thao tác ghi đi qua **một**
+hàm `wa_store_page_capture()` được `save.php` và `refetch.php` dùng chung, nên
+quy tắc phiên bản, lập chỉ mục tìm kiếm và tải ảnh không bao giờ lệch nhau.
+
+### Tài liệu liên quan
+
+| Tài liệu | Nội dung |
+|----------|----------|
+| [`docs/DEMO.md`](docs/DEMO.md) | **Hai kịch bản trình diễn chính thức**, viết click-by-click |
+| [`docs/SEARCH_QUERIES.md`](docs/SEARCH_QUERIES.md) | **10 câu hỏi tìm kiếm** kèm kết quả mong đợi và thực tế |
+| [`tests/samples/README.md`](tests/samples/README.md) | **Bảng kê 15 trang mẫu** và kết quả lưu trang mong đợi của từng trang |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Quy ước dự án và cách đóng góp |
+| [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) | Bối cảnh dự án và trạng thái từng giai đoạn |
+
+### Bằng chứng cho đề tài
+
+```bash
+php scripts/run_tests.php     # 6 bài kiểm thử bắt buộc, tự bật máy chủ riêng
+```
 
 ---
 
@@ -127,6 +146,9 @@ database/seed.sql              Dữ liệu mẫu (INSERT) — chạy lại đư�
 scripts/setup_db.php           Cài đặt CSDL + tài khoản riêng + nạp seed (CLI, idempotent)
 scripts/migrate_search.php     Tạo bảng chỉ mục `search_terms` (CLI, idempotent, tài khoản ứng dụng)
 scripts/reindex_search.php     Lập lại toàn bộ chỉ mục tìm kiếm (CLI, idempotent)
+scripts/make_sample_images.php Sinh 5 tệp PNG nhỏ hợp lệ cho bộ trang mẫu (không cần GD)
+scripts/seed_samples.php       Nạp 15 trang mẫu vào "Kho dữ liệu mẫu" qua engine thật (idempotent)
+scripts/run_tests.php          Sáu bài kiểm thử bắt buộc T1–T6 (tự bật máy chủ riêng)
 config/db.php                  Nạp cấu hình CSDL, dựng DSN (KHÔNG chứa mật khẩu)
 config/db.local.php            Thông tin kết nối thật — .gitignore, KHÔNG commit
 src/db.php                     PDO singleton + trang lỗi tiếng Việt khi CSDL lỗi
@@ -143,7 +165,12 @@ public/                        WEB ROOT
 public/library_action.php      Bộ điều khiển POST cho quản lý thư viện / thành viên / nhãn (CSRF + phân quyền)
 public/export.php              Xuất bản lưu: tải về một tệp HTML độc lập (ảnh nhúng base64)
 tests/fixtures/                Trang thử (article.html, pic.png, redir-*.php, slow.php, notice.html)
+tests/samples/                 15 trang mẫu tiếng Việt + 5 ảnh PNG + README.md làm bảng kê
+docs/DEMO.md                   Hai kịch bản trình diễn chính thức, click-by-click
+docs/SEARCH_QUERIES.md         10 câu hỏi tìm kiếm: kỳ vọng trước, thực tế sau
 docs/design-reference/         Nguồn thiết kế: DESIGN.md + 4 màn hình tham chiếu
+LICENSE                        Giấy phép MIT
+CONTRIBUTING.md                Quy ước dự án và cách đóng góp
 ```
 
 ---
@@ -338,53 +365,118 @@ Trong trình đọc có nút **“Xuất bản lưu”** ngay cạnh nút **“X
 
 ---
 
-## 6. Phạm vi của giai đoạn này
+## 5.3 Bộ mẫu, tài liệu và bằng chứng (P-FINAL)
 
-**Đã có (CSDL + session):**
-- MySQL thật qua PDO; 10 bảng InnoDB utf8mb4 với khoá ngoại và ràng buộc UNIQUE.
-- Đăng nhập/đăng ký/đăng xuất đối chiếu bảng `users`; **đăng ký ghi thật** vào CSDL.
-- Thư viện, chi tiết thư viện, trình đọc, tìm kiếm và khu vực quản trị đọc từ bảng thật.
-- Form **thêm tên miền được duyệt** ghi thật vào bảng `allowlist_domains` và còn nguyên sau khi tải lại trang.
-- Quyền truy cập cơ bản: người dùng chỉ thấy thư viện mình sở hữu / là thành viên; quản trị thấy tất cả.
-- Mọi truy vấn có tham số đều dùng **prepared statement** — không nối chuỗi SQL với dữ liệu người dùng.
-- Trình đọc có nút **A- / A+**, đổi nền đọc và **tiến độ đọc** thật (JavaScript thuần).
-- Biểu mẫu lưu trang dùng **engine thật** (xem mục 5): cURL + allowlist + DOMDocument + tải ảnh cục bộ.
-- **Phiên bản & ghi chú (P-READ):** mỗi lần lưu là một bản ghi `snapshots` với `version_no` riêng.
-  Trình đọc có **header nguồn gốc** (URL gốc, domain, số phiên bản, thời điểm lưu, HTTP status),
-  **bộ chuyển phiên bản** (danh sách mọi phiên bản + nút phiên bản trước/sau),
-  nút **"Lấy phiên bản mới"** cho chủ sở hữu/biên tập viên/quản trị, và **ghi chú riêng theo từng phiên bản**
-  (ai cũng thêm được; **sửa/xoá bị ép trong SQL** theo `user_id` nên không lách được qua giao diện).
-- **Phân quyền P-READ:** người đọc không thuộc thư viện → trang lỗi **403 tiếng Việt**;
-  snapshot lỗi / không tồn tại → **404**; khách chưa đăng nhập → chuyển hướng `login.php`.
-- **Chống giả mạo:** mọi form POST mới (tải lại, thêm/sửa/xoá ghi chú) đều có token CSRF
-  sinh bằng `random_bytes()` trong session và kiểm tra bằng `hash_equals()`.
-- **Tìm kiếm tự xây (P-SEARCH):** `public/search.php` đọc trên **chỉ mục đảo** `search_terms`
-  (xem mục 5.1) — **không** `LIKE`, **không** FULLTEXT. Ngữ nghĩa **AND**, xếp hạng
-  `score = 3 × SUM(count_title) + SUM(count_body)`, bỏ dấu tiếng Việt để gõ không dấu vẫn ra,
-  đoạn trích bọc `<mark>` theo dạng đã bỏ dấu nhưng hiển thị giữ nguyên dấu, lọc thẻ/tên miền,
-  và **lọc quyền truy cập ngay trong SQL**. Bản snapshot lưu thành công được **lập chỉ mục
-  ngay** trong `wa_store_page_capture()`; kịch bản `scripts/migrate_search.php` và
-  `scripts/reindex_search.php` dựng/chạy lại chỉ mục khi cần.
-- Trang thư viện hiện **số phiên bản** trên từng thẻ bài viết (link tới bản mới nhất) và mục
-  **"Lưu thất bại gần đây"** (5 lần lỗi gần nhất: URL, lý do, thời điểm) cho người có quyền sửa.
+Ba tệp này là **bằng chứng cho đề tài** — dùng khi nộp, khi thuyết trình và khi
+đánh giá.
 
-**Chưa có (để phase sau):**
-- ~~Tải trang thật — `src/mock_capture.php` chỉ mô phỏng trạng thái theo URL.~~ **ĐÃ LÀM (P-CAPTURE).**
-- ~~Engine bóc tách tiêu đề/nội dung và sanitize HTML.~~ **ĐÃ LÀM (P-CAPTURE).**
-- ~~Tải ảnh về máy chủ và ghi vào bảng `assets` khi lưu trang.~~ **ĐÃ LÀM (P-CAPTURE).**
-- ~~Tải lại bản đã lưu (nút "Lấy phiên bản mới" chưa nối engine).~~ **ĐÃ LÀM (P-READ).**
-- ~~Ghi chú trên từng phiên bản (mới hiện khung giao diện).~~ **ĐÃ LÀM (P-READ).**
-- ~~Siết chặt phân quyền editor/viewer cho tải lại và ghi chú.~~ **ĐÃ LÀM (P-READ).**
-- ~~Tìm kiếm thật — `search.php` hiện dùng `LIKE` trên `snapshots.title` / `content_text`.~~ **ĐÃ LÀM (P-SEARCH)** — chỉ mục đảo tự xây, xem mục 5.1.
-- ~~Các nút "tạo thư viện", "mời người dùng" chỉ hiển thị giao diện.~~ **ĐÃ LÀM (P-LIB)** — xem mục 5.2.
-- ~~Xuất kho — nút "Xuất PDF" trong trình đọc hiện mới gọi `window.print()`.~~ **ĐÃ LÀM (P-LIB)** — nút "Xuất PDF" (in) vẫn giữ nguyên, thêm nút **"Xuất bản lưu"** tải về HTML độc lập (`public/export.php`).
+### 5.3.1 Bộ 15 trang mẫu — `tests/samples/`
+
+Các trang tiếng Việt phục vụ bằng `php -S localhost:8091 -t tests/samples`, mỗi trang
+mang một **cụm khoá riêng** (`mau01webarchive` … `mau13webarchive`) nằm trong thân
+bài để câu hỏi tìm kiếm có kết quả xác định. Bọn trang mẫu phủ đủ mọi trường hợp
+biên của engine: bài thường, trùng tiêu đề, nhiều ảnh, bài dài, bảng + danh sách,
+trang có mã độc, trang không có nội dung, chuyển hướng ra ngoài allowlist, và
+trang chậm gây timeout.
+
+Bảng kê đầy đủ 15 mục kèm **kết quả lưu trang mong đợi** nằm ở
+[`tests/samples/README.md`](tests/samples/README.md).
+
+Nạp vào kho bằng đúng đường lưu trang thật:
+
+```bash
+php scripts/seed_samples.php
+```
+
+Script dùng tài khoản ứng dụng, bảo đảm thư viện **“Kho dữ liệu mẫu”** của
+`user@demo.vn` tồn tại, rồi lưu từng trang qua `wa_store_page_capture()` — **không**
+chèn thẳng bằng SQL — và in một dòng cho mỗi mục. Chạy lần hai sẽ in
+`already seeded` và thoát với mã `0` mà không tạo bản ghi trùng.
+
+### 5.3.2 Mười câu hỏi tìm kiếm — `docs/SEARCH_QUERIES.md`
+
+Mười câu hỏi phủ đủ mọi yêu cầu: cụm chỉ có trong thân, từ nằm ở tiêu đề, gõ
+không dấu khớp nội dung có dấu, điều kiện VÀ nhiều từ, lọc theo thẻ, lọc theo tên
+miền, cặp trùng tiêu đề, một trang có hai phiên bản, câu không có kết quả, và câu
+xếp hạng tiêu đề đứng trước thân.
+
+**Cách làm:** kỳ vọng được **thiết kế và viết ra từ nội dung mẫu trước**, bằng
+một công cụ mô phỏng ngữ nghĩa AND và công thức xếp hạng trên chính nội dung đã
+soạn; **sau đó mới** chạy qua `public/search.php` bằng HTTP thật. Tài liệu ghi
+rõ cả hai cột và nêu tên mọi kỳ vọng phải sửa, kèm lý do.
+
+### 5.3.3 Sáu bài kiểm thử bắt buộc — `scripts/run_tests.php`
+
+```bash
+php scripts/run_tests.php     # thoát 0 khi cả 6 bài PASS
+```
+
+Bộ kiểm thử **tự bật hai máy chủ riêng** bằng `proc_open()` (ứng dụng ở cổng
+`18080`, trang mẫu ở cổng `18091`), nên không đụng tới các máy chủ đang chạy. Mọi
+thao tác đi qua **HTTP thật** với cookie jar, không gọi thẳng hàm PHP.
+
+| Mã | Bài kiểm thử |
+|----|-------------|
+| `T1` | **Nguồn đã chết** — tắt máy chủ nguồn, bản lưu vẫn đọc được kèm ảnh cục bộ |
+| `T2` | **Tìm theo thân** — cụm chỉ có trong thân vẫn ra kết quả, có nhãn Phiên bản và `<mark>` |
+| `T3` | **Ba lỗi khác nhau** — `error_404`, `error_timeout`, `error_blocked` |
+| `T4` | **Mã độc không chạy được** — `content_html` không còn `<script>`, `onclick`, `<iframe` |
+| `T5` | **Phiên bản + ghi chú sống sót** — tải lại tạo v2; v1 giữ nguyên nội dung và ghi chú |
+| `T6` | **Người ngoài không vào được** — `reader`/`export` trả 403, chủ sở hữu trả 200 |
+
+Dọn dẹp **chỉ qua hành động của chính ứng dụng**: thư viện tạm bị xoá bằng
+`library_action.php` (hàm này tự dọn cả thư mục ảnh — **không bao giờ xoá tay tệp
+trong `public/uploads/`**), tài khoản rác bị xoá bằng tài khoản CSDL của ứng dụng.
+Tên thư viện và tài khoản rác có hậu tố ngẫu nhiên nên **chạy lại an toàn**.
+
+---
+
+## 6. Tính năng — trạng thái DONE
+
+Mọi tính năng của đề tài đã **hoàn thành**. Danh sách dưới đây là phần tính
+năng đầy đủ, không phải phạm vi của một giai đoạn.
+
+- **CSDL thật:** MySQL qua PDO; 10 bảng InnoDB utf8mb4 có khoá ngoại và UNIQUE.
+  Mọi truy vấn có tham số đều là **prepared statement**.
+- **Tài khoản:** đăng nhập/đăng ký/đăng xuất đối chiếu bảng `users`; đăng ký **ghi thật**
+  vào CSDL, mật khẩu băm bằng `password_hash()`.
+- **Engine lưu trang thật** (mục 5): allowlist trước mọi kết nối, tự đi tối đa 5 bước
+  chuyển hướng và **kiểm tra lại allowlist ở từng đích**, bóc tách `DOMDocument`,
+  sanitize whitelist, tải ảnh về `public/uploads/snapshots/…`, ghi vào bảng `assets`.
+- **Sáu mã lỗi** phân biệt rõ: `error_404`, `error_timeout`, `error_blocked`,
+  `error_no_content`, `error_http`, `error_invalid_url`.
+- **Phiên bản & ghi chú:** mỗi lần lưu là một bản `snapshots` với `version_no` riêng;
+  trình đọc có **đầu nguồn gốc**, **bộ chuyển phiên bản**, nút **“Lấy phiên bản mới”**,
+  và **ghi chú riêng theo từng phiên bản** (thêm: ai cũng được; sửa/xoá bị ép trong SQL
+  theo `user_id`).
+- **Tìm kiếm tự xây** (mục 5.1): chỉ mục đảo `search_terms`, **không** `LIKE`,
+  **không** FULLTEXT. Ngữ nghĩa **AND**, `score = 3 × count_title + count_body`,
+  bỏ dấu tiếng Việt, đoạn trích bọc `<mark>`, lọc thẻ/tên miền, **lọc quyền ngay trong SQL**.
+- **Quản lý thư viện** (mục 5.2): tạo/đổi tên/đổi hiển thị/xoá thư viện; thêm–đổi vai trò–gỡ
+  thành viên; sửa nhãn của từng bài; **xuất bản lưu** ra tệp HTML độc lập.
+- **Phân quyền:** khách → chuyển hướng `login.php`; đã đăng nhập nhưng không thuộc thư viện
+  → **403 tiếng Việt**; snapshot lỗi / không tồn tại → **404**; quản trị thấy tất cả.
+- **Chống giả mạo:** mọi form POST có token CSRF sinh bằng `random_bytes()` trong session,
+  kiểm tra bằng `hash_equals()`, và **kiểm tra trước khi** đọc/ghi CSDL.
+- **Quản trị:** tổng quan hệ thống, quản lý người dùng, **tên miền được duyệt** (ghi thật),
+  danh sách toàn bộ thư viện.
+- **Bộ 15 trang mẫu tiếng Việt** trong `tests/samples/`, nạp vào kho bằng
+  `scripts/seed_samples.php` (idempotent).
+- **Bộ kiểm thử tự động** `scripts/run_tests.php` chạy sáu bài kiểm thử bắt buộc
+  (T1–T6) trên hai máy chủ riêng do chính nó bật lên, và tự dọn dữ liệu qua hành động
+  của chính ứng dụng.
+
+> Các mục sau đây từng là phạm vi của các giai đoạn trước và **đều đã xong**:
+> `mock_capture.php` → engine thật (P-CAPTURE) · tải lại + ghi chú (P-READ) ·
+> `LIKE` → chỉ mục đảo (P-SEARCH) · nút quản lý thư viện chỉ hiển thị giao diện → ghi thật
+> (P-LIB) · bộ mẫu + kiểm thử + tài liệu OSS (P-FINAL).
 
 ---
 
 ## 6.2 Cách thử phiên bản & ghi chú (P-READ)
 
 1. Đăng nhập `user@demo.vn` / `demo123`, mở **Lưu trang Web** và lưu
-   `http://localhost:8090/article.html` (nhớ bật fixture server ở bước 7 mục 6).
+   `http://localhost:8090/article.html` (nhớ bật fixture server ở bước 7 mục 7).
 2. Bấm **Đọc bản đã lưu** → thấy header nguồn gốc và bộ chuyển phiên bản.
 3. Bấm **Lấy phiên bản mới** → trang chuyển sang `SNAP-…` mới, `version_no` tăng 1,
    danh sách phiên bản bên dưới liệt kê đủ hai bản và bản cũ **giữ nguyên nội dung**.
@@ -403,7 +495,7 @@ Trong trình đọc có nút **“Xuất bản lưu”** ngay cạnh nút **“X
    → vẫn ra các bài có chữ "lưu trang" **có dấu**, và đoạn trích bọc `<mark>` đúng chữ có dấu.
 2. Gõ nhiều từ `viet truyen` → chỉ ra bài có **cả hai** từ (AND), không phải bài có "hoặc".
 3. Lọc theo **thẻ** `#MySQL` rồi theo **tên miền** `techblog.dev` → kết quả thu hẹp dần.
-4. Lưu thêm `http://localhost:8090/article.html` (bật fixture server ở bước 7 mục 6), **không** chạy
+4. Lưu thêm `http://localhost:8090/article.html` (bật fixture server ở bước 7 mục 7), **không** chạy
    reindex → tìm `khoa_tu_ban_than_webarchive` là thấy ngay bản vừa lưu: việc lập chỉ mục đã
    chạy ngay trong lúc lưu.
 5. Gõ `nguong` (chỉ có ở các bài mới) → vẫn thấy bản cũ nhất; gõ `refetch` (chỉ có ở bản từ v2 trở
@@ -431,18 +523,25 @@ Trong trình đọc có nút **“Xuất bản lưu”** ngay cạnh nút **“X
    đổi hiển thị, hoặc **Xoá thư viện** (phải gõ lại mã xác nhận). Sau khi xoá, thư viện biến mất
    khỏi danh sách và mọi bài trong đó không còn mở được nữa.
 
-## 6. Cách trải nghiệm nhanh
+## 7. Cách trải nghiệm nhanh
+
+> Muốn có **kịch bản trình diễn đầy đủ** (từng cú bấm, từng màn hình mong đợi)
+> thì đọc [`docs/DEMO.md`](docs/DEMO.md).
 
 1. Chạy `php scripts/setup_db.php` một lần để tạo CSDL (xem mục 1.1), rồi
    `php scripts/migrate_search.php` và `php scripts/reindex_search.php` để có chỉ mục tìm kiếm
    (mục 5.1).
 2. Mở `http://localhost:8080` — trang chủ dành cho **khách**.
 3. Bấm **Đăng nhập**, dùng `user@demo.vn` / `demo123` → vào `libraries.php`.
-4. Mở thư viện **CNTT & Lập Trình** → xem thẻ bài viết, bảng thành viên, bảng lưu URL.
+4. Mở thư viện **Kho dữ liệu mẫu** → xem thẻ bài viết, bảng thành viên, bảng lưu URL.
 5. **Đọc bản đã lưu** → trình đọc nền giấy ngà, thử **A- / A+** và đổi nền đọc.
 6. Vào **Tìm kiếm** (`/search.php?q=snapshot`) → xem đoạn trích có từ khoá được làm nổi bật.
-7. Mở terminal thứ hai tại thư mục gốc và chạy fixture server:
-   `php -S localhost:8090 -t tests/fixtures`
+7. Mở terminal thứ hai tại thư mục gốc và chạy hai máy chủ phụ:
+   ```bash
+   php -S localhost:8090 -t tests/fixtures     # các trường hợp lỗi
+   php -S localhost:8091 -t tests/samples      # bộ 15 trang mẫu tiếng Việt
+   php scripts/seed_samples.php                # nạp bộ mẫu vào kho (idempotent)
+   ```
 8. Vào **Lưu trang Web** → chọn thư viện và dán URL để thử từng trường hợp:
    - `http://localhost:8090/article.html` → thành công, ảnh tải về `/uploads/snapshots/…`
    - `http://localhost:8090/redir-ok.php` → thành công (đi qua chuyển hướng trong allowlist)
@@ -451,12 +550,16 @@ Trong trình đọc có nút **“Xuất bản lưu”** ngay cạnh nút **“X
    - `http://localhost:8090/slow.php` → hết thời gian chờ (giới hạn 12 s)
    - `http://localhost:8090/notice.html` → nội dung quá ngắn
    - `https://example.com/` → không thuộc danh sách được duyệt
-9. Đăng xuất, đăng nhập bằng `admin@demo.vn` / `admin123` → thấy mục **Quản trị hệ thống** trong sidebar,
+9. Chạy bằng chứng tự động:
+   ```bash
+   php scripts/run_tests.php                   # 6/6 PASS, mã thoát 0
+   ```
+10. Đăng xuất, đăng nhập bằng `admin@demo.vn` / `admin123` → thấy mục **Quản trị hệ thống** trong sidebar,
    thêm một tên miền ở `/admin/allowlist.php` và tải lại trang để thấy nó vẫn còn.
 
 ---
 
-## 7. Ghi chú thiết kế
+## 8. Ghi chú thiết kế
 
 - Nguồn thiết kế: `docs/design-reference/DESIGN.md` và 4 màn hình tham chiếu trong cùng thư mục
   (các tệp `code*.html` / `screen*.png` được commit để tiện tra cứu).

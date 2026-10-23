@@ -1,12 +1,19 @@
 # PROJECT_CONTEXT.md — WebArchive (Đề tài 16)
 
-> Tài liệu ngữ cảnh dự án. Giai đoạn hiện tại: **P-LIB — quản lý thư viện, thành viên, nhãn, xuất bản lưu**.
-> `capture_url()` vẫn là engine tải trang thật; phần ghi CSDL đã gom về một hàm
+> Tài liệu ngữ cảnh dự án. **Giai đoạn hiện tại: P-FINAL — HOÀN TẤT, phát hành `v1.0.0`.**
+> Tất cả năm chức năng nghiệp vụ của đề tài đã chạy thật và được kiểm chứng tự động.
+> `capture_url()` là engine tải trang thật; phần ghi CSDL đã gom về một hàm
 > dùng chung `wa_store_page_capture()` mà cả `save.php` lẫn `refetch.php` đều gọi.
 > Tìm kiếm **KHÔNG còn** quét `LIKE` và **KHÔNG** dùng FULLTEXT / `MATCH ... AGAINST`:
 > `public/search.php` đọc bảng chỉ mục `search_terms` do dự án tự dựng (`src/search.php`).
-> Từ P-LIB, **tạo/sửa/xoá thư viện, quản lý thành viên, sửa nhãn theo bài và xuất bản lưu**
-> đều là hành động thật ghi vào MySQL — không còn mục nào "chỉ hiển thị giao diện".
+> **Tạo/sửa/xoá thư viện, quản lý thành viên, sửa nhãn theo bài và xuất bản lưu** đều là
+> hành động thật ghi vào MySQL — không còn mục nào "chỉ hiển thị giao diện".
+>
+> **Bằng chứng P-FINAL:** 15 trang mẫu trong `tests/samples/` (+ bảng kê
+> `tests/samples/README.md`), nạp vào kho bằng `scripts/seed_samples.php`, mười câu hỏi
+> tìm kiếm trong `docs/SEARCH_QUERIES.md`, sáu bài kiểm thử bắt buộc T1–T6 trong
+> `scripts/run_tests.php` (tự bật máy chủ riêng ở cổng 18080/18091), kịch bản trình diễn
+> trong `docs/DEMO.md`, và gói mã nguồn mở `LICENSE` (MIT) + `CONTRIBUTING.md`.
 
 ---
 
@@ -52,7 +59,7 @@ stylesheet cục bộ duy nhất. Toàn bộ nội dung hiển thị bằng **ti
 |-------|-----------|-------|----------|
 | Trang chủ (khách) | `public/index.php` | Khách | Landing page: hero, 3 tính năng, quy trình 3 bước, không gian đọc, CTA |
 | Đăng nhập | `public/login.php` | Khách | Biểu mẫu email/mật khẩu, lỗi tiếng Việt, đăng nhập bằng session |
-| Đăng ký | `public/register.php` | Khách | Biểu mẫu đầy đủ, kiểm tra dữ liệu, trạng thái thành công (chưa lưu CSDL) |
+| Đăng ký | `public/register.php` | Khách | Biểu mẫu đầy đủ, kiểm tra dữ liệu, trạng thái thành công (**ghi thật** vào bảng `users`) |
 | Đăng xuất | `public/logout.php` | — | Xoá session, quay về trang chủ |
 | Thư viện của tôi | `public/libraries.php` | Đăng nhập | Số liệu, tab lọc, lưới thẻ thư viện, **biểu mẫu tạo thư viện thật** (POST → `library_action.php`) |
 | Chi tiết thư viện | `public/library.php?slug=...` | Đăng nhập | Breadcrumb, số liệu, **bảng thành viên (thêm/đổi vai trò/gỡ)**, **cài đặt thư viện (đổi tên/đổi hiển thị/xoá)**, **ô sửa nhãn theo bài**, thẻ bài viết (kèm huy hiệu "N phiên bản"), mục "Lưu thất bại gần đây", phân trang |
@@ -65,8 +72,12 @@ stylesheet cục bộ duy nhất. Toàn bộ nội dung hiển thị bằng **ti
 | Tìm kiếm | `public/search.php` | Đăng nhập | Từ khoá, lọc theo thẻ/tên miền, kết quả có `<mark>` + thư viện + phiên bản snapshot. Truy vấn trên **chỉ mục đảo** `search_terms` (`wa_search_snapshots()`), **không** `LIKE`, **không** FULLTEXT |
 | Tổng quan hệ thống | `public/admin/index.php` | Quản trị | Tổng users/libraries/snapshots/assets/lỗi, nhật ký hoạt động |
 | Người dùng | `public/admin/users.php` | Quản trị | Bảng tài khoản, vai trò, trạng thái, số thư viện, thao tác (UI) |
-| Tên miền được duyệt | `public/admin/allowlist.php` | Quản trị | Bảng allowlist + biểu mẫu thêm tên miền (UI) + ghi chú quy tắc |
+| Tên miền được duyệt | `public/admin/allowlist.php` | Quản trị | Bảng allowlist + biểu mẫu thêm tên miền (**ghi thật** vào CSDL) + ghi chú quy tắc |
 | Tất cả thư viện | `public/admin/libraries.php` | Quản trị | Bảng thư viện toàn hệ thống, chủ sở hữu, hiển thị, số bài/ảnh |
+
+**Tài khoản ngoài (không thuộc thư viện) dùng trong kiểm thử:** `public/register.php` ghi
+thật vào bảng `users` — đây là đường đăng ký mà `scripts/run_tests.php` dùng để tạo
+tài khoản rác cho bài `T6`.
 
 **Bảo vệ trang:** mọi trang workspace/reader/search/admin đều gọi `require_login()`.
 Các trang admin gọi thêm `require_admin()`; người dùng thường nhận trang
@@ -95,6 +106,9 @@ database/seed.sql              Dữ liệu mẫu (INSERT) — chạy lại đư�
 scripts/setup_db.php           Cài CSDL + tạo user riêng + nạp seed (CLI, idempotent)
 scripts/migrate_search.php     Tạo bảng chỉ mục `search_terms` (CLI, idempotent, tài khoản ứng dụng)
 scripts/reindex_search.php     Lập lại toàn bộ chỉ mục tìm kiếm (CLI, idempotent)
+scripts/make_sample_images.php Sinh 5 tệp PNG nhỏ hợp lệ cho bộ trang mẫu (không cần GD)
+scripts/seed_samples.php       Nạp 15 trang mẫu vào "Kho dữ liệu mẫu" qua engine thật (CLI, idempotent)
+scripts/run_tests.php          Sáu bài kiểm thử bắt buộc T1–T6, tự bật máy chủ 18080/18091
 config/db.php                  Nạp cấu hình, dựng DSN (KHÔNG chứa mật khẩu)
 config/db.local.php            Thông tin kết nối thật — .gitignore, KHÔNG commit
 src/db.php                     PDO singleton, chẩn đoán lỗi, trang lỗi tiếng Việt
@@ -104,6 +118,8 @@ src/queries.php                TOÀN BỘ truy vấn CSDL + wa_store_page_captur
 src/search.php                 TÌM KIẾM TỰ XÂY: tokenizer, bỏ dấu, wa_search_index_snapshot(), truy vấn AND + xếp hạng, đoạn trích <mark>
 src/capture.php                ENGINE TẢI TRANG THẬT: capture_url() (allowlist → cURL → DOM → sanitize → tải ảnh cục bộ)
 tests/fixtures/                Trang thử cho fixture server (php -S localhost:8090 -t tests/fixtures)
+tests/samples/                 15 trang mẫu tiếng Việt + 5 ảnh PNG + README.md làm bảng kê
+                                (php -S localhost:8091 -t tests/samples)
 templates/header_guest.php     Layout khách: thanh trên + <main>   (KHÔNG có user chip)
 templates/footer_guest.php     Đóng layout khách + chân trang
 templates/header_app.php       Layout ứng dụng: thanh trên + sidebar
@@ -117,6 +133,11 @@ public/uploads/snapshots/<id>/ Ảnh đã tải của từng snapshot (.gitignor
 public/library_action.php      Bộ điều khiển POST cho quản lý thư viện / thành viên / nhãn (CSRF + phân quyền)
 public/export.php              Xuất bản lưu — HTML độc lập tải về (ảnh nhúng base64)
 docs/design-reference/         Nguồn thiết kế (DESIGN.md + 4 màn hình tham chiếu)
+docs/DEMO.md                   Hai kịch bản trình diễn chính thức, click-by-click
+docs/SEARCH_QUERIES.md         10 câu hỏi tìm kiếm: kỳ vọng thiết kế trước, thực tế sau
+docs/RELEASE_NOTES.md          Ghi chú phát hành v1.0.0
+LICENSE                        Giấy phép MIT, bên giữ bản quyền "the WebArchive contributors"
+CONTRIBUTING.md                Quy ước dự án và cách đóng góp
 ```
 
 ---
@@ -207,9 +228,22 @@ Gồm `article.html` (có `og:title`, `<h1>`, khoá chỉ có trong thân, `<img
 `redir-escape.php` (→ `https://example.org/`, không bao giờ cho vào allowlist),
 `slow.php` (ngủ 15 s), `notice.html` (text < 200 ký tự).
 
+### Máy chủ mẫu (samples server)
+
+`tests/samples/` được phục vụ bằng máy chủ thứ ba:
+
+```powershell
+php -S localhost:8091 -t tests/samples
+```
+
+Gồm 13 bài `bai-01.html` … `bai-13.html`, `chuyen-huong-ngoai.php` (chuyển hướng ra
+ngoài allowlist), `cham.php` (ngủ 15 s → timeout), 5 ảnh `anh-0*.png`, và
+`README.md` làm bảng kê. Trường hợp 404 không cần tệp: `/khong-ton-tai.html` trên chính máy
+chủ này trả về 404.
+
 ---
 
-## 8. Các phase sau cắm vào thế nào
+## 8. Kiến trúc theo từng phase và cách các phase sau cắm vào
 
 ### 8b. Kiến trúc P-READ (đường lưu dùng chung + phiên bản + ghi chú)
 
@@ -334,15 +368,81 @@ tài nguyên phải tải — đúng như đặc tả.
 | ~~**Engine tải trang**~~ **XONG (P-CAPTURE)** | Pipeline thật: cURL → allowlist (kể cả chuỗi redirect) → bóc tách → sanitize → tải ảnh cục bộ → INSERT `saved_pages`/`snapshots`/`assets` | `src/capture.php` (thay `src/mock_capture.php`), `public/save.php` |
 | ~~**Lưu trữ & tìm kiếm**~~ **XONG (P-SEARCH)** | Chỉ mục đảo tự dựng `search_terms` (không FULLTEXT): tokenizer + bỏ dấu + lập chỉ mục tự động khi lưu, truy vấn AND + xếp hạng + lọc quyền trong SQL, đoạn trích `<mark>` | `src/search.php`, `database/schema.sql`, `scripts/migrate_search.php`, `scripts/reindex_search.php`, `src/bootstrap.php` (`wa_vi_fold_map()`), `src/queries.php` (hook lập chỉ mục) |
 | **Quản lý thư viện & thành viên & nhãn & xuất** | ~~Áp dụng vai trò `editor`/`viewer` khi sửa, xoá, xuất kho hoặc tải lại~~ | **XONG (P-LIB)** — `src/queries.php`, `public/library_action.php`, `public/library.php`, `public/libraries.php`, `public/export.php` |
-| **Ghi chú & tài nguyên** | Hoàn thiện màn hình ghi chú (`notes`) và quản lý `assets` | `templates/`, `public/library.php` |
+| **Ghi chú & tài nguyên** | Hoàn thiện màn hình ghi chú (`notes`) và quản lý `assets` | **XONG (P-READ)** — `templates/`, `public/library.php` |
+| ~~**Bộ mẫu, kiểm thử, đóng gói OSS**~~ | ~~Bộ dữ liệu 15 trang mẫu + 10 câu hỏi, bộ 6 kịch bản kiểm thử bắt buộc, gói OSS (license/release)~~ | **XONG (P-FINAL)** — `tests/samples/`, `scripts/seed_samples.php`, `scripts/make_sample_images.php`, `docs/SEARCH_QUERIES.md`, `scripts/run_tests.php`, `docs/DEMO.md`, `LICENSE`, `CONTRIBUTING.md`, tag `v1.0.0` |
 
 **Đã chốt trong P-READ:** vai trò `editor`/`viewer` cho **tải lại** và **sửa/xoá ghi chú**
 (quyền ép ngay trong SQL), cùng màn hình ghi chú theo từng phiên bản.
 **Đã chốt trong P-SEARCH:** chỉ mục đảo tìm kiếm tự xây thay cho `LIKE`/FULLTEXT.
 **Đã chốt trong P-LIB:** tạo/đổi tên/xoá thư viện (xoá kèm thư mục ảnh trên đĩa), quản lý thành viên
 (bảo vệ dòng `owner` trong SQL), sửa nhãn theo bài, và **xuất bản lưu** ra HTML độc lập.
-**Còn lại cho phase sau:** bộ dữ liệu 15 trang mẫu + 10 câu hỏi, bộ 6 kịch bản kiểm thử bắt buộc,
-và đóng gói OSS (license/release).
+**Đã chốt trong P-FINAL:** toàn bộ năm chức năng nghiệp vụ **đã xong và đã kiểm chứng tự động**
+(bộ 6 bài kiểm thử T1–T6 chạy 6/6 PASS). Đề tài **không còn phase nào để làm**.
+
+### 8f. Kiến trúc P-FINAL (bộ mẫu, kiểm thử tự động, gói OSS)
+
+P-FINAL **không thêm tính năng sản phẩm** — nó dựng bằng chứng kiểm chứng những gì đã có.
+
+**Bộ mẫu `tests/samples/`.** 15 trang tiếng Việt phục vụ bằng
+`php -S localhost:8091 -t tests/samples`, phủ đủ các trường hợp biên: bài thường, **trùng
+tiêu đề** (`bai-01` / `bai-07` cùng `<title>`), nhiều ảnh, bài dài, bảng + danh sách, trang có
+`<script>` / `onclick` / `<iframe>`, trang không có nội dung, chuyển hướng ra ngoài allowlist,
+và trang chậm gây timeout. Mỗi trang mang một **cụm khoá riêng** (`mau01webarchive` …) nằm trong
+thân để câu hỏi tìm kiếm có kết quả xác định. `scripts/make_sample_images.php` sinh 5 PNG
+hợp lệ **không cần thư viện GD** (tự dựng khối PNG + CRC32).
+
+**Nạp mẫu — `scripts/seed_samples.php`.** CLI dùng **tài khoản ứng dụng**, bảo đảm thư viện
+**"Kho dữ liệu mẫu"** của `user@demo.vn` tồn tại (tạo bằng đúng các hàm truy vấn mà web dùng),
+rồi lưu từng trang qua **`wa_store_page_capture()` — đường lưu trang thật, không chèn SQL tay** —
+và in một dòng cho mỗi mục. Đã có đủ 15 trang thì in `already seeded` và thoát mã `0`.
+
+**Mười câu hỏi tìm kiếm — `docs/SEARCH_QUERIES.md`.** Kỳ vọng được **thiết kế từ nội dung mẫu
+đã soạn và viết ra trước**, bằng công cụ mô phỏng ngữ nghĩa AND + công thức xếp hạng trên
+chính nội dung đó; **sau đó mới** chạy qua `public/search.php` bằng HTTP thật và ghi kết quả
+thực tế cạnh kỳ vọng. Bộ 10 câu phủ: cụm chỉ có trong thân, từ nằm ở tiêu đề, gõ không dấu
+khớp nội dung có dấu, điều kiện VÀ nhiều từ, lọc thẻ, lọc tên miền, cặp trùng tiêu đề, một
+trang có hai phiên bản, câu không có kết quả, và câu xếp hạng tiêu đề đứng trước thân.
+
+**Sáu bài kiểm thử — `scripts/run_tests.php`.** CLI tự bật **hai máy chủ riêng** bằng
+`proc_open()` (ứng dụng `18080`, trang mẫu `18091`) nên không đụng tới máy chủ đang chạy; có
+`register_shutdown_function()` luôn tắt cả hai. Mọi thao tác đi qua **HTTP thật** với cURL
+cookie jar trong thư mục tạm của hệ điều hành — không gọi thẳng hàm PHP. Dọn dẹp **chỉ qua
+hành động của chính ứng dụng**: thư viện tạm bị xoá bằng `library_action.php` (hàm này tự dọn
+cả thư mục ảnh — **không bao giờ xoá tay tệp trong `public/uploads/`**), tài khoản rác xoá bằng
+tài khoản CSDL của ứng dụng. Tên thư viện và tài khoản rác có hậu tố ngẫu nhiên nên **chạy lại
+an toàn**.
+
+**Một defect thật do kiểm thử phát hiện (đã sửa).** Bài `T2` làm lộ lỗi trong
+`wa_search_snippet()`: `preg_match_all(..., PREG_OFFSET_CAPTURE)` trả về **vị trí tính bằng
+BYTE**, nhưng đoạn trích lại cắt bằng `mb_substr()` (tính theo **KÝ TỰ**). Với tiếng Việt có
+dấu, cửa sổ đoạn trích lệch đủ xa để `<mark>` không bọc quanh từ khoá. Đã sửa bằng cách quy
+đổi byte → ký tự tường minh: `mb_strlen(substr($text, 0, $firstPos), 'UTF-8')`. Quy ước này
+đã ghi vào `CONTRIBUTING.md`.
+
+**Một defect thứ hai do kiểm thử phát hiện (đã sửa) — máy chủ test bị sót lại.** Trên
+Windows, `proc_open()` với lệnh dạng **chuỗi** sẽ chạy qua `cmd.exe`, nên
+`proc_terminate()` chỉ giết vỏ `cmd` mà **không** giết được `php.exe`; mỗi lần chạy để lại
+hai tiến trình `php -S` mồ côi. Tệ hơn nữa: phép thăm dò cổng thấy cổng *đã* mở nên bộ
+kiểm thử âm thầm chạy trên **máy chủ của lần chạy trước** — bằng chứng "tự bật máy chủ riêng"
+khi đó là sai. Đã sửa ba điểm: (1) truyền lệnh dạng **mảng** cho `proc_open()` để PHP chạy
+tiến trình trực tiếp, không qua `cmd.exe`; (2) thêm `t_terminate_proc()` dự phòng bằng
+`taskkill /F` trên Windows và chờ tiến trình thực sự chết; (3) **từ chối chạy** nếu cổng
+18080/18091 đã bị chiếm sẵn, kèm thông báo tiếng Việt chỉ đường dẫn khắc phục. Sau khi sửa,
+hai lần chạy liên tiếp **không còn tiến trình nào sót lại** và CSDL trở về đúng trạng thái
+trước khi chạy (đối chiếu số dòng từng bảng).
+
+**Một defect thứ ba do kiểm thử phát hiện (đã sửa) — `--force` không nạp lại từ đầu.**
+`scripts/seed_samples.php --force` được tài liệu mô tả là *"nạp lại từ đầu (xoá thư viện cũ
+trước)"*, nhưng thực tế nó chỉ **nạp chồng lên**. Mỗi lần chạy lại `--force` lại sinh thêm
+phiên bản mới, và `bai-05.html` (vốn cố ý có 2 phiên bản) dần biến thành 3, 4, 5… — dữ liệu
+mẫu lệch dần khỏi bảng kê. Đã sửa: `--force` giờ **xoá thư viện cũ qua đúng hàm xoá của ứng
+dụng** (`wa_library_delete()`, hàm này tự dọn cả thư mục ảnh — **không bao giờ xoá tay tệp
+trong `public/uploads/`**) rồi tạo lại thư viện từ đầu. Sau khi sửa, mọi trang về `v1` và chỉ
+`bai-05.html` là `v2`, đúng như bảng kê.
+
+**Gói mã nguồn mở.** `LICENSE` (MIT, "the WebArchive contributors"), `CONTRIBUTING.md`
+(cách cài, quy ước dự án, cách nhóm làm việc với issue và pull request), `docs/DEMO.md`
+(hai kịch bản trình diễn chính thức), `docs/RELEASE_NOTES.md` (ghi chú `v1.0.0`).
 
 Nguyên tắc: **giao diện không cần sửa**, chỉ thay lớp dữ liệu phía sau.
 
