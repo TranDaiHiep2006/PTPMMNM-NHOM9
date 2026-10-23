@@ -17,6 +17,86 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
 
+/** Thư mục public/ — nơi lưu ảnh đã tải về (dùng bởi phần xoá thư viện P-LIB). */
+if (!defined('WA_PUBLIC')) {
+    define('WA_PUBLIC', dirname(__DIR__) . '/public');
+}
+
+/* =============================================================================
+    SLUG THƯ VIỆN — P-LIB
+    -----------------------------------------------------------------------------
+    Slug sinh từ tên thư viện: hạ chữ thường -> BỎ DẤU bằng bảng tra dùng chung
+    wa_vi_fold_map() của src/bootstrap.php (dự án chỉ có MỘT bảng bỏ dấu) ->
+    khoảng trắng thành dấu gạch ngang -> các ký tự không phù hợp bị bỏ.
+
+    Nếu slug đã tồn tại, nối thêm -2, -3, ... cho tới khi duy nhất (cột
+    `libraries`.`slug` có UNIQUE).
+    ============================================================================= */
+
+/** Số ký tự tối đa của slug (khớp VARCHAR(150) của bảng libraries). */
+const WA_LIBRARY_SLUG_MAX = 120;
+
+/**
+ * Bỏ dấu + hạ chữ thường + thay khoảng trắng bằng dấu gạch ngang.
+ *
+ * Dùng ĐÚNG bảng tra dùng chung `wa_vi_fold_map()` — không chép thêm bảng thứ hai.
+ */
+function wa_slugify(string $text): string
+{
+    $folded = strtr(mb_strtolower(trim($text), 'UTF-8'), wa_vi_fold_map());
+
+    // Mọi ký tự không phải chữ/số ASCII thành gạch ngang, rồi gộp dấu gạch.
+    $slug = (string) preg_replace('/[^a-z0-9]+/u', '-', $folded);
+    $slug = trim((string) preg_replace('/-+/', '-', $slug), '-');
+
+    if ($slug === '') {
+        return 'thu-vien';
+    }
+
+    if (strlen($slug) > WA_LIBRARY_SLUG_MAX) {
+        $slug = rtrim(substr($slug, 0, WA_LIBRARY_SLUG_MAX), '-');
+    }
+
+    return $slug;
+}
+
+/**
+ * Sinh slug DUY NHẤT cho một tên thư viện.
+ *
+ * Nếu slug gốc đã có trong bảng `libraries`, nối tiếp -2, -3, ... cho tới khi
+ * không còn trùng. `$excludeId` cho phép giữ nguyên slug khi ĐỔI TÊN một thư viện
+ * đang có (bỏ qua chính dòng đó khi kiểm tra trùng).
+ *
+ * @return string{slug:string, suffix:int} slug cuối cùng và số hậu tố đã dùng (0 = không thêm).
+ */
+function wa_library_unique_slug(string $name, int $excludeId = 0): array
+{
+    $base = wa_slugify($name);
+
+    $exists = static function (string $slug) use ($excludeId): bool {
+        $stmt = db()->prepare('SELECT 1 FROM `libraries` WHERE `slug` = ? AND `id` <> ? LIMIT 1');
+        $stmt->execute([$slug, $excludeId]);
+
+        return $stmt->fetchColumn() !== false;
+    };
+
+    if (!$exists($base)) {
+        return ['slug' => $base, 'suffix' => 0];
+    }
+
+    // -2, -3, ... cho tới khi duy nhất. `slug` UNIQUE nên số thứ tự này là duy nhất.
+    for ($suffix = 2; $suffix <= 999; $suffix++) {
+        $candidate = $base . '-' . $suffix;
+
+        if (!$exists($candidate)) {
+            return ['slug' => $candidate, 'suffix' => $suffix];
+        }
+    }
+
+    // Trường hợp cực hiểm: thêm dấu thời gian để vẫn ra slug hợp lệ.
+    return ['slug' => $base . '-' . time(), 'suffix' => 999];
+}
+
 /**
  * Ngữ cảnh người dùng đang đăng nhập (id + vai trò) dùng để lọc truy cập.
  *
@@ -439,6 +519,757 @@ function wa_library_members(int $libraryId): array
 }
 
 /* =============================================================================
+    QUẢN LÝ THƯ VIỆN — P-LIB
+    -----------------------------------------------------------------------------
+    Toàn bộ hành động ghi của giai đoạn này nằm ở đây. Quy tắc bất di bất dịch:
+
+      1. Mọi câu lệnh dùng prepared statement; KHÔNG lặp lại một tên tham số
+         trong cùng câu (PDO đang bật prepares thật -> SQLSTATE[HY093]).
+      2. Người gọi đã kiểm tra quyền (chủ sở hữu / quản trị viên); các hàm ở
+         đây vẫn ép điều kiện sở hữu NGAY TRONG SQL để POST thẳng bằng tay cũng
+         không vượt được.
+      3. Xoá thư viện xoá cả dòng dữ liệu (qua khoá ngoại CASCADE) lẫn thư mục
+         ảnh trên đĩa public/uploads/snapshots/<id>/.
+    ============================================================================= */
+
+/** @return array<int, array{key:string, label:string, color:string, icon:string}> */
+function wa_library_visibility_options(): array
+{
+    return [
+        ['key' => 'private', 'label' => 'Chỉ mình tôi',  'color' => 'a', 'icon' => 'lock'],
+        ['key' => 'shared',  'label' => 'Nội bộ nhóm', 'color' => 'b', 'icon' => 'group'],
+        ['key' => 'public',  'label' => 'Công khai',   'color' => 'c', 'icon' => 'public'],
+    ];
+}
+
+/** @return array<int, array{key:string, label:string, color:string}> */
+function wa_library_color_options(): array
+{
+    return [
+        ['key' => 'a', 'label' => 'Xanh dương', 'color' => 'a'],
+        ['key' => 'b', 'label' => 'Xanh ngọc',  'color' => 'b'],
+        ['key' => 'c', 'label' => 'Xanh bạc hà', 'color' => 'c'],
+    ];
+}
+
+/** @return array<int, array{key:string, label:string}> */
+function wa_library_icon_options(): array
+{
+    return [
+        ['key' => 'folder_special', 'label' => 'Thư mục đặc biệt'],
+        ['key' => 'terminal',       'label' => 'Terminal'],
+        ['key' => 'school',         'label' => 'Trường học'],
+        ['key' => 'hub',            'label' => 'Trung tâm'],
+        ['key' => 'science',        'label' => 'Khoa học'],
+        ['key' => 'library_books',  'label' => 'Giáo sách'],
+        ['key' => 'public',         'label' => 'Công khai'],
+    ];
+}
+
+/**
+ * Người dùng có quyền QUẢN LÝ (đổi tên / đổi hiển thị / xoá) thư viện này không?
+ *
+ * Chỉ CHỦ SỞ HỮU (libraries.owner_id) hoặc quản trị viên. Biên tập viên và
+ * người xem KHÔNG được — điều này ép ở tầng SQL, không chỉ ẩn nút trên giao diện.
+ */
+function wa_can_manage_library(int $libraryId, ?array $actor = null): bool
+{
+    $actor = $actor ?? wa_actor();
+
+    if ($actor === null) {
+        return false;
+    }
+
+    // Hai vị trí so sánh -> hai tên tham số khác nhau (prepares thật của PDO).
+    $stmt = db()->prepare(
+        'SELECT 1 FROM `libraries` WHERE `id` = :lib_id AND `owner_id` = :owner_id LIMIT 1'
+    );
+    $stmt->execute([':lib_id' => $libraryId, ':owner_id' => (int) $actor['id']]);
+
+    if ($stmt->fetchColumn() !== false) {
+        return true;
+    }
+
+    return $actor['role'] === 'admin';
+}
+
+/**
+ * Tạo một thư viện mới (libraries.php — nút "Tạo thư viện").
+ *
+ * Ba bước đúng thứ tự đặc tả:
+ *   1. INSERT `libraries` với owner = người đang đăng nhập, slug sinh từ tên
+ *      (bỏ dấu bằng bảng tra dùng chung, có hậu tố -2, -3 ... nếu trùng).
+ *   2. INSERT dòng chủ sở hữu vào `library_members` với role 'owner'.
+ *   3. Trả về slug + id để nơi gọi chuyển hướng tới trang chi tiết.
+ *
+ * @return array{ok:bool, message:string, library_id?:int, slug?:string}
+ */
+function wa_library_create(
+    string $name,
+    string $description,
+    string $visibility,
+    string $color,
+    string $icon,
+    int $ownerId
+): array {
+    $name = trim(preg_replace('/\s+/u', ' ', $name) ?? '');
+
+    if ($name === '') {
+        return ['ok' => false, 'message' => 'Vui lòng nhập tên thư viện lưu trữ.'];
+    }
+
+    if (mb_strlen($name) > 150) {
+        return ['ok' => false, 'message' => 'Tên thư viện không được vượt quá 150 ký tự.'];
+    }
+
+    $visibility = in_array($visibility, ['private', 'shared', 'public'], true) ? $visibility : 'private';
+    $colors     = array_column(wa_library_color_options(), 'key');
+    $icons      = array_column(wa_library_icon_options(), 'key');
+    $color      = in_array($color, $colors, true) ? $color : 'a';
+    $icon       = in_array($icon, $icons, true) ? $icon : 'folder_special';
+
+    $description = trim($description);
+
+    $slugInfo = wa_library_unique_slug($name);
+
+    // Bọc trong transaction: thư viện và dòng chủ sở hữu phải cùng thành
+    // công — không bao giờ có thư viện mà không có chủ sở hữu trong library_members.
+    $pdo = db();
+    $pdo->beginTransaction();
+
+    try {
+        $stmt = $pdo->prepare(
+            'INSERT INTO `libraries` (`owner_id`, `name`, `slug`, `description`, `visibility`, `color`, `icon`)
+             VALUES (?, ?, ?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $ownerId,
+            $name,
+            $slugInfo['slug'],
+            $description !== '' ? $description : null,
+            $visibility,
+            $color,
+            $icon,
+        ]);
+
+        $libraryId = (int) $pdo->lastInsertId();
+
+        // DÒNG CHỦ SỞ HỮU — vai trò 'owner' (đặc tả yêu cầu rõ).
+        $owner = $pdo->prepare(
+            "INSERT INTO `library_members` (`library_id`, `user_id`, `role`) VALUES (?, ?, 'owner')"
+        );
+        $owner->execute([$libraryId, $ownerId]);
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+
+        // Trùng slug do hai lần tạo chạy cùng lúc -> thử lại một lần với
+        // hậu tố kế tiếp (wa_library_unique_slug tự dò slug còn trống).
+        if (str_contains($e->getMessage(), 'uq_libraries_slug')) {
+            return wa_library_create($name, $description, $visibility, $color, $icon, $ownerId);
+        }
+
+        error_log('[WebArchive] tao thu vien that bai: ' . $e->getMessage());
+
+        return [
+            'ok'      => false,
+            'message' => 'Không tạo được thư viện. Vui lòng thử lại.',
+        ];
+    }
+
+    return [
+        'ok'          => true,
+        'message'     => 'Đã tạo thư viện “' . $name . '”. Bạn là chủ sở hữu của thư viện này.',
+        'library_id'  => $libraryId,
+        'slug'        => $slugInfo['slug'],
+    ];
+}
+
+/**
+ * Đổi tên + đổi mức hiển thị của một thư viện (chủ sở hữu / quản trị viên).
+ *
+ * Quy tắc slug: nếu TÊN KHÔNG ĐỔI thì GIỮ NGUYÊN slug cũ (để các liên kết đã
+ * chia sẻ không hỏng); chỉ sinh slug mới — kèm hậu tố -2, -3 ... — khi tên thực
+ * sự thay đổi.
+ *
+ * @return array{ok:bool, message:string, slug?:string}
+ */
+function wa_library_update(
+    int $libraryId,
+    string $name,
+    string $description,
+    string $visibility,
+    ?array $actor = null
+): array {
+    $actor = $actor ?? wa_actor();
+
+    if ($actor === null || !wa_can_manage_library($libraryId, $actor)) {
+        return ['ok' => false, 'message' => 'Bạn không có quyền thay đổi thư viện này.'];
+    }
+
+    $name = trim(preg_replace('/\s+/u', ' ', $name) ?? '');
+
+    if ($name === '') {
+        return ['ok' => false, 'message' => 'Vui lòng nhập tên thư viện lưu trữ.'];
+    }
+
+    if (mb_strlen($name) > 150) {
+        return ['ok' => false, 'message' => 'Tên thư viện không được vượt quá 150 ký tự.'];
+    }
+
+    $visibility = in_array($visibility, ['private', 'shared', 'public'], true)
+        ? $visibility
+        : 'private';
+
+    $current = wa_library_by_id($libraryId);
+
+    if ($current === null) {
+        return ['ok' => false, 'message' => 'Không tìm thấy thư viện cần sửa.'];
+    }
+
+    // Tên không đổi -> giữ slug cũ.
+    $nameUnchanged = wa_search_fold((string) $current['name']) === wa_search_fold($name);
+    $slug           = (string) $current['slug'];
+
+    if (!$nameUnchanged) {
+        $slug = wa_library_unique_slug($name, $libraryId)['slug'];
+    }
+
+    $description = trim($description);
+
+    try {
+        $stmt = db()->prepare(
+            'UPDATE `libraries`
+                SET `name` = ?, `slug` = ?, `description` = ?, `visibility` = ?
+              WHERE `id` = ?'
+        );
+        $stmt->execute([
+            $name,
+            $slug,
+            $description !== '' ? $description : null,
+            $visibility,
+            $libraryId,
+        ]);
+    } catch (Throwable $e) {
+        if (str_contains($e->getMessage(), 'uq_libraries_slug')) {
+            return ['ok' => false, 'message' => 'Tên thư viện đã tồn tại với đường dẫn tương ứng. Vui lòng chọn tên khác.'];
+        }
+
+        error_log('[WebArchive] doi ten thu vien that bai: ' . $e->getMessage());
+
+        return ['ok' => false, 'message' => 'Không lưu được thay đổi. Vui lòng thử lại.'];
+    }
+
+    $visLabel = wa_visibility_labels()[$visibility] ?? $visibility;
+
+    return [
+        'ok'      => true,
+        'message' => 'Đã cập nhật thư viện “' . $name . '” — mức hiển thị: ' . $visLabel . '.',
+        'slug'    => $slug,
+    ];
+}
+
+/**
+ * Nạp một thư viện theo id mà KHÔNG lọc quyền (dùng nội bộ trong chính các hàm
+ * quản lý đã kiểm tra quyền trước đó).
+ *
+ * @return array<string,mixed>|null
+ */
+function wa_library_by_id(int $libraryId): ?array
+{
+    $stmt = db()->prepare('SELECT * FROM `libraries` WHERE `id` = ? LIMIT 1');
+    $stmt->execute([$libraryId]);
+
+    $row = $stmt->fetch();
+
+    return $row === false ? null : $row;
+}
+
+/**
+ * Xoá một thư viện: dòng CSDL (qua khoá ngoại) + thư mục ảnh trên đĩa.
+ *
+ * CHỈ CHỦ SỞ HỮU được xoá. Quyền được ép HAI LẦP:
+ *   - ở tầng gọi (library_action.php kiểm tra wa_can_manage_library), và
+ *   - tại đây bằng điều kiện `owner_id = ?` NẰM TRONG CÂU DELETE.
+ *
+ * Điều kiện owner_id trong chính câu DELETE là điểm mấu chốt: kể cả khi ai đó
+ * sửa được mã nguồn hoặc gửi POST bằng tay, câu lệnh vẫn chỉ xoá đúng thư viện
+ * mà họ sở hữu — không bao giờ xoá nhầm thư viện của người khác.
+ *
+ * Bảng `libraries` đã có khoá ngoại ON DELETE CASCADE, nên xoá một dòng thư viện
+ * sẽ tự xoá: library_members, saved_pages -> page_tags, snapshots -> search_terms,
+ * assets, notes. Dòng dữ liệu đã xoá trước khi ghi tên thư mục ảnh (cần id
+ * snapshot để biết đường dẫn trên đĩa).
+ *
+ * @return array{ok:bool, message:string, pages:int, snapshots:int, dirs:int, files:int}
+ */
+function wa_library_delete(int $libraryId, ?array $actor = null): array
+{
+    $actor = $actor ?? wa_actor();
+
+    if ($actor === null) {
+        return [
+            'ok' => false, 'message' => 'Bạn chưa đăng nhập.',
+            'pages' => 0, 'snapshots' => 0, 'dirs' => 0, 'files' => 0,
+        ];
+    }
+
+    // Quyền xoá là của CHỦ SỞ HỮU — quản trị viên KHÔNG xoá được từ đây (đặc tả:
+    // "Delete library: owner only"), nên kiểm tra bằng owner_id thật.
+    $stmt = db()->prepare('SELECT `name`, `slug`, `owner_id` FROM `libraries` WHERE `id` = ? LIMIT 1');
+    $stmt->execute([$libraryId]);
+    $library = $stmt->fetch();
+
+    if ($library === false) {
+        return [
+            'ok' => false, 'message' => 'Không tìm thấy thư viện cần xoá.',
+            'pages' => 0, 'snapshots' => 0, 'dirs' => 0, 'files' => 0,
+        ];
+    }
+
+    if ((int) $library['owner_id'] !== (int) $actor['id']) {
+        return [
+            'ok' => false, 'message' => 'Chỉ chủ sở hữu thư viện mới có thể xoá thư viện này.',
+            'pages' => 0, 'snapshots' => 0, 'dirs' => 0, 'files' => 0,
+        ];
+    }
+
+    // Đếm trước để báo cáo + biết danh sách thư mục ảnh phải dọn.
+    $countStmt = db()->prepare(
+        'SELECT (SELECT COUNT(*) FROM `saved_pages` WHERE `library_id` = :lib_count) AS pages,
+                (SELECT COUNT(*) FROM `snapshots` s
+                   JOIN `saved_pages` sp ON sp.id = s.page_id
+                  WHERE sp.library_id = :lib_snap_count) AS snapshots'
+    );
+    // Hai vị trí so sánh -> hai tên tham số KHÁC NHAU (prepares thật của PDO
+    // không cho phép lặp lại một tên tham số trong cùng câu -> SQLSTATE[HY093]).
+    $countStmt->execute([
+        ':lib_count'       => $libraryId,
+        ':lib_snap_count'  => $libraryId,
+    ]);
+    $counts      = $countStmt->fetch() ?: ['pages' => 0, 'snapshots' => 0];
+    $pageCount   = (int) ($counts['pages'] ?? 0);
+    $snapCount   = (int) ($counts['snapshots'] ?? 0);
+
+    $idsStmt = db()->prepare(
+        'SELECT s.id
+           FROM `snapshots` s
+           JOIN `saved_pages` sp ON sp.id = s.page_id
+          WHERE sp.library_id = ?'
+    );
+    $idsStmt->execute([$libraryId]);
+    $snapshotIds = array_map('intval', array_column($idsStmt->fetchAll(), 'id'));
+
+    // --- Xoá dòng CSDL (CASCADE lo phần còn lại) ---
+    $delete = db()->prepare('DELETE FROM `libraries` WHERE `id` = ? AND `owner_id` = ?');
+    $delete->execute([$libraryId, (int) $actor['id']]);
+
+    if ($delete->rowCount() === 0) {
+        return [
+            'ok' => false, 'message' => 'Không thể xoá thư viện này.',
+            'pages' => $pageCount, 'snapshots' => $snapCount, 'dirs' => 0, 'files' => 0,
+        ];
+    }
+
+    // --- Dọn thư mục ảnh trên đĩa: public/uploads/snapshots/<snapshot_id>/ ---
+    $removedDirs  = 0;
+    $removedFiles = 0;
+
+    foreach ($snapshotIds as $snapshotId) {
+        $dir = WA_PUBLIC . '/uploads/snapshots/' . $snapshotId;
+
+        if (!is_dir($dir)) {
+            continue;
+        }
+
+        $entries = @scandir($dir);
+
+        if ($entries !== false) {
+            foreach ($entries as $entry) {
+                if ($entry === '.' || $entry === '..') {
+                    continue;
+                }
+
+                $path = $dir . '/' . $entry;
+
+                if (is_file($path)) {
+                    if (@unlink($path)) {
+                        $removedFiles++;
+                    }
+                }
+            }
+        }
+
+        if (@rmdir($dir)) {
+            $removedDirs++;
+        }
+    }
+
+    return [
+        'ok'        => true,
+        'message'   => 'Đã xoá thư viện “' . (string) $library['name'] . '” cùng '
+                     . $pageCount . ' bài viết và ' . $snapCount . ' bản snapshot.',
+        'pages'     => $pageCount,
+        'snapshots' => $snapCount,
+        'dirs'      => $removedDirs,
+        'files'     => $removedFiles,
+    ];
+}
+
+/* =============================================================================
+    QUẢN LÝ THÀNH VIÊN — P-LIB
+    -----------------------------------------------------------------------------
+    Ba hành động: thêm theo email, đổi vai trò, gỡ thành viên.
+
+    NGUYÊN TẮC BẢO VỆ DÒNG CHỦ SỞ HỮU được ép TRONG SQL: mệnh đề WHERE của cả
+    ba lệnh UPDATE/DELETE đều có `role <> 'owner'`, nên kể cả khi gửi POST bằng
+    tay cũng không hạ hay gỡ được dòng vai trò 'owner'.
+    ============================================================================= */
+
+/**
+ * Thêm một thành viên vào thư viện theo email.
+ *
+ * @param string $role Chỉ nhận 'editor' hoặc 'viewer' — không bao giờ nhận 'owner'.
+ * @return array{ok:bool, message:string, user_id?:int}
+ */
+function wa_member_add(int $libraryId, string $email, string $role, ?array $actor = null): array
+{
+    $actor = $actor ?? wa_actor();
+
+    if ($actor === null || !wa_can_manage_library($libraryId, $actor)) {
+        return ['ok' => false, 'message' => 'Bạn không có quyền thêm thành viên cho thư viện này.'];
+    }
+
+    $email = trim($email);
+
+    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return ['ok' => false, 'message' => 'Email không đúng định dạng. Ví dụ: ban@example.com'];
+    }
+
+    // Vai trò khi thêm: chỉ editor hoặc viewer — KHÔNG BAO GIỜ owner.
+    if (!in_array($role, ['editor', 'viewer'], true)) {
+        $role = 'viewer';
+    }
+
+    // Email phải thuộc một tài khoản đã tồn tại.
+    $user = auth_find_user_by_email($email);
+
+    if ($user === null) {
+        return ['ok' => false, 'message' => 'Không tìm thấy tài khoản với email này.'];
+    }
+
+    $userId = (int) $user['id'];
+
+    // Không thêm trùng (đã là thành viên rồi).
+    $exists = db()->prepare('SELECT 1 FROM `library_members` WHERE `library_id` = ? AND `user_id` = ? LIMIT 1');
+    $exists->execute([$libraryId, $userId]);
+
+    if ($exists->fetchColumn() !== false) {
+        return ['ok' => false, 'message' => 'Tài khoản này đã là thành viên của thư viện.'];
+    }
+
+    try {
+        $stmt = db()->prepare(
+            'INSERT INTO `library_members` (`library_id`, `user_id`, `role`) VALUES (?, ?, ?)'
+        );
+        $stmt->execute([$libraryId, $userId, $role]);
+    } catch (PDOException $e) {
+        if ($e->getCode() === '23000') {
+            return ['ok' => false, 'message' => 'Tài khoản này đã là thành viên của thư viện.'];
+        }
+
+        throw $e;
+    }
+
+    $roleLabel = wa_member_role_labels()[$role] ?? $role;
+
+    return [
+        'ok'      => true,
+        'message' => 'Đã thêm ' . (string) $user['name'] . ' (' . $email . ') với vai trò ' . $roleLabel . '.',
+        'user_id' => $userId,
+    ];
+}
+
+/**
+ * Đổi vai trò của một thành viên giữa 'editor' và 'viewer'.
+ *
+ * `role <> 'owner'` TRONG CÂU UPDATE: dòng chủ sở hữu không bao giờ bị hạ xuống
+ * vai trò thấp hơn, dù có gửi POST bằng tay.
+ *
+ * @return array{ok:bool, message:string}
+ */
+function wa_member_update_role(int $libraryId, int $userId, string $role, ?array $actor = null): array
+{
+    $actor = $actor ?? wa_actor();
+
+    if ($actor === null || !wa_can_manage_library($libraryId, $actor)) {
+        return ['ok' => false, 'message' => 'Bạn không có quyền thay đổi vai trò thành viên trong thư viện này.'];
+    }
+
+    if (!in_array($role, ['editor', 'viewer'], true)) {
+        return ['ok' => false, 'message' => 'Vai trò không hợp lệ. Chỉ nhận biên tập viên hoặc người xem.'];
+    }
+
+    $stmt = db()->prepare(
+        "UPDATE `library_members`
+            SET `role` = ?
+          WHERE `library_id` = ?
+            AND `user_id` = ?
+            AND `role` <> 'owner'"
+    );
+    $stmt->execute([$role, $libraryId, $userId]);
+
+    if ($stmt->rowCount() === 0) {
+        return ['ok' => false, 'message' => 'Không thay đổi được vai trò (thành viên không tồn tại hoặc là chủ sở hữu).'];
+    }
+
+    $roleLabel = wa_member_role_labels()[$role] ?? $role;
+
+    return ['ok' => true, 'message' => 'Đã đổi vai trò thành viên sang ' . $roleLabel . '.'];
+}
+
+/**
+ * Gỡ một thành viên khỏi thư viện.
+ *
+ * `role <> 'owner'` TRONG CÂU DELETE: dòng chủ sở hữu không bao giờ bị gỡ —
+ * kể cả khi chủ sở hữu tự bấm nút xoá chính mình.
+ *
+ * @return array{ok:bool, message:string}
+ */
+function wa_member_remove(int $libraryId, int $userId, ?array $actor = null): array
+{
+    $actor = $actor ?? wa_actor();
+
+    if ($actor === null || !wa_can_manage_library($libraryId, $actor)) {
+        return ['ok' => false, 'message' => 'Bạn không có quyền gỡ thành viên khỏi thư viện này.'];
+    }
+
+    $stmt = db()->prepare(
+        "DELETE FROM `library_members`
+          WHERE `library_id` = ?
+            AND `user_id` = ?
+            AND `role` <> 'owner'"
+    );
+    $stmt->execute([$libraryId, $userId]);
+
+    if ($stmt->rowCount() === 0) {
+        return ['ok' => false, 'message' => 'Không gỡ được thành viên này (không tồn tại hoặc là chủ sở hữu).'];
+    }
+
+    return ['ok' => true, 'message' => 'Đã gỡ thành viên khỏi thư viện.'];
+}
+
+/* =============================================================================
+    SỬA NHÃN CỦA MỘT TRANG ĐÃ LƯU — P-LIB
+    ============================================================================= */
+
+/**
+ * Chuẩn hoá tên nhãn theo quy ước '#' của dữ liệu sẵn có.
+ *
+ * Dữ liệu mẫu dùng tiền tố '#' cho thẻ hệ thống ('#PHP', '#MySQL'...) và
+ * cả nhãn nhập tự do ('kiem thu', 'snapshot'). Hàm này:
+ *   - gộp khoảng trắng, cắt 64 ký tự (khớp VARCHAR(64) của bảng tags),
+ *   - bỏ ký tự phân tách ( , ; ) ở hai đầu,
+ *   - GIỮ NGUYÊN tiền tố '#' nếu người dùng gõ có (đúng quy ước của seed).
+ *
+ * Quy ước: tiền tố '#' là DẤU HIỆU, không phải ký tự trang trí — nên tên đã có
+ * '#' và tên không có '#' là HAI nhãn khác nhau. Người dùng muốn gộp thì gõ
+ * đúng một hình thức. Ô nhập của giao diện luôn hiển thị đúng tên đang lưu
+ * trong CSDL nên không bao giờ gây nhầm lẫn.
+ *
+ * @return array<string,string> tên đã chuẩn hoá => tên gốc đã chuẩn hoá (loại trùng)
+ */
+function wa_normalize_tag_names(array $names): array
+{
+    $result = [];
+
+    foreach ($names as $name) {
+        $name = trim(preg_replace('/\s+/u', ' ', (string) $name) ?? '');
+        $name = trim($name, ",; \t\n\r\0\x0B");
+
+        if ($name === '') {
+            continue;
+        }
+
+        // Cắt còn 64 ký tự (khớp VARCHAR(64) của bảng `tags`).
+        if (mb_strlen($name) > 64) {
+            $name = rtrim(mb_substr($name, 0, 64, 'UTF-8'));
+        }
+
+        if ($name === '') {
+            continue;
+        }
+
+        // Khoá so sánh KHÔNG phân biệt hoa/thường và dấu (utf8mb4_unicode_ci
+        // của MySQL cũng bỏ dấu khi so khớp) — tránh tạo "#PHP" và "#php" cùng lúc.
+        $key = wa_search_fold($name);
+
+        if (!isset($result[$key])) {
+            $result[$key] = $name;
+        }
+    }
+
+    return $result;
+}
+
+/**
+ * THAY THẾ TOÀN BỘ bộ nhãn của một trang đã lưu.
+ *
+ *   - Tên mới  -> tạo dòng `tags` nếu chưa có, rồi INSERT `page_tags`.
+ *   - Tên bị bỏ -> DELETE dòng `page_tags` tương ứng.
+ *   - Còn giữ   -> giữ nguyên (đã có sẵn trong DB, không đụng tới).
+ *
+ * Không bao giờ xoá dòng khỏi bảng `tags`: thẻ có thể còn dùng cho trang khác,
+ * và bảng `page_tags` đã có khoá ngoại ON DELETE CASCADE nên xoá `tags` sẽ âm
+ * thầm xoá nhãn của các trang khác.
+ *
+ * @param string[] $tagNames Danh sách nhãn MỚI (thay thế hoàn toàn bộ nhãn cũ).
+ * @return array{ok:bool, message:string, added:int, removed:int}
+ */
+function wa_page_tags_replace(int $pageId, array $tagNames, ?array $actor = null): array
+{
+    $actor = $actor ?? wa_actor();
+
+    if ($actor === null) {
+        return ['ok' => false, 'message' => 'Bạn chưa đăng nhập.', 'added' => 0, 'removed' => 0];
+    }
+
+    if (!wa_page_can_edit_tags($pageId, $actor)) {
+        return [
+            'ok' => false,
+            'message' => 'Bạn không có quyền sửa nhãn của trang này.',
+            'added' => 0,
+            'removed' => 0,
+        ];
+    }
+
+    // 1) Chuẩn hoá tên nhãn mới + loại trùng.
+    $wanted = wa_normalize_tag_names($tagNames);
+
+    // 2) Tên nhãn HIỆN TẠI của trang (kèm id để xoá link).
+    $currentStmt = db()->prepare(
+        'SELECT t.id, t.name
+           FROM `tags` t
+           JOIN `page_tags` pt ON pt.tag_id = t.id
+          WHERE pt.page_id = ?
+          ORDER BY t.id'
+    );
+    $currentStmt->execute([$pageId]);
+    $current = $currentStmt->fetchAll();
+
+    $currentIds = [];
+    foreach ($current as $row) {
+        $currentIds[wa_search_fold((string) $row['name'])] = (int) $row['id'];
+    }
+
+    $findTag   = db()->prepare('SELECT id FROM `tags` WHERE name = ? LIMIT 1');
+    $insertTag = db()->prepare('INSERT IGNORE INTO `tags` (`name`) VALUES (?)');
+    $getTagId  = db()->prepare('SELECT id FROM `tags` WHERE name = ? LIMIT 1');
+    $attachTag = db()->prepare(
+        'INSERT IGNORE INTO `page_tags` (`page_id`, `tag_id`) VALUES (?, ?)'
+    );
+    $detachTag = db()->prepare('DELETE FROM `page_tags` WHERE `page_id` = ? AND `tag_id` = ?');
+
+    $added   = 0;
+    $removed = 0;
+
+    $pdo = db();
+    $pdo->beginTransaction();
+
+    try {
+        // 3) Gắn các nhãn mới.
+        foreach ($wanted as $name) {
+            if (isset($currentIds[wa_search_fold($name)])) {
+                continue;   // Trang đang có nhãn này rồi -> giữ nguyên.
+            }
+
+            $findTag->execute([$name]);
+
+            if ($findTag->fetchColumn() === false) {
+                $insertTag->execute([$name]);
+            }
+
+            $getTagId->execute([$name]);
+            $tagId = $getTagId->fetchColumn();
+
+            if ($tagId !== false) {
+                $attachTag->execute([$pageId, (int) $tagId]);
+                $added++;
+            }
+        }
+
+        // 4) Gỡ các nhãn không còn trong danh sách mới.
+        $wantedKeys = array_flip(array_keys($wanted));
+
+        foreach ($currentIds as $key => $tagId) {
+            if (!isset($wantedKeys[$key])) {
+                $detachTag->execute([$pageId, $tagId]);
+                $removed++;
+            }
+        }
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+
+        error_log('[WebArchive] sua nhan that bai: ' . $e->getMessage());
+
+        return [
+            'ok' => false,
+            'message' => 'Không lưu được nhãn. Vui lòng thử lại.',
+            'added' => 0,
+            'removed' => 0,
+        ];
+    }
+
+    return [
+        'ok'      => true,
+        'message' => $wanted === []
+            ? 'Đã xoá hết nhãn của trang này.'
+            : 'Đã cập nhật nhãn: thêm ' . $added . ', gỡ ' . $removed . '.',
+        'added'   => $added,
+        'removed' => $removed,
+    ];
+}
+
+/**
+ * Người dùng có quyền sửa nhãn của một trang đã lưu không?
+ *
+ * Chủ sở hữu / biên tập viên của thư viện chứa trang, hoặc quản trị viên.
+ * Người xem chỉ được XEM nhãn.
+ */
+function wa_page_can_edit_tags(int $pageId, ?array $actor = null): bool
+{
+    $actor = $actor ?? wa_actor();
+
+    if ($actor === null) {
+        return false;
+    }
+
+    if ($actor['role'] === 'admin') {
+        return true;
+    }
+
+    $stmt = db()->prepare(
+        "SELECT 1
+           FROM `saved_pages` sp
+           JOIN `libraries` l ON l.id = sp.library_id
+           LEFT JOIN `library_members` lm ON lm.library_id = l.id AND lm.user_id = :actor
+          WHERE sp.id = :page_id
+            AND (l.owner_id = :owner_id OR lm.role IN ('owner', 'editor'))
+          LIMIT 1"
+    );
+    $stmt->execute([
+        ':actor'    => (int) $actor['id'],
+        ':page_id'  => $pageId,
+        ':owner_id' => (int) $actor['id'],
+    ]);
+
+    return $stmt->fetchColumn() !== false;
+}
+
+/* =============================================================================
     BÀI VIẾT / SNAPSHOT
     ============================================================================= */
 
@@ -562,6 +1393,39 @@ function wa_page_tags(int $pageId): array
 }
 
 /**
+ * Phạm vi của một snapshot: thư viện chứa nó + trạng thái bản lưu.
+ *
+ * Dùng khi cần phân biệt "snapshot không tồn tại" (404) với "snapshot tồn tại
+ * nhưng bạn không có quyền" (403) — hàm này KHÔNG lọc theo quyền nên trả về
+ * thông tin cho mọi snapshot đang có trong CSDL.
+ *
+ * @return array{library_id:int, fetch_status:string, version_no:int}|null
+ */
+function wa_snapshot_scope(int $snapshotId): ?array
+{
+    $stmt = db()->prepare(
+        'SELECT s.fetch_status, s.version_no, sp.library_id
+           FROM `snapshots` s
+           JOIN `saved_pages` sp ON sp.id = s.page_id
+          WHERE s.id = ?
+          LIMIT 1'
+    );
+    $stmt->execute([$snapshotId]);
+
+    $row = $stmt->fetch();
+
+    if ($row === false) {
+        return null;
+    }
+
+    return [
+        'library_id'   => (int) $row['library_id'],
+        'fetch_status' => (string) $row['fetch_status'],
+        'version_no'   => (int) $row['version_no'],
+    ];
+}
+
+/**
  * Lấy một phiên bản snapshot theo id, kèm thông tin trang và thư viện.
  * Tôn trọng quy tắc truy cập của người dùng hiện tại.
  *
@@ -571,8 +1435,7 @@ function wa_page_tags(int $pageId): array
  * @return array<string, mixed>|null
  */
 function wa_find_snapshot(int $snapshotId, ?array $actor = null): ?array
-{
-    $actor = $actor ?? wa_actor();
+{    $actor = $actor ?? wa_actor();
     [$accessSql, $params] = wa_library_access_sql($actor);
 
     $sql = "
@@ -1816,4 +2679,394 @@ function wa_library_role(int $libraryId, ?array $actor = null): ?string
     }
 
     return $row['role'] !== null ? (string) $row['role'] : null;
+}
+
+/* =============================================================================
+    XUẤT KHO ĐỘC LẬP — P-LIB
+    -----------------------------------------------------------------------------
+    Các hàm dựng tệp HTML tải xuống được cho public/export.php. Ba nguyên tắc:
+
+      1. MỌI ảnh cục bộ (/uploads/snapshots/<id>/…) được NHÚNG thẳng thành
+         data URI base64, MIME nhận diện bằng finfo từ nội dung thật của tệp.
+      2. Tệp xuất KHÔNG được tham chiếu tài nguyên ngoài: không <img src="http…">,
+         không <link rel="stylesheet">, không <script src>. Liên kết bài viết bên
+         trong thân vẫn là http(s) tuyệt đối — đó là nội dung, không phải tải về.
+      3. Có đầu nguồn gốc (provenance) đầy đủ để tệp tự giải thích nguồn gốc.
+    ============================================================================= */
+
+/** Kích thước tối đa của tệp xuất (phòng vệ: 64 MB). */
+const WA_EXPORT_MAX_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Tên tệp tải xuống: <slug-tiêu-đề>-v<version_no>.html
+ *
+ * Dùng CHUNG hàm bỏ dấu của dự án (wa_slugify) nên tiêu đề tiếng Việt ra slug
+ * tiếng Việt không dấu, đúng kiểu tên tệp mà người dùng mong đợi.
+ */
+function wa_export_filename(string $title, int $versionNo): string
+{
+    $slug = wa_slugify($title);
+
+    return $slug . '-v' . $versionNo . '.html';
+}
+
+/**
+ * Chuyển MỌI đường dẫn ảnh cục bộ trong content_html thành data URI base64.
+ *
+ * - Xét MỌI `src` BẮT ĐẦU bằng `/` (đường dẫn nội bộ của ứng dụng), không chỉ
+ *   `/uploads/`: ảnh trong bài có thể trỏ tới `/assets/img/…` (sơ đồ của chính
+ *   ứng dụng) và cũng phải được nhúng để tệp mở được ngoại tuyến.
+ * - Đọc tệp từ WA_PUBLIC + đường dẫn, kiểm tra không vượt ra ngoài WA_PUBLIC
+ *   (chặn ../), nhận diện MIME bằng finfo từ bytes thật.
+ * - Nếu đọc tệp thất bại thì GỠ luôn thẻ <img> — không bao giờ để lọt
+ *   `src="/uploads/…"` trong tệp xuất, vì như vậy tệp không còn độc lập.
+ * - Ảnh http(s) bên ngoài (không nên có sau bước tải ảnh) cũng bị gỡ.
+ *
+ * @return string HTML đã nhúng ảnh
+ */
+function wa_export_inline_images(string $contentHtml): string
+{
+    if ($contentHtml === '') {
+        return '';
+    }
+
+    $doc = wa_capture_dom('<html><body>' . $contentHtml . '</body></html>');
+
+    if ($doc === null) {
+        return $contentHtml;
+    }
+
+    $nodes = (new DOMXPath($doc))->query('//img');
+
+    if ($nodes === false) {
+        return $contentHtml;
+    }
+
+    $publicRoot = realpath(WA_PUBLIC);
+
+    foreach (iterator_to_array($nodes) as $img) {
+        if (!$img instanceof DOMElement || $img->parentNode === null) {
+            continue;
+        }
+
+        $src = trim($img->getAttribute('src'));
+
+        if ($src === '') {
+            $img->parentNode->removeChild($img);
+            continue;
+        }
+
+        // Chỉ nhúng được tài nguyên CỤC BỘ (đường dẫn bắt đầu bằng "/").
+        if (!str_starts_with($src, '/')) {
+            $img->parentNode->removeChild($img);
+            continue;
+        }
+
+        $dataUri = wa_export_read_image_data_uri($src, $publicRoot === false ? null : $publicRoot);
+
+        if ($dataUri === null) {
+            // Không đọc được tệp -> gỡ ảnh để tệp xuất luôn độc lập.
+            $img->parentNode->removeChild($img);
+            continue;
+        }
+
+        $img->setAttribute('src', $dataUri);
+    }
+
+    $body = $doc->getElementsByTagName('body')->item(0);
+
+    if ($body === null) {
+        return $contentHtml;
+    }
+
+    $html = (string) $doc->saveHTML($body);
+    $html = (string) preg_replace('#^<body[^>]*>#i', '', $html);
+    $html = (string) preg_replace('#</body>$#i', '', $html);
+
+    return trim($html);
+}
+
+/**
+ * Đọc một ảnh cục bộ và trả về data URI base64 ("data:<mime>;base64,…").
+ *
+ * `$publicRoot` là đường dẫn thật của public/ dùng để chặn đường dẫn bay ra
+ * ngoài (..\/..\/etc\/passwd). Trả null khi không đọc được hoặc không phải ảnh.
+ */
+function wa_export_read_image_data_uri(string $webPath, ?string $publicRoot): ?string
+{
+    $relative = ltrim(substr($webPath, 1), '/');
+
+    if ($relative === '' || str_contains($relative, "\0")) {
+        return null;
+    }
+
+    $fullPath = realpath(WA_PUBLIC . '/' . $relative);
+
+    if ($fullPath === false || !is_file($fullPath)) {
+        return null;
+    }
+
+    // Chặn đường dẫn thoát khỏi public/.
+    if ($publicRoot !== null && !str_starts_with(str_replace('\\', '/', $fullPath), str_replace('\\', '/', $publicRoot) . '/')) {
+        return null;
+    }
+
+    $size = @filesize($fullPath);
+
+    if ($size === false || $size <= 0 || $size > WA_EXPORT_MAX_BYTES) {
+        return null;
+    }
+
+    $bytes = @file_get_contents($fullPath);
+
+    if ($bytes === false || $bytes === '') {
+        return null;
+    }
+
+    // MIME nhận diện từ NỘI DUNG THẬT (finfo), không tin phần mở rộng tệp.
+    $mime = '';
+
+    if (function_exists('finfo_open')) {
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+
+        if ($finfo !== false) {
+            $detected = finfo_buffer($finfo, $bytes);
+            finfo_close($finfo);
+
+            if (is_string($detected)) {
+                $mime = strtolower(trim($detected));
+            }
+        }
+    }
+
+    // Chỉ nhận 4 loại ảnh raster — SVG không được nhúng vì có thể chứa mã thực thi.
+    if (!in_array($mime, ['image/jpeg', 'image/png', 'image/gif', 'image/webp'], true)) {
+        return null;
+    }
+
+    return 'data:' . $mime . ';base64,' . base64_encode($bytes);
+}
+
+/**
+ * Tệp HTML đã dựng có thật sự ĐỘC LẬP không?
+ *
+ * Kiểm tra bằng DOM (KHÔNG phải regex trên chuỗi): regex sẽ báo nhầm khi nội
+ * dung bài chứa HTML đã escape — đó chỉ là TEXT trong bài, không phải tài nguyên
+ * được tải.
+ *   - không <img src="http://…" / "https://…"
+ *   - không còn đường dẫn cục bộ trong thuộc tính tải tài nguyên
+ *   - không <link> stylesheet/script, không <script src>, không <iframe>
+ *
+ * Liên kết <a href="http…"> là NỘI DUNG, không phải tài nguyên tải về nên vẫn
+ * được giữ nguyên — đúng như yêu cầu của đặc tả.
+ */
+function wa_export_html_is_standalone(string $html): bool
+{
+    if ($html === '') {
+        return false;
+    }
+
+    $doc = wa_capture_dom('<html><body>' . $html . '</body></html>');
+
+    if ($doc === null) {
+        return false;
+    }
+
+    $xpath = new DOMXPath($doc);
+
+    // 1) Anh: moi src phai la data URI.
+    $imgs = $xpath->query('//img');
+
+    if ($imgs !== false) {
+        foreach ($imgs as $img) {
+            if (!$img instanceof DOMElement) {
+                continue;
+            }
+
+            if (!str_starts_with(trim($img->getAttribute('src')), 'data:')) {
+                return false;
+            }
+        }
+    }
+
+    // 2) Moi thuoc tinh tai tai nguyen khac (poster, data) cung phai la data URI
+    //    hoac rong — neu khong, tep van can tai nguyen ngoai.
+    $els = $xpath->query('//*[@src or @poster or @data]');
+
+    if ($els !== false) {
+        foreach ($els as $el) {
+            if (!$el instanceof DOMElement) {
+                continue;
+            }
+
+            foreach (['src', 'poster', 'data'] as $attr) {
+                $value = trim($el->getAttribute($attr));
+
+                if ($value !== '' && !str_starts_with($value, 'data:')) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    // 3) Tai nguyen ngoai: stylesheet / script / iframe / object / embed.
+    foreach (['link', 'script', 'iframe', 'object', 'embed', 'audio', 'video', 'source'] as $tag) {
+        $found = $xpath->query('//' . $tag);
+
+        if ($found !== false && $found->length > 0) {
+            return false;
+        }
+    }
+
+    // 4) @import trong CSS.
+    if (preg_match('/@import\b/i', $html) === 1) {
+        return false;
+    }
+
+    return true;
+}
+
+/**
+ * Dựng toàn bộ tệp HTML độc lập: đầu nguồn gốc + <style> tối giản + nội dung.
+ *
+ * @param array<string,mixed>  $article Dòng từ wa_find_snapshot().
+ * @param array{exported_by:string, exported_at:string, role:string, body_html:string} $meta
+ */
+function wa_export_build_document(array $article, array $meta): string
+{
+    $title        = (string) $article['title'];
+    $sourceUrl    = (string) $article['source_url'];
+    $libraryName  = (string) $article['library_name'];
+    $librarySlug  = (string) $article['library_slug'];
+    $versionNo    = (int) $article['version_no'];
+    $fetchedAt    = (string) $article['fetched_at'];
+    $snapshotId   = (int) $article['id'];
+
+    $fetchedLabel  = wa_datetime($fetchedAt);
+    $exportedLabel = wa_datetime((string) $meta['exported_at']);
+
+    $titleRows = '';
+
+    if (is_array($article['tags'] ?? null)) {
+        foreach ($article['tags'] as $tag) {
+            $titleRows .= '<span class="pill">' . wa_e((string) $tag) . '</span>';
+        }
+    }
+
+    return '<!DOCTYPE html>' . "\n"
+        . '<html lang="vi">' . "\n"
+        . '<head>' . "\n"
+        . '<meta charset="utf-8">' . "\n"
+        . '<meta name="viewport" content="width=device-width, initial-scale=1.0">' . "\n"
+        . '<title>' . wa_e($title) . ' — bản lưu ngoại tuyến (v' . $versionNo . ')</title>' . "\n"
+        . '<meta name="generator" content="WebArchive">' . "\n"
+        . '<meta name="wa-snapshot-id" content="SNAP-' . $snapshotId . '">' . "\n"
+        . '<meta name="wa-version" content="' . $versionNo . '">' . "\n"
+        . '<meta name="wa-source-url" content="' . wa_e($sourceUrl) . '">' . "\n"
+        . '<meta name="wa-fetched-at" content="' . wa_e($fetchedAt) . '">' . "\n"
+        . '<meta name="wa-exported-at" content="' . wa_e((string) $meta['exported_at']) . '">' . "\n"
+        . wa_export_inline_style() . "\n"
+        . '</head>' . "\n"
+        . '<body>' . "\n"
+        . wa_export_provenance_header([
+            'title'           => $title,
+            'source_url'      => $sourceUrl,
+            'library_name'    => $libraryName,
+            'library_slug'    => $librarySlug,
+            'version_no'      => $versionNo,
+            'snapshot_id'     => $snapshotId,
+            'fetched_at'      => $fetchedAt,
+            'fetched_label'   => $fetchedLabel,
+            'exported_by'     => (string) $meta['exported_by'],
+            'exported_at'     => (string) $meta['exported_at'],
+            'exported_label'  => $exportedLabel,
+            'role'            => (string) $meta['role'],
+            'tags'            => (string) $article['tags'][0] ?? '',
+            'tags_html'       => $titleRows,
+        ]) . "\n"
+        . '<main class="article">' . "\n"
+        . '<h1>' . wa_e($title) . '</h1>' . "\n"
+        . (string) $meta['body_html'] . "\n"
+        . '</main>' . "\n"
+        . '<footer class="foot">'
+        . 'Bản lưu ngoại tuyến của WebArchive · ' . wa_e($libraryName)
+        . ' · Phiên bản ' . $versionNo . ' · Xuất lúc ' . wa_e($exportedLabel)
+        . '</footer>' . "\n"
+        . '</body>' . "\n"
+        . '</html>' . "\n";
+}
+
+/**
+ * Đầu nguồn gốc (provenance) — khối thông tin bắt buộc ở đầu tệp xuất.
+ *
+ * Tất cả giá trị đều được escape; tệp này đọc ngoại tuyến nên không được phép
+ * có bất kỳ tham chiếu tài nguyên ngoài nào (kể cả logo hay stylesheet).
+ *
+ * @param array<string,string> $d
+ */
+function wa_export_provenance_header(array $d): string
+{
+    return '<header class="prov">' . "\n"
+        . '  <p class="prov__kicker">Bản lưu ngoại tuyến — WebArchive</p>' . "\n"
+        . '  <dl class="prov__grid">' . "\n"
+        . wa_export_row('Tiêu đề bài viết', wa_e($d['title'])) . "\n"
+        . wa_export_row('URL nguồn', '<a href="' . wa_e($d['source_url']) . '" rel="noopener noreferrer">' . wa_e($d['source_url']) . '</a>') . "\n"
+        . wa_export_row('Thư viện', wa_e($d['library_name']) . ' <span class="prov__dim">(library.php?slug=' . wa_e($d['library_slug']) . ')</span>') . "\n"
+        . wa_export_row('Phiên bản', '<strong>Phiên bản ' . (int) $d['version_no'] . '</strong> · SNAP-' . (int) $d['snapshot_id']) . "\n"
+        . wa_export_row('Thời điểm tải', wa_e($d['fetched_label']) . ' <span class="prov__dim">(' . wa_e($d['fetched_at']) . ')</span>') . "\n"
+        . wa_export_row('Người xuất', wa_e($d['exported_by']) . ' · ' . wa_e($d['role']) . ' · ' . wa_e($d['exported_label'])) . "\n"
+        . '  </dl>' . "\n"
+        . '  <p class="prov__note">Tệp này đã nhúng toàn bộ hình ảnh dưới dạng dữ liệu nhúng (base64) nên mở được hoàn toàn ngoại tuyến.</p>' . "\n"
+        . '</header>';
+}
+
+/**
+ * Một dòng <dt>/<dd> của khối đầu nguồn gốc. $value đã escape sẵn từ nơi gọi.
+ */
+function wa_export_row(string $key, string $value): string
+{
+    return '    <div class="prov__row"><dt>' . wa_e($key) . '</dt><dd>' . $value . '</dd></div>';
+}
+
+/**
+ * Khối CSS TỐI GIẢN nằm INLINE trong <head> — không dùng stylesheet ngoài.
+ *
+ * Chỉ dùng phông hệ thống (không tải Google Fonts) để tệp không cần mạng.
+ */
+function wa_export_inline_style(): string
+{
+    return '<style>' . "\n"
+        . '  :root { color-scheme: light; }' . "\n"
+        . '  * { box-sizing: border-box; }' . "\n"
+        . '  body { margin: 0; padding: 32px 16px 64px; background: #F5F7F9; color: #1F2937;'
+        . ' font: 16px/1.75 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }' . "\n"
+        . '  .prov { max-width: 780px; margin: 0 auto 28px; padding: 18px 20px; background: #fff;'
+        . ' border: 1px solid #E2E8F0; border-radius: 12px; }' . "\n"
+        . '  .prov__kicker { margin: 0 0 12px; font-size: 11px; font-weight: 700; letter-spacing: .09em;'
+        . ' text-transform: uppercase; color: #289C91; }' . "\n"
+        . '  .prov__grid { margin: 0; display: grid; gap: 8px; }' . "\n"
+        . '  .prov__row { display: grid; grid-template-columns: 150px 1fr; gap: 12px; font-size: 14px; }' . "\n"
+        . '  .prov__row dt { margin: 0; color: #74777E; font-weight: 600; }' . "\n"
+        . '  .prov__row dd { margin: 0; word-break: break-word; }' . "\n"
+        . '  .prov__dim { color: #74777E; font-size: 12px; }' . "\n"
+        . '  .prov__note { margin: 14px 0 0; padding-top: 12px; border-top: 1px solid #E2E8F0;'
+        . ' font-size: 13px; color: #74777E; }' . "\n"
+        . '  .article { max-width: 780px; margin: 0 auto; padding: 8px 4px; }' . "\n"
+        . '  .article h1 { margin: 0 0 18px; font-size: 30px; line-height: 1.3; color: #152F4A; }' . "\n"
+        . '  .article h2 { margin: 28px 0 10px; font-size: 22px; line-height: 1.35; color: #152F4A; }' . "\n"
+        . '  .article h3 { margin: 22px 0 8px; font-size: 18px; color: #24476B; }' . "\n"
+        . '  .article p, .article li { margin: 0 0 14px; }' . "\n"
+        . '  .article img { max-width: 100%; height: auto; margin: 8px 0 14px; border-radius: 8px; }' . "\n"
+        . '  .article figure { margin: 20px 0; }' . "\n"
+        . '  .article figcaption { font-size: 13px; color: #74777E; }' . "\n"
+        . '  .article blockquote { margin: 18px 0; padding: 10px 16px; border-left: 3px solid #315E91;'
+        . ' background: #FAFBFD; color: #24476B; font-style: italic; }' . "\n"
+        . '  .article pre { overflow-x: auto; padding: 14px; border-radius: 8px; background: #101F30;'
+        . ' color: #D7E3F2; font-size: 13px; }' . "\n"
+        . '  .article table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px; }' . "\n"
+        . '  .article th, .article td { padding: 8px 10px; border: 1px solid #E2E8F0; text-align: left; }' . "\n"
+        . '  .article a { color: #315E91; }' . "\n"
+        . '  .foot { max-width: 780px; margin: 32px auto 0; padding-top: 14px;'
+        . ' border-top: 1px solid #E2E8F0; font-size: 12px; color: #74777E; }' . "\n"
+        . '</style>';
 }

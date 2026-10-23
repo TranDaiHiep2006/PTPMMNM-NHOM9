@@ -42,7 +42,6 @@ $allTags = wa_all_tags();
 // Điều kiện "đã thực sự tìm" để quyết định hiện thông báo kết quả hay gợi ý.
 $hasQuery = wa_search_query_terms($query) !== [];
 $hasFilter = $tagFilter !== '' || $domainFilter !== '';
-
 $pageTitle = 'Tìm kiếm nội dung';
 require __DIR__ . '/../templates/header_app.php';
 ?>
@@ -125,12 +124,23 @@ require __DIR__ . '/../templates/header_app.php';
 
 <!-- ===================== KẾT QUẢ ===================== -->
 <div style="margin-top:24px">
-  <?php if ($hasQuery): ?>
+  <?php if ($hasQuery || $hasFilter): ?>
     <p class="t-body-md t-muted" style="margin-bottom:16px">
-      Tìm thấy <strong class="t-primary"><?= count($results) ?></strong> kết quả cho
-      “<strong class="t-primary"><?= wa_e($query) ?></strong>” trong nội dung đã lưu.
-      Xếp theo điểm <code>3 × (số lần trong tiêu đề) + (số lần trong thân)</code>,
-      sau đó tới bản lưu mới nhất.
+      Tìm thấy <strong class="t-primary"><?= count($results) ?></strong> kết quả
+      <?php if ($hasQuery): ?>
+        cho “<strong class="t-primary"><?= wa_e($query) ?></strong>”
+      <?php endif; ?>
+      <?php if ($tagFilter !== ''): ?>
+        với nhãn <strong class="t-primary"><?= wa_e($tagFilter) ?></strong>
+      <?php endif; ?>
+      <?php if ($domainFilter !== ''): ?>
+        từ miền <strong class="t-primary"><?= wa_e($domainFilter) ?></strong>
+      <?php endif; ?>
+      trong nội dung đã lưu.
+      <?php if ($hasQuery): ?>
+        Xếp theo điểm <code>3 × (số lần trong tiêu đề) + (số lần trong thân)</code>,
+        sau đó tới bản lưu mới nhất.
+      <?php endif; ?>
     </p>
   <?php endif; ?>
 
@@ -182,13 +192,17 @@ require __DIR__ . '/../templates/header_app.php';
     </div>
   <?php endforeach; ?>
 
-  <?php if ($hasQuery && $results === []): ?>
+  <?php if (($hasQuery || $hasFilter) && $results === []): ?>
     <div class="empty">
       <span class="ms ms-32">search_off</span>
       <h3>Không tìm thấy kết quả nào</h3>
       <p>
-        Không có bản snapshot nào chứa <b>tất cả</b> các từ trong
-        “<strong><?= wa_e($query) ?></strong>” mà bạn được phép xem.
+        <?php if ($hasQuery): ?>
+          Không có bản snapshot nào chứa <b>tất cả</b> các từ trong
+          “<strong><?= wa_e($query) ?></strong>” mà bạn được phép xem.
+        <?php else: ?>
+          Không có bản snapshot nào khớp với bộ lọc mà bạn đang chọn.
+        <?php endif; ?>
         Hãy thử một từ khoá khác, bỏ bớt từ (vì nhiều từ là điều kiện <b>và</b>),
         hoặc xoá bớt điều kiện lọc.
       </p>

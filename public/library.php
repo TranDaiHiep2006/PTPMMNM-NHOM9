@@ -5,6 +5,20 @@
  * Bám theo bản tham chiếu (code2.html): breadcrumb, số liệu thư viện, bảng
  * thành viên & nhãn, thẻ bài viết, phân trang và bảng lưu URL hiển thị TRẠNG
  * THÁI THÀNH CÔNG.
+ *
+ * ── P-LIB: ba khối quản lý MỚI, đều POST + CSRF sang library_action.php ────
+ *   1. CÀI ĐẶT THƯ VIỆN (chủ sở hữu / quản trị viên): đổi tên + đổi mức hiển
+ *      thị, và XOÁ thư viện (bước xác nhận hai lần, xoá cả dòng CSDL lẫn thư mục
+ *      ảnh trên đĩa). Người không phải chủ sở hữu KHÔNG thấy các nút này và nếu
+ *      gửi POST thẳng bằng tay thì bị chặn ở tầng SQL (và 403 nếu không thuộc
+ *      thư viện).
+ *   2. QUẢN LÝ THÀNH VIÊN (chủ sở hữu / quản trị viên): thêm theo email với
+ *      vai trò biên tập viên / người xem, đổi vai trò, gỡ thành viên. Dòng chủ
+ *      sở hữu không bao giờ bị hạ hoặc gỡ — điều kiện `role <> 'owner'` nằm
+ *      TRONG CÂU UPDATE/DELETE.
+ *   3. SỬA NHÃN TỪNG BÀI: mỗi thẻ bài viết có ô nhập nhãn phân tách bằng dấu
+ *      phẩy cho người có quyền sửa (chủ sở hữu / biên tập viên / quản trị viên);
+ *      người xem chỉ xem nhãn.
  */
 
 declare(strict_types=1);
@@ -34,23 +48,63 @@ if ($library === null) {
     exit;
 }
 
-$articles = wa_library_articles((int) $library['id']);
-$members = wa_library_members((int) $library['id']);
+$libraryId = (int) $library['id'];
+
+$articles = wa_library_articles($libraryId);
+$members  = wa_library_members($libraryId);
+
+/* ---------------------------------------------------------------------------
+ * P-LIB / Deliverable 3 — chuẩn bị dữ liệu cho ô SỬA NHÃN trên từng thẻ bài viết.
+ * Mỗi bài mang theo:
+ *   can_edit     — người xem hiện tại có quyền sửa nhãn bài này không (SQL tự ép).
+ *   tag_input    — chuỗi nhãn sẵn để nhét vào ô nhập, phân tách bằng dấu phẩy,
+ *                  GIỮ NGUYÊN quy ước '#' của hệ thống (tức #tên-nhãn).
+ *   tags_display — danh sách nhãn để hiển thị read-only cho người xem.
+ * `wa_page_tags()` đã trả về tên kèm dấu '#' sẵn (xem hàm đó).
+ * ------------------------------------------------------------------------- */
+foreach ($articles as &$article) {
+    $pageId = (int) $article['id'];
+
+    $article['can_edit']     = wa_page_can_edit_tags($pageId);
+    $article['tags_display'] = $article['tags'];
+    $article['tag_count']    = count($article['tags']);
+    $article['tag_input']    = implode(', ', $article['tags']);
+}
+unset($article);
+
+/* ---------------------------------------------------------------------------
+ * Phân quyền P-LIB (quyết định cái gì hiện, cái gì cho phép gửi):
+ *   $canManage  — chủ sở hữu hoặc quản trị viên: đổi tên / đổi hiển thị / xoá /
+ *                 quản lý thành viên.
+ *   $canEditLib — chủ sở hữu / biên tập viên / quản trị viên: sửa nhãn bài viết
+ *                 và xem mục "Lưu thất bại gần đây".
+ * Các hàm trong src/queries.php ép lại đúng các điều kiện này TRONG SQL, nên
+ * ẩn/hiện nút trên giao diện chỉ là lớp trình bày, không phải hàng rào bảo mật.
+ * ------------------------------------------------------------------------- */
+$canManage   = wa_can_manage_library($libraryId);
+$canEditLib  = wa_can_write_library($libraryId) || wa_is_admin();
+$isOwnerHere = ((int) $library['owner_id'] === (int) (wa_actor()['id'] ?? -1));
 
 // P-READ: những trang CHƯA từng có bản thành công không hiện trong danh sách bài
 // viết; chúng hiện ở mục "Lưu thất bại gần đây" bên dưới, chỉ dành cho người có
 // quyền biên tập (chủ sở hữu / biên tập viên / quản trị viên).
-$canEditLibrary = wa_can_write_library((int) $library['id']) || wa_is_admin();
-$failedAttempts = $canEditLibrary
-    ? wa_library_failed_attempts((int) $library['id'], 5)
+$failedAttempts = $canEditLib
+    ? wa_library_failed_attempts($libraryId, 5)
     : [];
+
+// Thông báo flash do library_action.php gửi lại sau khi chuyển hướng.
+$flash = null;
+if (isset($_SESSION['wa_flash']) && is_array($_SESSION['wa_flash'])) {
+    $flash = $_SESSION['wa_flash'];
+    unset($_SESSION['wa_flash']);
+}
 
 // Số liệu tổng hợp của thư viện (lấy từ CSDL).
 $library['article_count'] = count($articles);
 $library['image_count']   = array_sum(array_column($articles, 'image_count'));
 $library['size_bytes']    = array_sum(array_column($articles, 'size_bytes'));
 $library['member_count']  = count($members);
-$library['tags']          = wa_library_tags((int) $library['id']);
+$library['tags']          = wa_library_tags($libraryId);
 $library['tag_count']     = count($library['tags']);
 $library['storage_label'] = wa_format_mb($library['size_bytes']);
 $library['asset_size']    = $library['storage_label'];
@@ -58,7 +112,7 @@ $library['broken_images'] = 0;
 $library['integrity']     = '100% nguyên vẹn';
 $library['updated']       = 'Cập nhật ' . wa_datetime((string) $library['created_at']);
 
-// Phân trang (mô phỏng giao diện): 6 bài mỗi trang.
+// Phân trang: 6 bài mỗi trang.
 $perPage = 6;
 $totalPages = max(1, (int) ceil(count($articles) / $perPage));
 $page = max(1, min($totalPages, (int) ($_GET['page'] ?? 1)));
@@ -103,20 +157,45 @@ require __DIR__ . '/../templates/header_app.php';
   </div>
 
   <div class="pagehead__actions">
-    <button class="btn btn--outline" type="button">
-      <span class="ms ms-18">group</span>
-      Quản lý thành viên (<?= $library['member_count'] ?>)
-    </button>
-    <button class="btn btn--outline" type="button">
-      <span class="ms ms-18">sell</span>
-      Quản lý nhãn (<?= $library['tag_count'] ?>)
-    </button>
+    <!-- P-LIB: các nút quản lý chỉ hiện với chủ sở hữu / quản trị viên. Người
+         khác không thấy; nếu gửi POST thẳng bằng tay vẫn bị chặn ở tầng SQL. -->
+    <?php if ($canManage): ?>
+      <button class="btn btn--outline" type="button" data-modal-open="modal-members">
+        <span class="ms ms-18">group</span>
+        Quản lý thành viên (<?= $library['member_count'] ?>)
+      </button>
+      <button class="btn btn--outline" type="button" data-modal-open="modal-settings">
+        <span class="ms ms-18">settings</span>
+        Cài đặt thư viện
+      </button>
+    <?php else: ?>
+      <span class="chip chip--plain">
+        <span class="ms ms-14">visibility</span>
+        Bạn xem với vai trò <?= wa_e($library['role_label']) ?>
+      </span>
+    <?php endif; ?>
     <a class="btn btn--dark" href="#quick-capture">
       <span class="ms ms-18">add_link</span>
       Lưu trang Web mới
     </a>
   </div>
 </div>
+
+<?php if ($flash !== null): ?>
+  <div class="state <?= (string) ($flash['type'] ?? '') === 'success' ? 'state--success' : 'state--error' ?>" role="status" style="margin-bottom:20px">
+    <div class="state__body">
+      <span class="state__icon">
+        <span class="ms ms-18 ms-fill">
+          <?= (string) ($flash['type'] ?? '') === 'success' ? 'check_circle' : 'error_outline' ?>
+        </span>
+      </span>
+      <div>
+        <span class="state__title"><?= (string) ($flash['type'] ?? '') === 'success' ? 'Thành công' : 'Không thực hiện được' ?></span>
+        <p class="state__text"><?= wa_e((string) ($flash['text'] ?? '')) ?></p>
+      </div>
+    </div>
+  </div>
+<?php endif; ?>
 
 <!-- ===================== C. SỐ LIỆU ===================== -->
 <div class="stat-cards" style="margin-bottom:24px">
@@ -251,7 +330,10 @@ require __DIR__ . '/../templates/header_app.php';
   </div>
 </div>
 
-<!-- ===================== G. THÀNH VIÊN & NHÃN ===================== -->
+<!-- ===================== G. THÀNH VIÊN & NHÃN =====================
+     Bảng thành viên PHẢN ÁNH NGAY CSDL sau mỗi hành động: nó được nạp lại từ
+     wa_library_members() ở đầu trang, còn mọi POST đều chuyển hướng (PRG) nên
+     không bao giờ hiển thị trạng thái cũ. -->
 <div class="two-col" style="margin-bottom:24px">
   <div class="two-col__main panel">
     <div class="panel__head">
@@ -259,17 +341,96 @@ require __DIR__ . '/../templates/header_app.php';
         <span class="ms ms-16">badge</span>
         Thành viên &amp; Phân quyền thư viện (<?= $library['member_count'] ?>)
       </span>
-      <a class="t-label-sm t-accent" href="#" style="font-weight:500">+ Mời thêm</a>
+      <?php if ($canManage): ?>
+        <button class="t-label-sm t-accent" type="button" data-modal-open="modal-members"
+                style="font-weight:500;background:none;border:0;cursor:pointer">+ Mời thêm</button>
+      <?php endif; ?>
     </div>
-    <div class="member-list">
-      <?php foreach ($members as $member): ?>
-        <span class="member-pill">
-          <span class="avatar avatar--<?= wa_e($member['variant']) ?>"><?= wa_e($member['initials']) ?></span>
-          <span class="member-pill__name"><?= wa_e($member['name']) ?></span>
-          <span class="member-pill__role member-pill__role--<?= wa_e($member['role']) ?>"><?= wa_e($member['role_label']) ?></span>
-        </span>
-      <?php endforeach; ?>
+
+    <div class="table-wrap" style="box-shadow:none;border-radius:var(--wa-radius-lg)">
+      <table class="table" style="min-width:520px">
+        <thead>
+          <tr>
+            <th>Tài khoản</th>
+            <th>Email</th>
+            <th>Vai trò</th>
+            <?php if ($canManage): ?><th style="text-align:right">Thao tác</th><?php endif; ?>
+          </tr>
+        </thead>
+        <tbody>
+          <?php foreach ($members as $member): ?>
+            <tr>
+              <td>
+                <span class="row" style="gap:8px;flex-wrap:nowrap">
+                  <span class="avatar avatar--<?= wa_e($member['variant']) ?>" style="width:30px;height:30px;flex:0 0 30px">
+                    <?= wa_e($member['initials']) ?>
+                  </span>
+                  <span>
+                    <span class="cell-main" style="display:block"><?= wa_e($member['name']) ?></span>
+                    <?php if ((string) $member['role'] === 'owner'): ?>
+                      <span class="cell-sub">Chủ sở hữu thư viện</span>
+                    <?php endif; ?>
+                  </span>
+                </span>
+              </td>
+              <td class="t-muted"><?= wa_e($member['email']) ?></td>
+              <td>
+                <?php if ($canManage && (string) $member['role'] !== 'owner'): ?>
+                  <!-- Đổi vai trò: chỉ chuyển qua lại giữa biên tập viên / người xem.
+                       Dòng chủ sở hữu KHÔNG có nút này (và SQL cũng chặn). -->
+                  <form method="post" action="<?= wa_e(wa_url('library_action.php')) ?>" style="display:inline">
+                    <?= wa_csrf_field() ?>
+                    <input type="hidden" name="action" value="member_role">
+                    <input type="hidden" name="library_id" value="<?= $libraryId ?>">
+                    <input type="hidden" name="user_id" value="<?= (int) $member['id'] ?>">
+                    <input type="hidden" name="role"
+                           value="<?= (string) $member['role'] === 'editor' ? 'viewer' : 'editor' ?>">
+                    <button class="btn btn--outline btn--sm" type="submit"
+                            title="Đổi vai trò của thành viên này">
+                      <span class="member-pill__role member-pill__role--<?= wa_e($member['role']) ?>">
+                        <?= wa_e($member['role_label']) ?>
+                      </span>
+                    </button>
+                  </form>
+                <?php else: ?>
+                  <span class="member-pill__role member-pill__role--<?= wa_e($member['role']) ?>">
+                    <?= wa_e($member['role_label']) ?>
+                  </span>
+                <?php endif; ?>
+              </td>
+
+              <?php if ($canManage): ?>
+                <td style="text-align:right">
+                  <?php if ((string) $member['role'] === 'owner'): ?>
+                    <!-- Dòng chủ sở hữu: KHÔNG có nút gỡ — và SQL chặn `role <> 'owner'`
+                         nên gửi thẳng POST cũng không xoá được. -->
+                    <span class="t-label-sm t-muted">Không thể gỡ</span>
+                  <?php else: ?>
+                    <form method="post" action="<?= wa_e(wa_url('library_action.php')) ?>" style="display:inline"
+                          onsubmit="return confirm('Gỡ <<?= wa_e($member['name']) ?> khỏi thư viện?');">
+                      <?= wa_csrf_field() ?>
+                      <input type="hidden" name="action" value="member_remove">
+                      <input type="hidden" name="library_id" value="<?= $libraryId ?>">
+                      <input type="hidden" name="user_id" value="<?= (int) $member['id'] ?>">
+                      <button class="btn btn--danger-ghost btn--sm" type="submit" title="Gỡ khỏi thư viện">
+                        <span class="ms ms-14">person_remove</span> Gỡ
+                      </button>
+                    </form>
+                  <?php endif; ?>
+                </td>
+              <?php endif; ?>
+            </tr>
+          <?php endforeach; ?>
+        </tbody>
+      </table>
     </div>
+
+    <?php if (!$canManage): ?>
+      <p class="t-label-sm t-muted" style="margin-top:10px">
+        Bạn đang xem với vai trò <strong><?= wa_e($library['role_label']) ?></strong>.
+        Chỉ chủ sở hữu thư viện mới thêm, đổi vai trò hoặc gỡ thành viên.
+      </p>
+    <?php endif; ?>
   </div>
 
   <div class="two-col__side panel">
@@ -281,10 +442,16 @@ require __DIR__ . '/../templates/header_app.php';
       <span class="t-label-sm t-muted">Lọc nhanh</span>
     </div>
     <div class="row" style="gap:6px">
-      <?php foreach ($library['tags'] as $index => $tag): ?>
-        <button class="tag <?= $index === 0 ? 'tag--active' : 'tag--btn' ?>" type="button"><?= wa_e($tag) ?></button>
+      <?php foreach ($library['tags'] as $tagIndex => $tag): ?>
+        <a class="tag <?= $tagIndex === 0 ? 'tag--active' : 'tag--btn' ?>"
+           href="<?= wa_e(wa_url('search.php?tag=' . urlencode($tag))) ?>"
+           title="Mở Tìm kiếm lọc theo nhãn <?= wa_e($tag) ?>"><?= wa_e($tag) ?></a>
       <?php endforeach; ?>
     </div>
+    <p class="t-label-sm t-muted" style="margin-top:12px">
+      Bấm vào một nhãn để mở <a href="<?= wa_e(wa_url('search.php')) ?>">Tìm kiếm</a> đã lọc theo nhãn đó.
+      Sửa nhãn của từng bài viết tại ô <b>Nhãn</b> trên mỗi thẻ bài viết bên dưới.
+    </p>
   </div>
 </div>
 
@@ -335,10 +502,47 @@ require __DIR__ . '/../templates/header_app.php';
           <h3 class="t-clamp-2"><?= wa_e($article['title']) ?></h3>
           <p class="article-card__excerpt t-clamp-2"><?= wa_e($article['excerpt']) ?></p>
 
+          <!-- ===== P-LIB / Deliverable 3: SỬA NHÃN TẠI CHỖ =====
+               Người có quyền sửa (chủ sở hữu / biên tập viên / quản trị viên) thấy
+               ô nhập nhãn phân tách bằng dấu phẩy; người xem chỉ xem nhãn ở dạng
+               liên kết tới Tìm kiếm đã lọc. Cả hai đều lấy dữ liệu từ CSDL. -->
           <div class="article-card__tags">
-            <?php foreach ($article['tags'] as $tag): ?>
-              <span class="tag"><?= wa_e($tag) ?></span>
-            <?php endforeach; ?>
+            <?php if ($article['can_edit']): ?>
+              <form method="post" action="<?= wa_e(wa_url('library_action.php')) ?>" class="article-tags-form">
+                <?= wa_csrf_field() ?>
+                <input type="hidden" name="action" value="tags">
+                <input type="hidden" name="library_id" value="<?= $libraryId ?>">
+                <input type="hidden" name="page_id" value="<?= (int) $article['id'] ?>">
+                <label class="article-tags-form__label" for="tags-<?= (int) $article['id'] ?>">
+                  <span class="ms ms-14">sell</span> Nhãn
+                  <span class="t-muted" style="font-weight:400">— cách nhau bằng dấu phẩy</span>
+                </label>
+                <div class="article-tags-form__row">
+                  <input class="input input--sm" id="tags-<?= (int) $article['id'] ?>" type="text" name="tags"
+                         value="<?= wa_e($article['tag_input']) ?>" maxlength="500"
+                         placeholder="#nhãn-1, #nhãn-2, ..."
+                         style="flex:1;min-width:0">
+                  <button class="btn btn--primary btn--sm" type="submit">
+                    <span class="ms ms-14">save</span> Lưu nhãn
+                  </button>
+                </div>
+                <?php if ($article['tag_count'] > 0): ?>
+                  <div class="article-tags-form__chips">
+                    <?php foreach ($article['tags_display'] as $tag): ?>
+                      <span class="tag tag--btn"><?= wa_e($tag) ?></span>
+                    <?php endforeach; ?>
+                  </div>
+                <?php endif; ?>
+              </form>
+            <?php else: ?>
+              <?php foreach ($article['tags_display'] as $tag): ?>
+                <a class="tag tag--btn"
+                   href="<?= wa_e(wa_url('search.php?tag=' . urlencode($tag))) ?>"><?= wa_e($tag) ?></a>
+              <?php endforeach; ?>
+              <?php if ($article['tag_count'] === 0): ?>
+                <span class="t-label-sm t-muted">chưa có nhãn</span>
+              <?php endif; ?>
+            <?php endif; ?>
           </div>
 
           <span class="article-card__status">
@@ -389,7 +593,7 @@ require __DIR__ . '/../templates/header_app.php';
      Các trang chưa từng có bản thành công KHÔNG nằm trong lưới bài viết ở trên
      (nguyên tắc: trang lỗi không bao giờ thành bài đọc được). Chúng hiện ở mục
      riêng này, tối đa 5 lần mới nhất, chỉ với người có quyền biên tập thư viện. -->
-<?php if ($canEditLibrary && $failedAttempts !== []): ?>
+<?php if ($canEditLib && $failedAttempts !== []): ?>
   <div class="two-col__side panel" style="margin-top:24px">
     <div class="panel__head">
       <span class="panel__label">
@@ -424,6 +628,170 @@ require __DIR__ . '/../templates/header_app.php';
   </div>
 <?php endif; ?>
 
+<!-- ===================== MODAL: CÀI ĐẶT THƯ VIỆN (Deliverable 1) =====================
+     Đổi tên / đổi mức hiển thị / xoá thư viện. Cả ba đều là action="update" hoặc
+     action="delete" của library_action.php và đều có ô CSRF. -->
+<?php if ($canManage): ?>
+  <div class="modal-backdrop" id="modal-settings" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-settings-title">
+      <div class="modal__head">
+        <h2 class="t-headline-sm" style="font-weight:700" id="modal-settings-title">
+          <span class="ms ms-18" style="color:var(--wa-primary)">settings</span> Cài đặt thư viện
+        </h2>
+        <button class="btn btn--ghost" type="button" data-modal-close aria-label="Đóng">
+          <span class="ms ms-18">close</span>
+        </button>
+      </div>
+
+      <div class="stack">
+        <!-- ---- 1a. ĐỔI TÊN (và mô tả) ---- -->
+        <form method="post" action="<?= wa_e(wa_url('library_action.php')) ?>">
+          <?= wa_csrf_field() ?>
+          <input type="hidden" name="action" value="update">
+          <input type="hidden" name="library_id" value="<?= $libraryId ?>">
+
+          <div class="field">
+            <label for="settings-name">Tên thư viện <span class="t-error">*</span></label>
+            <input class="input" id="settings-name" type="text" name="name" required maxlength="150"
+                   value="<?= wa_e($library['name']) ?>">
+            <p class="t-label-sm t-muted" style="margin-top:6px">
+              Đường dẫn hiện tại: <code><?= wa_e(wa_url('library.php?slug=' . $library['slug'])) ?></code>.<br>
+              Đổi tên sẽ sinh slug mới từ tên đã bỏ dấu (bỏ dấu tiếng Việt);
+              <b>giữ nguyên slug cũ nếu tên không đổi</b> để không phá liên kết đã chia sẻ.
+              Nếu slug mới đã có, hệ thống tự thêm hậu tố <code>-2</code>, <code>-3</code>…
+            </p>
+          </div>
+
+          <div class="field">
+            <label for="settings-desc">Mô tả</label>
+            <textarea class="input" id="settings-desc" name="description" rows="3"
+                      maxlength="500"><?= wa_e($library['description']) ?></textarea>
+          </div>
+
+          <div class="field">
+            <span style="font-size:12px;line-height:16px;font-weight:600;color:var(--wa-text)">Mức hiển thị</span>
+            <div class="row" style="gap:8px;flex-wrap:wrap">
+              <?php foreach (wa_library_visibility_options() as $visOption): ?>
+                <label class="row" style="gap:6px;flex-wrap:nowrap;cursor:pointer">
+                  <input type="radio" name="visibility" value="<?= wa_e($visOption['key']) ?>"
+                         <?= (string) $library['visibility'] === (string) $visOption['key'] ? 'checked' : '' ?>>
+                  <span style="font-size:13px"><?= wa_e($visOption['label']) ?></span>
+                </label>
+              <?php endforeach; ?>
+            </div>
+            <p class="t-label-sm t-muted" style="margin-top:6px">
+              <b>Riêng tư</b>: chỉ thành viên. <b>Dùng chung</b>: thành viên + mời được.
+              <b>Công khai</b>: ai có đường dẫn cũng xem được.
+            </p>
+          </div>
+
+          <div class="row row--between">
+            <button class="btn btn--outline" type="button" data-modal-close>Hủy</button>
+            <button class="btn btn--primary" type="submit">
+              <span class="ms ms-18">save</span> Lưu cài đặt
+            </button>
+          </div>
+        </form>
+
+        <!-- ---- 1b. XOÁ THƯ VIỆN (chủ sở hữu; hai bước xác nhận) ---- -->
+        <div class="divider"></div>
+
+        <?php if ($isOwnerHere): ?>
+          <form class="stack stack--sm" method="post" action="<?= wa_e(wa_url('library_action.php')) ?>"
+                onsubmit="return wa_confirm_delete_library(this);">
+            <?= wa_csrf_field() ?>
+            <input type="hidden" name="action" value="delete">
+            <input type="hidden" name="library_id" value="<?= $libraryId ?>">
+
+            <div class="note-box">
+              <b>Xoá thư viện</b><br>
+              Xoá vĩnh viễn thư viện <b><?= wa_e($library['name']) ?></b> cùng
+              <?= (int) $library['article_count'] ?> bài đã lưu, toàn bộ nhãn và
+              <b>các thư mục ảnh trên đĩa</b> trong <code>public/uploads/snapshots/<?= $libraryId ?>/</code>.
+              <b>Không thể hoàn tác.</b>
+            </div>
+
+            <div class="field">
+              <label for="settings-confirm">Bước 2/2 — gõ <code>XOA</code> để xác nhận</label>
+              <input class="input" id="settings-confirm" type="text" name="confirm" required
+                     autocomplete="off" placeholder="XOA" style="max-width:200px">
+            </div>
+
+            <div class="row row--between">
+              <button class="btn btn--outline" type="button" data-modal-close>Giữ lại</button>
+              <button class="btn btn--danger-ghost" type="submit">
+                <span class="ms ms-18">delete_forever</span> Xoá thư viện
+              </button>
+            </div>
+          </form>
+        <?php else: ?>
+          <p class="t-body-sm t-muted">
+            Chỉ <b>chủ sở hữu</b> thư viện mới xoá được thư viện này
+            (quản trị viên chỉ đổi được tên và mức hiển thị).
+          </p>
+        <?php endif; ?>
+      </div>
+    </div>
+  </div>
+<?php endif; ?>
+
+<!-- ===================== MODAL: THÊM THÀNH VIÊN (Deliverable 2) ===================== -->
+<?php if ($canManage): ?>
+  <div class="modal-backdrop" id="modal-members" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-members-title">
+      <div class="modal__head">
+        <h2 class="t-headline-sm" style="font-weight:700" id="modal-members-title">
+          <span class="ms ms-18" style="color:var(--wa-primary)">person_add</span>
+          Thêm thành viên vào thư viện
+        </h2>
+        <button class="btn btn--ghost" type="button" data-modal-close aria-label="Đóng">
+          <span class="ms ms-18">close</span>
+</button>
+      </div>
+
+      <div class="stack">
+        <form class="stack" method="post" action="<?= wa_e(wa_url('library_action.php')) ?>">
+          <?= wa_csrf_field() ?>
+          <input type="hidden" name="action" value="member_add">
+          <input type="hidden" name="library_id" value="<?= $libraryId ?>">
+
+          <div class="field">
+            <label for="member-email">Email của tài khoản đã có trong hệ thống</label>
+            <input class="input" id="member-email" type="email" name="email" required
+                   maxlength="180" placeholder="nguoidung@example.com"
+                   autocomplete="off">
+            <p class="t-label-sm t-muted" style="margin-top:6px">
+              Chỉ thêm được tài khoản <b>đã đăng ký</b> (tồn tại trong bảng <code>users</code>).
+              Email không tồn tại hoặc đã là thành viên sẽ bị từ chối — không tạo tài khoản mới.
+            </p>
+          </div>
+
+          <div class="field">
+            <span style="font-size:12px;line-height:16px;font-weight:600;color:var(--wa-text)">Vai trò</span>
+            <div class="row" style="gap:8px;flex-wrap:wrap">
+              <label class="row" style="gap:6px;flex-wrap:nowrap;cursor:pointer">
+                <input type="radio" name="role" value="editor" checked>
+                <span style="font-size:13px">Biên tập viên — sửa nhãn, xem danh sách lưu thất bại</span>
+              </label>
+              <label class="row" style="gap:6px;flex-wrap:nowrap;cursor:pointer">
+                <input type="radio" name="role" value="viewer">
+                <span style="font-size:13px">Người xem — chỉ đọc, không sửa</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="row row--between">
+            <button class="btn btn--outline" type="button" data-modal-close>Hủy</button>
+            <button class="btn btn--primary" type="submit">
+              <span class="ms ms-18">group_add</span> Thêm thành viên
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+<?php endif; ?>
+
 <script>
   var guidanceToggle = document.getElementById('guidance-toggle');
   var guidance = document.getElementById('guidance-details');
@@ -433,6 +801,47 @@ require __DIR__ . '/../templates/header_app.php';
       if (hidden) { guidance.removeAttribute('hidden'); } else { guidance.setAttribute('hidden', ''); }
       guidanceToggle.setAttribute('aria-expanded', hidden ? 'true' : 'false');
     });
+  }
+
+  /* Hộp thoại chung: nút [data-modal-open="<id>"] mở #<id>, [data-modal-close] đóng,
+     bấm ra ngoài (vùng nền tối) cũng đóng. Dùng chung cho modal tạo thư viện ở
+     libraries.php và hai modal quản lý ở đây. */
+  document.querySelectorAll('[data-modal-open]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var target = document.getElementById(btn.getAttribute('data-modal-open'));
+      if (target) { target.removeAttribute('hidden'); }
+    });
+  });
+  document.querySelectorAll('[data-modal-close]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var box = btn.closest('.modal-backdrop');
+      if (box) { box.setAttribute('hidden', ''); }
+    });
+  });
+  document.querySelectorAll('.modal-backdrop').forEach(function (box) {
+    box.addEventListener('click', function (e) {
+      if (e.target === box) { box.setAttribute('hidden', ''); }
+    });
+  });
+
+  /* Xác nhận hai bước khi xoá thư viện:
+     bước 1 — hộp thoại "chắc chứ?";
+     bước 2 — người dùng phải gõ đúng "XOA" vào ô xác nhận (bắt buộc trong HTML,
+                kiểm lại ở đây để không gửi nhầm khi gõ sai).
+     Huỷ ở bất kỳ bước nào thì form KHÔNG được gửi đi. */
+  function wa_confirm_delete_library(form) {
+    var box = form.querySelector('input[name="confirm"]');
+
+    if ((box.value || '').trim().toUpperCase() !== 'XOA') {
+      window.alert('Bạn phải gõ đúng XOA để xác nhận xoá thư viện.');
+      box.focus();
+      return false;
+    }
+
+    return window.confirm(
+      'Xoá thư viện "' + <?= json_encode((string) $library['name'], JSON_UNESCAPED_UNICODE) ?> + '"?\n' +
+      'Mọi bài đã lưu, nhãn và thư mục ảnh trên đĩa sẽ bị xoá vĩnh viễn.'
+    );
   }
 </script>
 

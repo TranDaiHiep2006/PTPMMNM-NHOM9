@@ -11,6 +11,10 @@
 > `public/search.php` **không quét `LIKE`** nữa. Trang đọc trên **chỉ mục đảo tự xây** — bảng
 > `search_terms` do chính dự án dựng (`wa_search_index_snapshot()`), **không** dùng
 > FULLTEXT / `MATCH ... AGAINST` của MySQL. Chi tiết ở mục 5.1.
+>
+> **GIAI ĐOẠN QUẢN LÝ — P-LIB phase.**
+> Tạo / đổi tên / xoá thư viện, thêm – đổi vai trò – gỡ thành viên, sửa nhãn của từng bài và
+> **xuất bản lưu** ra một tệp HTML độc lập đều **ghi thật vào MySQL**. Chi tiết ở mục 5.2.
 
 Ứng dụng lưu nội dung (snapshot) của trang web để đọc lại và tìm kiếm về sau, tổ chức trong
 thư viện theo chủ đề, gắn nhãn và phân quyền thành viên. Toàn bộ giao diện bằng **tiếng Việt**,
@@ -99,10 +103,12 @@ khoá, `linh.pham@demo.vn`) dùng để minh hoạ màn hình quản trị.
 | Đăng xuất | `/logout.php` | Đã đăng nhập |
 | Thư viện của tôi | `/libraries.php` | Đăng nhập |
 | Chi tiết thư viện | `/library.php?slug=cntt-lap-trinh` | Đăng nhập |
+| Quản lý thư viện (POST) | `/library_action.php` | Chủ sở hữu / biên tập viên / quản trị (chỉ POST) |
 | Lưu trang Web | `/save.php` | Chủ sở hữu / biên tập viên |
 | Tải lại phiên bản | `/refetch.php` | Chủ sở hữu / biên tập viên (chỉ POST) |
 | Ghi chú theo phiên bản | `/note.php` | Đăng nhập (chỉ POST) |
 | Trình đọc ngoại tuyến | `/reader.php?id=8943` | Đăng nhập + thành viên thư viện |
+| **Xuất bản lưu (HTML độc lập)** | `/export.php?id=8943` | Đăng nhập + thành viên thư viện |
 | Tìm kiếm nội dung | `/search.php?q=snapshot` | Đăng nhập |
 | Tổng quan hệ thống | `/admin/index.php` | **Quản trị** |
 | Người dùng | `/admin/users.php` | **Quản trị** |
@@ -134,6 +140,8 @@ public/                        WEB ROOT
   assets/css/app.css           Toàn bộ design token + component (không framework)
   assets/img/                  Logo & ảnh minh hoạ cục bộ (SVG)
   uploads/snapshots/<id>/      Ảnh đã tải của từng snapshot (.gitignore, chỉ giữ .gitkeep)
+public/library_action.php      Bộ điều khiển POST cho quản lý thư viện / thành viên / nhãn (CSRF + phân quyền)
+public/export.php              Xuất bản lưu: tải về một tệp HTML độc lập (ảnh nhúng base64)
 tests/fixtures/                Trang thử (article.html, pic.png, redir-*.php, slow.php, notice.html)
 docs/design-reference/         Nguồn thiết kế: DESIGN.md + 4 màn hình tham chiếu
 ```
@@ -259,6 +267,77 @@ và bọc `<mark>` trọn vẹn — nên `khoa_tu_ban_than_webarchive` hiện ng
 
 ---
 
+## 5.2 Quản lý thư viện, thành viên, nhãn và xuất bản lưu (P-LIB)
+
+Tất cả bốn mục dưới đây **ghi thật vào MySQL** (trước đây chỉ hiển thị giao diện).
+
+### 5.2.1 Tạo / sửa / xoá thư viện
+
+- Nút **“+ Tạo thư viện mới”** ở `libraries.php` mở form thật (tên bắt buộc, mô tả tuỳ chọn,
+  hiển thị `private` / `shared` / `public`, màu và biểu tượng). Gửi `POST` tới
+  `public/library_action.php` với token CSRF.
+- **Slug** sinh từ tên: hạ chữ thường → bỏ dấu bằng bảng bỏ dấu **dùng chung** `wa_vi_fold_map()`
+  (`src/bootstrap.php`) → khoảng trắng thành gạch ngang. Nếu slug đã tồn tại thì nối `-2`, `-3`, …
+  cho tới khi duy nhất.
+- Chủ sở hữu được thêm vào `library_members` với `role = 'owner'` ngay khi tạo.
+- **Đổi tên / đổi hiển thị** (chủ sở hữu hoặc quản trị): dùng lại đúng quy tắc slug ở trên, nhưng
+  **giữ nguyên slug cũ nếu tên không đổi**.
+- **Xoá thư viện** — **chỉ chủ sở hữu**, có bước xác nhận riêng (phải gõ lại mã xác nhận):
+  xoá các dòng CSDL qua khoá ngoại `ON DELETE CASCADE` (`library_members`, `saved_pages`,
+  `snapshots`, `assets`, `page_tags`) **và** xoá thư mục ảnh trên đĩa
+  `public/uploads/snapshots/<snapshot_id>/` của **mọi** snapshot thuộc thư viện.
+- Người không phải chủ sở hữu **không thấy** nút điều khiển, và gửi thẳng `POST` cũng bị từ chối
+  bằng **trang 403 tiếng Việt** (`templates/error_no_permission.php`).
+
+### 5.2.2 Quản lý thành viên (trong `library.php`)
+
+Hiện cho **chủ sở hữu** và **quản trị viên**; mọi thao tác là `POST` + CSRF:
+
+| Thao tác | Quy tắc |
+|----------|---------|
+| Thêm thành viên theo email | Email phải **tồn tại** trong `users`, nếu không → *"Không tìm thấy tài khoản với email này"*; đã là thành viên → *"Tài khoản này đã là thành viên của thư viện."*; vai trò chọn lúc thêm là `editor` hoặc `viewer` (**không bao giờ** `owner`) |
+| Đổi vai trò | Chỉ giữa `editor` ↔ `viewer` |
+| Gỡ thành viên | Xoá dòng `library_members` |
+
+> **Dòng của chủ sở hữu được bảo vệ trong SQL**, không chỉ ở giao diện: mọi câu `UPDATE`/`DELETE`
+> đổi vai trò hoặc gỡ thành viên đều có điều kiện `AND role <> 'owner'` trong `WHERE`. Gửi thẳng
+> `POST` bằng tay cũng **không** hạ cấp hay xoá được chủ sở hữu.
+
+Bảng thành viên hiển thị **ngay sau mỗi thao tác** (tên, email, nhãn vai trò tiếng Việt, thứ tự
+tham gia).
+
+### 5.2.3 Sửa nhãn của một bài trong thư viện
+
+Mỗi thẻ bài viết trong `library.php` có một ô sửa nhãn cho người có quyền sửa
+(`owner` / `editor` / `admin`), giá trị là các nhãn hiện tại **phân tách bằng dấu phẩy**. Gửi đi sẽ
+**thay thế** toàn bộ tập `page_tags` của trang đó: nhãn mới được tạo trong bảng `tags` nếu chưa có,
+liên kết không còn được liệt kê thì bị xoá. Quy ước `#` của dữ liệu mẫu được **giữ nguyên** —
+nhãn nhập vào mà không có `#` vẫn được giữ đúng cách viết của dữ liệu sẵn có.
+Người xem (`viewer`) chỉ thấy nhãn ở chế độ **chỉ đọc**, không có ô sửa.
+
+### 5.2.4 Xuất bản lưu — HTML độc lập (`public/export.php`)
+
+`GET export.php?id=<snapshot_id>`:
+
+- Yêu cầu đăng nhập; quyền **giống trình đọc** (quản trị hoặc thành viên thư viện), nếu không →
+  **403 tiếng Việt**; snapshot lỗi hoặc không tồn tại → **404**; khách → chuyển hướng `login.php`.
+- Trả về **một tệp HTML tải về** (`Content-Disposition: attachment`), tên tệp
+  `<slug-tiêu-de-boc-dau>-v<version_no>.html`.
+- Nội dung gồm: **khối nguồn gốc** (tiêu đề bài, URL nguồn, tên thư viện, *"Phiên bản N"*,
+  `fetched_at`, người xuất + thời điểm xuất) → phần **`<style>` tối giản** nhúng trong tệp →
+  `content_html` của snapshot.
+- **Mọi ảnh cục bộ** (`/uploads/…`) được nhúng thành **data URI base64**: đọc tệp, nhận diện MIME
+  bằng `finfo_buffer()` (không tin phần mở rộng), chỉ nhận JPEG/PNG/GIF/WebP.
+- Tệp xuất **không tham chiếu tài nguyên ngoài**: không có `<img src="http…">`, không còn
+  `/uploads/` nào, không có `<link>` / `<script>` / `<iframe>`. Liên kết `<a href="http…">` **được
+  giữ nguyên** vì đó là *nội dung*, không phải tài nguyên phải tải.
+- Kiểm tra độc lập bằng **DOM** (`DOMXPath`), **không** dùng regex trên chuỗi — nếu dùng regex thì
+  HTML đã escape trong bài (ví dụ `<img src="…">` nằm trong khối code) sẽ bị báo nhầm.
+
+Trong trình đọc có nút **“Xuất bản lưu”** ngay cạnh nút **“Xuất PDF”** (nút in vẫn hoạt động).
+
+---
+
 ## 6. Phạm vi của giai đoạn này
 
 **Đã có (CSDL + session):**
@@ -297,8 +376,8 @@ và bọc `<mark>` trọn vẹn — nên `khoa_tu_ban_than_webarchive` hiện ng
 - ~~Ghi chú trên từng phiên bản (mới hiện khung giao diện).~~ **ĐÃ LÀM (P-READ).**
 - ~~Siết chặt phân quyền editor/viewer cho tải lại và ghi chú.~~ **ĐÃ LÀM (P-READ).**
 - ~~Tìm kiếm thật — `search.php` hiện dùng `LIKE` trên `snapshots.title` / `content_text`.~~ **ĐÃ LÀM (P-SEARCH)** — chỉ mục đảo tự xây, xem mục 5.1.
-- Các nút "tạo thư viện", "mời người dùng" chỉ hiển thị giao diện.
-- Xuất kho — nút "Xuất PDF" trong trình đọc hiện mới gọi `window.print()`.
+- ~~Các nút "tạo thư viện", "mời người dùng" chỉ hiển thị giao diện.~~ **ĐÃ LÀM (P-LIB)** — xem mục 5.2.
+- ~~Xuất kho — nút "Xuất PDF" trong trình đọc hiện mới gọi `window.print()`.~~ **ĐÃ LÀM (P-LIB)** — nút "Xuất PDF" (in) vẫn giữ nguyên, thêm nút **"Xuất bản lưu"** tải về HTML độc lập (`public/export.php`).
 
 ---
 
@@ -331,6 +410,26 @@ và bọc `<mark>` trọn vẹn — nên `khoa_tu_ban_than_webarchive` hiện ng
    đi) → không thấy bản cũ nhất. Chứng minh kết quả gắn với **từng phiên bản một**.
 6. Gõ một từ chỉ có trong `tests/fixtures/notice.html` (trang này chưa bao giờ lưu thành công) như
    `doctype` hay `charset` → **0 kết quả**.
+
+## 6.4 Cách thử quản lý thư viện & xuất bản lưu (P-LIB)
+
+1. Đăng nhập `user@demo.vn` / `demo123` → **Thư viện của tôi** → bấm **“+ Tạo thư viện mới”** →
+   đặt tên → **Tạo**. Trang chi tiết thư viện mới mở ra, và tên thư viện xuất hiện trong danh sách.
+2. Tạo một thư viện thứ hai **trùng tên** → hai thẻ trong danh sách có **slug khác nhau** (cái thứ hai
+   có đuôi `-2`).
+3. Mở thư viện vừa tạo → **Thành viên** → thêm một tài khoản có thật (ví dụ `linh.pham@demo.vn`)
+   với vai trò **Người xem** → bảng thành viên hiện ngay dòng đó. Thử lại với chính email đó →
+   báo *"đã là thành viên"*; thử với email không tồn tại → *"Không tìm thấy tài khoản với email này"*.
+4. Đổi vai trò người đó thành **Biên tập viên** → dòng trong bảng đổi ngay. Gỡ hẳn dòng đó →
+   dòng biến mất. (Dòng của chính bạn — chủ sở hữu — **không** bị hạ cấp hay xoá được.)
+5. **Nhãn:** ở một thẻ bài viết, sửa ô nhãn (vd `#kiem-thu, snapshot`) → lưu → nhãn hiển thị lại ngay.
+   Vào **Tìm kiếm** và lọc theo nhãn vừa đặt → bài đó xuất hiện trong kết quả.
+6. **Xuất bản lưu:** mở một bài đã lưu (có ảnh) → bấm **“Xuất bản lưu”** → trình duyệt tải về một
+   tệp `.html`. **Tắt mạng** rồi mở tệp đó: nội dung, ảnh và khối nguồn gốc đều hiện đầy đủ.
+   (Bấm **“Xuất PDF”** vẫn in bình thường.)
+7. **Đổi tên / xoá:** mở **Cài đặt thư viện** của thư viện do bạn làm chủ → đổi tên (slug đổi theo),
+   đổi hiển thị, hoặc **Xoá thư viện** (phải gõ lại mã xác nhận). Sau khi xoá, thư viện biến mất
+   khỏi danh sách và mọi bài trong đó không còn mở được nữa.
 
 ## 6. Cách trải nghiệm nhanh
 

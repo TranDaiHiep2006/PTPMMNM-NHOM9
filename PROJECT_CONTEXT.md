@@ -1,11 +1,12 @@
 # PROJECT_CONTEXT.md — WebArchive (Đề tài 16)
 
-> Tài liệu ngữ cảnh dự án. Giai đoạn hiện tại: **P-SEARCH — tìm kiếm tự xây trên chỉ mục đảo**.
+> Tài liệu ngữ cảnh dự án. Giai đoạn hiện tại: **P-LIB — quản lý thư viện, thành viên, nhãn, xuất bản lưu**.
 > `capture_url()` vẫn là engine tải trang thật; phần ghi CSDL đã gom về một hàm
 > dùng chung `wa_store_page_capture()` mà cả `save.php` lẫn `refetch.php` đều gọi.
 > Tìm kiếm **KHÔNG còn** quét `LIKE` và **KHÔNG** dùng FULLTEXT / `MATCH ... AGAINST`:
 > `public/search.php` đọc bảng chỉ mục `search_terms` do dự án tự dựng (`src/search.php`).
-> Ghi chú / xuất kho vẫn để các phase sau (xuất kho chưa làm).
+> Từ P-LIB, **tạo/sửa/xoá thư viện, quản lý thành viên, sửa nhãn theo bài và xuất bản lưu**
+> đều là hành động thật ghi vào MySQL — không còn mục nào "chỉ hiển thị giao diện".
 
 ---
 
@@ -53,12 +54,14 @@ stylesheet cục bộ duy nhất. Toàn bộ nội dung hiển thị bằng **ti
 | Đăng nhập | `public/login.php` | Khách | Biểu mẫu email/mật khẩu, lỗi tiếng Việt, đăng nhập bằng session |
 | Đăng ký | `public/register.php` | Khách | Biểu mẫu đầy đủ, kiểm tra dữ liệu, trạng thái thành công (chưa lưu CSDL) |
 | Đăng xuất | `public/logout.php` | — | Xoá session, quay về trang chủ |
-| Thư viện của tôi | `public/libraries.php` | Đăng nhập | Số liệu, tab lọc, lưới thẻ thư viện, tạo thư viện (UI) |
-| Chi tiết thư viện | `public/library.php?slug=...` | Đăng nhập | Breadcrumb, số liệu, thành viên, nhãn, thẻ bài viết (kèm huy hiệu "N phiên bản"), mục "Lưu thất bại gần đây", phân trang |
+| Thư viện của tôi | `public/libraries.php` | Đăng nhập | Số liệu, tab lọc, lưới thẻ thư viện, **biểu mẫu tạo thư viện thật** (POST → `library_action.php`) |
+| Chi tiết thư viện | `public/library.php?slug=...` | Đăng nhập | Breadcrumb, số liệu, **bảng thành viên (thêm/đổi vai trò/gỡ)**, **cài đặt thư viện (đổi tên/đổi hiển thị/xoá)**, **ô sửa nhãn theo bài**, thẻ bài viết (kèm huy hiệu "N phiên bản"), mục "Lưu thất bại gần đây", phân trang |
+| Quản lý thư viện | `public/library_action.php` | Chủ sở hữu / biên tập viên / quản trị (POST) | Bộ điều khiển duy nhất cho các hành động `create`, `update`, `delete`, `member_add`, `member_role`, `member_remove`, `tags`; CSRF + phân quyền, trả flash tiếng Việt rồi chuyển hướng |
 | Lưu trang Web | `public/save.php` | Chủ sở hữu / biên tập viên | Chọn thư viện + URL + nhãn → `wa_store_page_capture()`, chuyển tới trình đọc kèm số phiên bản |
 | Tải lại phiên bản | `public/refetch.php` | Chủ sở hữu / biên tập viên (POST) | Gọi CHUNG `wa_store_page_capture()` với `source_url` đã lưu; thành công chuyển tới bản mới, thất bại ở lại bản hiện tại kèm lỗi riêng |
 | Ghi chú | `public/note.php` | Đăng nhập (POST) | Thêm / sửa / xoá ghi chú của một snapshot; sở hữu ép bằng `user_id` trong SQL |
-| Trình đọc | `public/reader.php?id=<snapshot id>` | Đăng nhập + thành viên thư viện | Đầu nguồn gốc, bộ chuyển phiên bản, nút "Lấy phiên bản mới", bảng ghi chú, A-/A+, tiến độ đọc |
+| Trình đọc | `public/reader.php?id=<snapshot id>` | Đăng nhập + thành viên thư viện | Đầu nguồn gốc, bộ chuyển phiên bản, nút "Lấy phiên bản mới", nút **"Xuất bản lưu"** (→ `export.php`) cạnh nút "Xuất PDF", bảng ghi chú, A-/A+, tiến độ đọc |
+| **Xuất bản lưu** | `public/export.php?id=<snapshot id>` | Đăng nhập + thành viên thư viện | Tải về một tệp **HTML độc lập**: khối nguồn gốc + `<style>` tối giản + `content_html` với **mọi ảnh cục bộ nhúng base64 data URI**; không còn tài nguyên ngoài |
 | Tìm kiếm | `public/search.php` | Đăng nhập | Từ khoá, lọc theo thẻ/tên miền, kết quả có `<mark>` + thư viện + phiên bản snapshot. Truy vấn trên **chỉ mục đảo** `search_terms` (`wa_search_snapshots()`), **không** `LIKE`, **không** FULLTEXT |
 | Tổng quan hệ thống | `public/admin/index.php` | Quản trị | Tổng users/libraries/snapshots/assets/lỗi, nhật ký hoạt động |
 | Người dùng | `public/admin/users.php` | Quản trị | Bảng tài khoản, vai trò, trạng thái, số thư viện, thao tác (UI) |
@@ -97,7 +100,7 @@ config/db.local.php            Thông tin kết nối thật — .gitignore, KH�
 src/db.php                     PDO singleton, chẩn đoán lỗi, trang lỗi tiếng Việt
 src/auth.php                   Session, require_login(), require_admin(), current_user(), CSRF (wa_csrf_token/wa_csrf_check)
 src/bootstrap.php              Hằng số đường dẫn, nạp src, hàm trợ giúp (wa_url/wa_e/...), bảng bỏ dấu tiếng Việt dùng chung (wa_vi_alphabet/wa_vi_fold_map)
-src/queries.php                TOÀN BỘ truy vấn CSDL + wa_store_page_capture() (đường lưu dùng chung, gọi lập chỉ mục) + phiên bản/ghi chú
+src/queries.php                TOÀN BỘ truy vấn CSDL + wa_store_page_capture() (đường lưu dùng chung, gọi lập chỉ mục) + phiên bản/ghi chú + **quản lý thư viện/thành viên/nhãn + dựng tệp xuất HTML độc lập**
 src/search.php                 TÌM KIẾM TỰ XÂY: tokenizer, bỏ dấu, wa_search_index_snapshot(), truy vấn AND + xếp hạng, đoạn trích <mark>
 src/capture.php                ENGINE TẢI TRANG THẬT: capture_url() (allowlist → cURL → DOM → sanitize → tải ảnh cục bộ)
 tests/fixtures/                Trang thử cho fixture server (php -S localhost:8090 -t tests/fixtures)
@@ -111,6 +114,8 @@ public/                        WEB ROOT
 public/assets/css/app.css      Toàn bộ design token + component (không framework)
 public/assets/img/             Logo SVG, ảnh minh hoạ cục bộ
 public/uploads/snapshots/<id>/ Ảnh đã tải của từng snapshot (.gitignore, chỉ giữ .gitkeep)
+public/library_action.php      Bộ điều khiển POST cho quản lý thư viện / thành viên / nhãn (CSRF + phân quyền)
+public/export.php              Xuất bản lưu — HTML độc lập tải về (ảnh nhúng base64)
 docs/design-reference/         Nguồn thiết kế (DESIGN.md + 4 màn hình tham chiếu)
 ```
 
@@ -277,19 +282,67 @@ tự dựng chỉ mục đảo.
 Hai kịch bản CLI: `scripts/migrate_search.php` (tạo bảng, idempotent, dùng tài khoản ứng dụng)
 và `scripts/reindex_search.php` (xoá sạch rồi lập lại mọi snapshot thành công, idempotent).
 
-### 8d. Các phase sau cắm vào thế nào
+### 8d. Kiến trúc P-LIB (quản lý thư viện, thành viên, nhãn, xuất bản lưu)
+
+**Một bộ điều khiển duy nhất cho mọi hành động ghi.** `public/library_action.php` nhận `POST`
+với trường `action` và **token CSRF** (`wa_csrf_token()` / `wa_csrf_check()`), kiểm tra quyền,
+rồi gọi hàm trong `src/queries.php` và chuyển hướng kèm **flash tiếng Việt**. Người không đủ
+quyền nhận **403 tiếng Việt** (`templates/error_no_permission.php`).
+
+**Slug.** `wa_slugify()` + `wa_library_unique_slug()` trong `src/queries.php`: hạ chữ thường →
+bỏ dấu bằng bảng bỏ dấu **dùng chung** `wa_vi_fold_map()` (`src/bootstrap.php`) → khoảng trắng
+thành gạch ngang; trùng thì nối `-2`, `-3`, … **Đổi tên mà tên không đổi thì giữ slug cũ**.
+
+**Xoá thư viện — chỉ chủ sở hữu.** `wa_library_delete()` kiểm tra `owner_id` **thật** (quản trị
+viên không xoá được từ đây), xoá dòng `libraries` để khoá ngoại `ON DELETE CASCADE` dọn
+`library_members` / `saved_pages` / `snapshots` / `assets` / `page_tags`, rồi **xoá thư mục ảnh
+trên đĩa** `public/uploads/snapshots/<snapshot_id>/` của **mọi** snapshot thuộc thư viện
+(`unlink()` từng tệp rồi `rmdir()`).
+
+**Bảo vệ dòng chủ sở hữu — ép trong SQL.** `wa_member_update_role()` và `wa_member_remove()`
+đều có điều kiện `AND role <> 'owner'` ngay trong `WHERE`, nên gửi thẳng `POST` bằng tay cũng
+**không** hạ cấp hay xoá được chủ sở hữu — không chỉ ẩn nút trong giao diện.
+
+**Sửa nhãn theo bài.** `wa_page_tags_replace()` nhận danh sách nhãn phân tách bằng dấu phẩy,
+`wa_normalize_tag_names()` chuẩn hoá (giữ tiền tố `#` nếu dữ liệu sẵn có dùng), tạo dòng `tags`
+mới khi cần, rồi **thay thế** toàn bộ tập `page_tags` của trang đó. `wa_page_can_edit_tags()`
+chỉ cho phép `owner` / `editor` / `admin`; người xem chỉ thấy nhãn chỉ đọc.
+
+**Xuất bản lưu — HTML độc lập.** `public/export.php` (`GET ?id=<snapshot_id>`) áp **đúng quyền
+của trình đọc** (quản trị hoặc thành viên thư viện; không thì 403; snapshot lỗi / không tồn tại
+→ 404). Tệp trả về có `Content-Disposition: attachment; filename="<slug>-v<version>.html"`.
+
+| Bước | Hàm | Việc |
+|------|-----|------|
+| 1 | `wa_export_build_document()` | Dựng khối nguồn gốc (tiêu đề, URL nguồn, tên thư viện, "Phiên bản N", `fetched_at`, người xuất + thời điểm) + `<style>` tối giản + `content_html` |
+| 2 | `wa_export_inline_images()` | Duyệt `<img>` bằng DOM; ảnh cục bộ (`/uploads/…`) được thay bằng **data URI base64**; ảnh không đọc được hoặc ảnh ngoài thì **gỡ khỏi tệp** để tệp luôn độc lập |
+| 3 | `wa_export_read_image_data_uri()` | Đọc tệp, nhận diện MIME bằng `finfo_buffer()` (**không tin phần mở rộng**), chỉ nhận JPEG/PNG/GIF/WebP (SVG bị loại vì có thể chứa mã thực thi) |
+| 4 | `wa_export_html_is_standalone()` | **Kiểm tra bằng DOM (`DOMXPath`)**, không dùng regex trên chuỗi: mọi `src`/`poster`/`data` phải là `data:` hoặc rỗng; không có `link`/`script`/`iframe`/`object`/`embed`/`audio`/`video`/`source` |
+
+> **Vì sao kiểm tra bằng DOM chứ không dùng regex?** Regex trên chuỗi sẽ **báo nhầm** khi bài viết
+> chứa HTML đã escape (ví dụ một khối code có `<img src="/assets/…">` trong nội dung) — đó chỉ là
+> *văn bản* trong bài, không phải tài nguyên sẽ được tải. `DOMXPath` chỉ nhìn **thuộc tính thật**
+> của phần tử, nên không báo nhầm.
+
+Liên kết `<a href="http…">` **được giữ nguyên** trong tệp xuất: đó là *nội dung*, không phải
+tài nguyên phải tải — đúng như đặc tả.
+
+### 8e. Các phase sau cắm vào thế nào
 
 | Phase | Cần làm | Chỗ cắm |
 |-------|---------|----------|
 | ~~**Engine tải trang**~~ **XONG (P-CAPTURE)** | Pipeline thật: cURL → allowlist (kể cả chuỗi redirect) → bóc tách → sanitize → tải ảnh cục bộ → INSERT `saved_pages`/`snapshots`/`assets` | `src/capture.php` (thay `src/mock_capture.php`), `public/save.php` |
 | ~~**Lưu trữ & tìm kiếm**~~ **XONG (P-SEARCH)** | Chỉ mục đảo tự dựng `search_terms` (không FULLTEXT): tokenizer + bỏ dấu + lập chỉ mục tự động khi lưu, truy vấn AND + xếp hạng + lọc quyền trong SQL, đoạn trích `<mark>` | `src/search.php`, `database/schema.sql`, `scripts/migrate_search.php`, `scripts/reindex_search.php`, `src/bootstrap.php` (`wa_vi_fold_map()`), `src/queries.php` (hook lập chỉ mục) |
-| **Phân quyền nâng cao** | Áp dụng vai trò `editor`/`viewer` khi sửa, xoá, xuất kho hoặc tải lại | `src/auth.php`, `src/queries.php` |
+| **Quản lý thư viện & thành viên & nhãn & xuất** | ~~Áp dụng vai trò `editor`/`viewer` khi sửa, xoá, xuất kho hoặc tải lại~~ | **XONG (P-LIB)** — `src/queries.php`, `public/library_action.php`, `public/library.php`, `public/libraries.php`, `public/export.php` |
 | **Ghi chú & tài nguyên** | Hoàn thiện màn hình ghi chú (`notes`) và quản lý `assets` | `templates/`, `public/library.php` |
 
 **Đã chốt trong P-READ:** vai trò `editor`/`viewer` cho **tải lại** và **sửa/xoá ghi chú**
 (quyền ép ngay trong SQL), cùng màn hình ghi chú theo từng phiên bản.
 **Đã chốt trong P-SEARCH:** chỉ mục đảo tìm kiếm tự xây thay cho `LIKE`/FULLTEXT.
-**Còn lại cho phase sau:** xuất kho (nút "Xuất PDF" hiện mới gọi `window.print()`).
+**Đã chốt trong P-LIB:** tạo/đổi tên/xoá thư viện (xoá kèm thư mục ảnh trên đĩa), quản lý thành viên
+(bảo vệ dòng `owner` trong SQL), sửa nhãn theo bài, và **xuất bản lưu** ra HTML độc lập.
+**Còn lại cho phase sau:** bộ dữ liệu 15 trang mẫu + 10 câu hỏi, bộ 6 kịch bản kiểm thử bắt buộc,
+và đóng gói OSS (license/release).
 
 Nguyên tắc: **giao diện không cần sửa**, chỉ thay lớp dữ liệu phía sau.
 

@@ -213,6 +213,16 @@ $role         = (string) $context['role'];
       <span class="reader__export-label">Xuất PDF</span>
     </button>
 
+    <!-- P-LIB: xuất bản lưu ra TỆP HTML ĐỘC LẬP (ảnh nhúng base64, mở offline).
+         Đây là liên kết tải xuống (GET), không phải hành động thay đổi dữ liệu,
+         nên không cần token CSRF. Nút "Xuất PDF" ở trên vẫn hoạt động như cũ. -->
+    <a class="btn btn--dark btn--sm"
+       href="<?= wa_e(wa_url('export.php?id=' . (int) $article['id'])) ?>"
+       title="Tải bản lưu này thành tệp HTML độc lập, mở được ngoại tuyến">
+      <span class="ms ms-16">download</span>
+      <span class="reader__export-label">Xuất bản lưu</span>
+    </a>
+
     <span class="chip chip--teal">
       <span class="ms ms-14">shield</span>
       Ngoại tuyến 100%

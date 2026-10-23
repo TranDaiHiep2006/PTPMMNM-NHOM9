@@ -4,6 +4,11 @@
  *
  * Bám theo bản tham chiếu (code1.html): sidebar, dải số liệu, tab lọc,
  * lưới thẻ thư viện có badge vai trò, thẻ nhận diện, số đếm và nút "Mở thư viện".
+ *
+ * P-LIB: nút "+ Tạo thư viện mới" đã là BIỂU MẪU THẬT — POST sang
+ * library_action.php (CSRF + prepared statement), sinh slug bỏ dấu từ tên có hậu
+ * tố -2/-3 nếu trùng, tạo dòng chủ sở hữu trong library_members, rồi chuyển
+ * thẳng tới trang chi tiết thư viện vừa tạo.
  */
 
 declare(strict_types=1);
@@ -11,6 +16,18 @@ declare(strict_types=1);
 require_once __DIR__ . '/../src/bootstrap.php';
 
 require_login();
+
+// --- P-LIB: xử lý POST tạo thư viện ngay tại trang này ---------------------
+// (Điểm nhận duy nhất vẫn là library_action.php; đoạn dưới chỉ làm nhiệm vụ
+//  đọc thông báo flash sau khi hành động đã chuyển hướng.)
+$flash = null;
+if (isset($_SESSION['wa_flash']) && is_array($_SESSION['wa_flash'])) {
+    $flash = $_SESSION['wa_flash'];
+    unset($_SESSION['wa_flash']);
+}
+
+$user   = current_user();
+$userId = (int) ($user['id'] ?? 0);
 
 $libraries = wa_libraries();
 $stats = [
@@ -29,10 +46,32 @@ if (!in_array($filter, ['all', 'personal', 'shared'], true)) {
     $filter = 'all';
 }
 
+// Lọc theo từ khoá trong ô tìm kiếm (chạy trên dữ liệu đã nạp — không cần truy vấn mới).
+$search = trim((string) ($_GET['q'] ?? ''));
+
 $visible = array_values(array_filter(
     $libraries,
-    static fn (array $lib): bool => $filter === 'all' || $lib['category'] === $filter
+    static function (array $lib) use ($filter, $search): bool {
+        if ($filter !== 'all' && $lib['category'] !== $filter) {
+            return false;
+        }
+
+        if ($search === '') {
+            return true;
+        }
+
+        // Bỏ dấu cả hai vế để gõ không dấu vẫn khớp (dùng chung bảng bỏ dấu của dự án).
+        $needle = wa_search_fold($search);
+
+        return str_contains(wa_search_fold((string) $lib['name']), $needle)
+            || str_contains(wa_search_fold((string) $lib['description']), $needle);
+    }
 ));
+
+// Lựa chọn cho biểu mẫu tạo thư viện (mức hiển thị, màu, biểu tượng).
+$visibilityOptions = wa_library_visibility_options();
+$colorOptions      = wa_library_color_options();
+$iconOptions       = wa_library_icon_options();
 
 $pageTitle = 'Thư viện của tôi';
 require __DIR__ . '/../templates/header_app.php';
@@ -103,16 +142,36 @@ require __DIR__ . '/../templates/header_app.php';
   </div>
 
   <div class="toolbar__right">
-    <div class="searchbox">
+    <form class="searchbox" method="get" action="<?= wa_e(wa_url('libraries.php')) ?>">
+      <?php if ($filter !== 'all'): ?>
+        <input type="hidden" name="filter" value="<?= wa_e($filter) ?>">
+      <?php endif; ?>
       <span class="ms">search</span>
-      <input class="input input--flush input--sm" type="search" placeholder="Tìm kiếm bộ sưu tập..." aria-label="Tìm kiếm bộ sưu tập">
-    </div>
+      <input class="input input--flush input--sm" type="search" name="q" value="<?= wa_e($search) ?>"
+             placeholder="Tìm kiếm bộ sưu tập..." aria-label="Tìm kiếm bộ sưu tập">
+    </form>
     <div class="view-toggle" role="group" aria-label="Kiểu hiển thị">
       <button type="button" class="is-active" aria-label="Hiển thị dạng lưới"><span class="ms ms-16">grid_view</span></button>
       <button type="button" aria-label="Hiển thị dạng danh sách"><span class="ms ms-16">format_list_bulleted</span></button>
     </div>
   </div>
 </div>
+
+<?php if ($flash !== null): ?>
+  <div class="state <?= (string) ($flash['type'] ?? '') === 'success' ? 'state--success' : 'state--error' ?>" role="status" style="margin-top:16px">
+    <div class="state__body">
+      <span class="state__icon">
+        <span class="ms ms-18 <?= (string) ($flash['type'] ?? '') === 'success' ? 'ms-fill' : 'ms-fill' ?>">
+          <?= (string) ($flash['type'] ?? '') === 'success' ? 'check_circle' : 'error_outline' ?>
+        </span>
+      </span>
+      <div>
+        <span class="state__title"><?= (string) ($flash['type'] ?? '') === 'success' ? 'Thành công' : 'Không thực hiện được' ?></span>
+        <p class="state__text"><?= wa_e((string) ($flash['text'] ?? '')) ?></p>
+      </div>
+    </div>
+  </div>
+<?php endif; ?>
 
 <!-- ===================== LƯỚI THẺ THƯ VIỆN ===================== -->
 <div class="lib-grid">
@@ -189,8 +248,10 @@ require __DIR__ . '/../templates/header_app.php';
 <?php if ($visible === []): ?>
   <div class="empty">
     <span class="ms ms-32">folder_off</span>
-    <h3>Không có thư viện nào trong nhóm này</h3>
-    <p>Hãy chuyển sang tab khác hoặc tạo một thư viện mới.</p>
+    <h3><?= $libraries === [] ? 'Bạn chưa có thư viện nào' : 'Không có thư viện nào khớp bộ lọc' ?></h3>
+    <p><?= $libraries === []
+        ? 'Bấm “+ Tạo thư viện mới” để tạo thư viện đầu tiên của bạn.'
+        : 'Hãy chuyển sang tab khác, xoá từ khoá tìm kiếm, hoặc tạo một thư viện mới.' ?></p>
   </div>
 <?php endif; ?>
 
@@ -215,7 +276,9 @@ require __DIR__ . '/../templates/header_app.php';
   </div>
 </div>
 
-<!-- ===================== HỘP THOẠI TẠO THƯ VIỆN (chỉ giao diện) ===================== -->
+<!-- ===================== HỘP THOẠI TẠO THƯ VIỆN (P-LIB — biểu mẫu THẬT) =========
+     POST sang public/library_action.php. Mọi thao tác ghi đều có token CSRF
+     (wa_csrf_field) và được xử lý bằng prepared statement. -->
 <div class="modal-backdrop" id="modal-create" hidden>
   <div class="modal">
     <div class="modal__head">
@@ -228,26 +291,71 @@ require __DIR__ . '/../templates/header_app.php';
       </button>
     </div>
 
-    <form class="stack" id="create-lib-form">
+    <form class="stack" method="post" action="<?= wa_e(wa_url('library_action.php')) ?>">
+      <?= wa_csrf_field() ?>
+      <input type="hidden" name="action" value="create">
+
       <div class="field">
         <label for="lib-name">Tên thư viện lưu trữ <span class="t-error">*</span></label>
-        <input class="input" id="lib-name" name="name" type="text" placeholder="Ví dụ: Tài liệu Trí tuệ Nhân tạo" required>
+        <input class="input" id="lib-name" name="name" type="text" required maxlength="150"
+               placeholder="Ví dụ: Tài liệu Trí tuệ Nhân tạo">
+        <span class="field-hint">
+          Đường dẫn thư viện được sinh tự động từ tên (bỏ dấu, khoảng trắng thành dấu gạch ngang).
+          Nếu trùng, hệ thống tự thêm hậu tố -2, -3, …
+        </span>
       </div>
+
       <div class="field">
         <label for="lib-desc">Mô tả chuyên đề</label>
         <textarea class="input" id="lib-desc" name="description" rows="3"
                   placeholder="Tóm tắt mục đích thu thập và ghi chú nghiên cứu..."></textarea>
       </div>
+
       <div class="field">
-        <label for="lib-tags">Thẻ nhận diện (Tags)</label>
-        <input class="input" id="lib-tags" name="tags" type="text" placeholder="#AI #MachineLearning #DeepSeek">
+        <label for="lib-visibility">Ai có thể xem thư viện này?</label>
+        <select class="select" id="lib-visibility" name="visibility">
+          <?php foreach ($visibilityOptions as $option): ?>
+            <option value="<?= wa_e($option['key']) ?>" <?= $option['key'] === 'private' ? 'selected' : '' ?>>
+              <?= wa_e($option['label']) ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
+        <span class="field-hint">
+          Quyền ghi và xoá thư viện chỉ thuộc về chủ sở hữu là bạn; thành viên khác do bạn mời sau.
+        </span>
       </div>
+
+      <div class="field">
+        <label for="lib-color">Màu nhận diện</label>
+        <select class="select" id="lib-color" name="color">
+          <?php foreach ($colorOptions as $option): ?>
+            <option value="<?= wa_e($option['key']) ?>" <?= $option['key'] === 'a' ? 'selected' : '' ?>>
+              <?= wa_e($option['label']) ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="lib-icon">Biểu tượng</label>
+        <select class="select" id="lib-icon" name="icon">
+          <?php foreach ($iconOptions as $option): ?>
+            <option value="<?= wa_e($option['key']) ?>" <?= $option['key'] === 'folder_special' ? 'selected' : '' ?>>
+              <?= wa_e($option['label']) ?>
+            </option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+
       <div class="row" style="justify-content:flex-end;gap:8px;padding-top:8px">
         <button class="btn btn--outline" type="button" data-modal-close>Hủy</button>
-        <button class="btn btn--dark" type="submit">Tạo thư viện</button>
+        <button class="btn btn--dark" type="submit">
+          <span class="ms ms-18">create_new_folder</span>
+          <span>Tạo thư viện</span>
+        </button>
       </div>
       <p class="t-label-sm t-muted">
-        Giai đoạn giao diện: nút này chỉ hiển thị biểu mẫu, chưa lưu vào cơ sở dữ liệu.
+        Thư viện mới sẽ có bạn làm <b>chủ sở hữu</b> ngay khi tạo.
       </p>
     </form>
   </div>
@@ -272,7 +380,7 @@ require __DIR__ . '/../templates/header_app.php';
     });
   }
 
-  // Hộp thoại tạo thư viện
+  // Hộp thoại tạo thư viện — mở lại hộp thoại khi gửi lỗi (flash type = error)
   var modal = document.getElementById('modal-create');
   document.querySelectorAll('[data-modal-open]').forEach(function (btn) {
     btn.addEventListener('click', function () { modal.removeAttribute('hidden'); });

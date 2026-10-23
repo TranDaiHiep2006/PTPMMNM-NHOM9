@@ -264,11 +264,12 @@ function wa_search_snapshots(array $filters, ?array $actor = null): array
     $tag    = trim((string) ($filters['tag'] ?? ''));
     $domain = trim((string) ($filters['domain'] ?? ''));
 
-    // Câu truy vấn rỗng → không có danh sách từ → không có chỉ mục nào để tra.
-    // Trả về rỗng để giao diện hiện đúng thông báo tiếng Việt.
+    // Danh sách từ của câu truy vấn. Rỗng khi người dùng chỉ lọc theo nhãn
+    // hoặc tên miền mà không gõ từ khoá.
     $terms = wa_search_query_terms($query);
 
-    if ($terms === []) {
+    // Không có từ khoá VÀ không có bộ lọc nào -> không có gì để tra.
+    if ($terms === [] && $tag === '' && $domain === '') {
         return [];
     }
 
@@ -298,16 +299,19 @@ function wa_search_snapshots(array $filters, ?array $actor = null): array
     $where = [
         "s.fetch_status = 'success'",
         $accessSql,
-        // Điều kiện quyết định ngữ nghĩa AND: số từ ĐÃ KHỚP phải đúng bằng số
-        // từ trong câu truy vấn. Vì UNIQUE (term_folded, snapshot_id), mỗi từ
-        // chỉ có tối đa một dòng cho mỗi snapshot, nên COUNT(*) ở đây chính là
-        // số từ của truy vấn mà bản snapshot đó có thực sự chứa.
-        '(SELECT COUNT(*)
+    ];
+
+    // Điều kiện quyết định ngữ nghĩa AND: số từ ĐÃ KHỚP phải đúng bằng số
+    // từ trong câu truy vấn. Vì UNIQUE (term_folded, snapshot_id), mỗi từ
+    // chỉ có tối đa một dòng cho mỗi snapshot, nên COUNT(*) ở đây chính là
+    // số từ của truy vấn mà bản snapshot đó có thực sự chứa.
+    if ($terms !== []) {
+        $where[] = '(SELECT COUNT(*)
             FROM `search_terms` st
            WHERE st.snapshot_id = s.id
-             AND st.term_folded IN (' . implode(', ', $matchNames) . ')) = :match_total',
-    ];
-    $bind[':match_total'] = $termCount;
+             AND st.term_folded IN (' . implode(', ', $matchNames) . ')) = :match_total';
+        $bind[':match_total'] = $termCount;
+    }
 
     if ($tag !== '') {
         $where[]             = 'EXISTS (SELECT 1 FROM `page_tags` pt JOIN `tags` t ON t.id = pt.tag_id
@@ -325,20 +329,35 @@ function wa_search_snapshots(array $filters, ?array $actor = null): array
     // JOIN chỉ nối đúng các dòng chỉ mục thuộc tập từ truy vấn, nên SUM ở đây
     // cộng dồn đúng các từ đã khớp (không tính nhầm từ khác trong bài).
     // count_title được nhân 3 vì tiêu đề đáng tin hơn phần thân.
+    //
+    // Khi KHÔNG có từ khoá (chỉ lọc theo nhãn / tên miền) thì không cần JOIN
+    // bảng chỉ mục đảo — điểm đánh giá bằng 0 và sắp xếp theo thời điểm tải.
+    $joinIndex = $terms === []
+        ? ''
+        : 'JOIN `search_terms` st ON st.snapshot_id = s.id
+                              AND st.term_folded IN (' . implode(', ', $scoreNames) . ')';
+
+    $scoreExpr = $terms === []
+        ? '0'
+        : '(3 * COALESCE(SUM(st.count_title), 0) + COALESCE(SUM(st.count_body), 0))';
+
+    $groupBy = $terms === []
+        ? ''
+        : 'GROUP BY s.id, s.page_id, s.version_no, s.title, s.content_text, s.fetched_at,
+                sp.domain, sp.library_id, l.name, l.slug';
+
     $sql = "
         SELECT
             s.id, s.page_id, s.version_no, s.title, s.content_text, s.fetched_at,
             sp.domain, sp.library_id, l.name AS library_name, l.slug AS library_slug,
-            (3 * COALESCE(SUM(st.count_title), 0) + COALESCE(SUM(st.count_body), 0)) AS score,
+            {$scoreExpr} AS score,
             (SELECT COUNT(*) FROM `assets` a WHERE a.snapshot_id = s.id AND a.mime_type LIKE 'image/%') AS image_count
           FROM `snapshots` s
           JOIN `saved_pages` sp ON sp.id = s.page_id
           JOIN `libraries` l    ON l.id = sp.library_id
-          JOIN `search_terms` st ON st.snapshot_id = s.id
-                              AND st.term_folded IN (" . implode(', ', $scoreNames) . ")
+          {$joinIndex}
          WHERE " . implode(' AND ', $where) . "
-       GROUP BY s.id, s.page_id, s.version_no, s.title, s.content_text, s.fetched_at,
-                sp.domain, sp.library_id, l.name, l.slug
+         {$groupBy}
        ORDER BY score DESC, s.fetched_at DESC, s.id DESC
        LIMIT 200
     ";
