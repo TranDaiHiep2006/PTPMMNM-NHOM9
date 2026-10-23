@@ -1,8 +1,10 @@
 # PROJECT_CONTEXT.md — WebArchive (Đề tài 16)
 
-> Tài liệu ngữ cảnh dự án. Giai đoạn hiện tại: **P-READ — lịch sử phiên bản, tải lại và ghi chú theo từng snapshot**.
+> Tài liệu ngữ cảnh dự án. Giai đoạn hiện tại: **P-SEARCH — tìm kiếm tự xây trên chỉ mục đảo**.
 > `capture_url()` vẫn là engine tải trang thật; phần ghi CSDL đã gom về một hàm
 > dùng chung `wa_store_page_capture()` mà cả `save.php` lẫn `refetch.php` đều gọi.
+> Tìm kiếm **KHÔNG còn** quét `LIKE` và **KHÔNG** dùng FULLTEXT / `MATCH ... AGAINST`:
+> `public/search.php` đọc bảng chỉ mục `search_terms` do dự án tự dựng (`src/search.php`).
 > Ghi chú / xuất kho vẫn để các phase sau (xuất kho chưa làm).
 
 ---
@@ -57,7 +59,7 @@ stylesheet cục bộ duy nhất. Toàn bộ nội dung hiển thị bằng **ti
 | Tải lại phiên bản | `public/refetch.php` | Chủ sở hữu / biên tập viên (POST) | Gọi CHUNG `wa_store_page_capture()` với `source_url` đã lưu; thành công chuyển tới bản mới, thất bại ở lại bản hiện tại kèm lỗi riêng |
 | Ghi chú | `public/note.php` | Đăng nhập (POST) | Thêm / sửa / xoá ghi chú của một snapshot; sở hữu ép bằng `user_id` trong SQL |
 | Trình đọc | `public/reader.php?id=<snapshot id>` | Đăng nhập + thành viên thư viện | Đầu nguồn gốc, bộ chuyển phiên bản, nút "Lấy phiên bản mới", bảng ghi chú, A-/A+, tiến độ đọc |
-| Tìm kiếm | `public/search.php` | Đăng nhập | Từ khoá, lọc theo thẻ/tên miền, kết quả có `<mark>` + thư viện + phiên bản snapshot |
+| Tìm kiếm | `public/search.php` | Đăng nhập | Từ khoá, lọc theo thẻ/tên miền, kết quả có `<mark>` + thư viện + phiên bản snapshot. Truy vấn trên **chỉ mục đảo** `search_terms` (`wa_search_snapshots()`), **không** `LIKE`, **không** FULLTEXT |
 | Tổng quan hệ thống | `public/admin/index.php` | Quản trị | Tổng users/libraries/snapshots/assets/lỗi, nhật ký hoạt động |
 | Người dùng | `public/admin/users.php` | Quản trị | Bảng tài khoản, vai trò, trạng thái, số thư viện, thao tác (UI) |
 | Tên miền được duyệt | `public/admin/allowlist.php` | Quản trị | Bảng allowlist + biểu mẫu thêm tên miền (UI) + ghi chú quy tắc |
@@ -85,15 +87,18 @@ Các trang admin gọi thêm `require_admin()`; người dùng thường nhận 
 prompt.md                      Đặc tả giai đoạn này
 PROJECT_CONTEXT.md             Tài liệu này
 README.md                      Hướng dẫn chạy
-database/schema.sql            Lược đồ MySQL: 10 bảng InnoDB utf8mb4, FK + UNIQUE
+database/schema.sql            Lược đồ MySQL: 11 bảng InnoDB utf8mb4, FK + UNIQUE (gồm `search_terms`)
 database/seed.sql              Dữ liệu mẫu (INSERT) — chạy lại được nhiều lần
 scripts/setup_db.php           Cài CSDL + tạo user riêng + nạp seed (CLI, idempotent)
+scripts/migrate_search.php     Tạo bảng chỉ mục `search_terms` (CLI, idempotent, tài khoản ứng dụng)
+scripts/reindex_search.php     Lập lại toàn bộ chỉ mục tìm kiếm (CLI, idempotent)
 config/db.php                  Nạp cấu hình, dựng DSN (KHÔNG chứa mật khẩu)
 config/db.local.php            Thông tin kết nối thật — .gitignore, KHÔNG commit
 src/db.php                     PDO singleton, chẩn đoán lỗi, trang lỗi tiếng Việt
 src/auth.php                   Session, require_login(), require_admin(), current_user(), CSRF (wa_csrf_token/wa_csrf_check)
-src/bootstrap.php              Hằng số đường dẫn, nạp src, hàm trợ giúp (wa_url/wa_e/...)
-src/queries.php                TOÀN BỘ truy vấn CSDL + wa_store_page_capture() (đường lưu dùng chung) + phiên bản/ghi chú
+src/bootstrap.php              Hằng số đường dẫn, nạp src, hàm trợ giúp (wa_url/wa_e/...), bảng bỏ dấu tiếng Việt dùng chung (wa_vi_alphabet/wa_vi_fold_map)
+src/queries.php                TOÀN BỘ truy vấn CSDL + wa_store_page_capture() (đường lưu dùng chung, gọi lập chỉ mục) + phiên bản/ghi chú
+src/search.php                 TÌM KIẾM TỰ XÂY: tokenizer, bỏ dấu, wa_search_index_snapshot(), truy vấn AND + xếp hạng, đoạn trích <mark>
 src/capture.php                ENGINE TẢI TRANG THẬT: capture_url() (allowlist → cURL → DOM → sanitize → tải ảnh cục bộ)
 tests/fixtures/                Trang thử cho fixture server (php -S localhost:8090 -t tests/fixtures)
 templates/header_guest.php     Layout khách: thanh trên + <main>   (KHÔNG có user chip)
@@ -133,8 +138,13 @@ Ngoài ra còn có 3 tài khoản phụ dùng cho màn hình quản trị:
 - Ứng dụng kết nối bằng tài khoản riêng `'webarchive'@'localhost'`; thông tin nằm trong
   `config/db.local.php` (**đã .gitignore, không bao giờ commit**).
 - `config/db.php` chỉ đọc cấu hình và dựng DSN, **không chứa mật khẩu**.
-- 10 bảng: `users`, `libraries`, `library_members`, `tags`, `saved_pages`, `page_tags`,
-  `snapshots`, `assets`, `notes`, `allowlist_domains`.
+- 11 bảng: `users`, `libraries`, `library_members`, `tags`, `saved_pages`, `page_tags`,
+  `snapshots`, **`search_terms`** (chỉ mục đảo tìm kiếm — P-SEARCH), `assets`, `notes`,
+  `allowlist_domains`.
+- Bảng `search_terms` được thêm bằng `php scripts/migrate_search.php` (kịch bản **idempotent**,
+  chạy bằng **tài khoản ứng dụng** trong `config/db.local.php`, **không** cần mật khẩu quản trị
+  MySQL và **không** chạy lại `setup_db.php`); nó cũng nằm trong `database/schema.sql` để cài mới
+  có sẵn. Lập lại toàn bộ chỉ mục: `php scripts/reindex_search.php`.
 - Mọi truy vấn có tham số dùng prepared statement (`PDO::ATTR_EMULATE_PREPARES = false`).
 - Quyền truy cập cơ bản: người dùng thấy thư viện mình **sở hữu** hoặc **là thành viên**;
   quản trị viên thấy tất cả (xem `wa_library_access_sql()` trong `src/queries.php`).
@@ -234,19 +244,52 @@ có danh sách ghi chú riêng. `wa_note_update()` và `wa_note_delete()` đặt
 bằng `hash_equals()`. `refetch.php`, `note.php` và `save.php` đều kiểm tra TRƯỚC khi
 ghi bất cứ thứ gì vào CSDL.
 
-### 8c. Các phase sau cắm vào thế nào
+### 8c. Kiến trúc P-SEARCH (chỉ mục đảo tìm kiếm tự xây)
+
+**Vì sao không FULLTEXT?** Đề tài yêu cầu phần tìm kiếm phải **tự xây** và giải thích được khi
+vấn đáp. Vì vậy dự án không tạo FULLTEXT index và không dùng `MATCH ... AGAINST`; thay vào đó
+tự dựng chỉ mục đảo.
+
+**Bảng `search_terms`** — mỗi dòng là một cặp (từ đã bỏ dấu, snapshot) kèm `count_title` và
+`count_body`. `UNIQUE (term_folded, snapshot_id)` + `INDEX (term_folded)`, khoá ngoại
+`snapshot_id → snapshots(id)` `ON DELETE CASCADE` (xoá snapshot là mất chỉ mục theo).
+
+**Chuỗi xử lý** (tất cả trong `src/search.php`, bảng bỏ dấu dùng chung nằm ở
+`src/bootstrap.php: wa_vi_fold_map()` — dự án chỉ có **một** bảng bỏ dấu):
+
+1. `wa_search_tokenize($text)` — `mb_strtolower()`, tách ở mọi ký tự không phải chữ/số Unicode
+   (`/[^\p{L}\p{N}]+/u`), bỏ token dưới 2 ký tự, cắt token trên 100 ký tự. Tiếng Việt tách theo
+   khoảng trắng, không cần bộ tách từ theo từ điển.
+2. `wa_search_fold($token)` — bỏ dấu tiếng Việt (dùng chung bảng của `src/bootstrap.php`) để
+   người dùng gõ không dấu vẫn khớp được bài có dấu.
+3. `wa_search_index_snapshot($snapshotId)` — xoá dòng cũ của snapshot, tách token **riêng** cho
+   tiêu đề và thân, gộp theo dạng đã bỏ dấu, `INSERT`. Hàm này là **idempotent** và chỉ chạy cho
+   `fetch_status = 'success'` — snapshot lỗi không bao giờ có dòng chỉ mục.
+4. `wa_store_page_capture()` gọi (3) ngay sau khi lưu thành công → **lập chỉ mục tự động**,
+   không cần chạy kịch bản. Mỗi phiên bản giữ bộ chỉ mục riêng nên kết quả gắn đúng phiên bản.
+5. `wa_search_snapshots($filters)` — truy vấn trên chỉ mục: ngữ nghĩa **AND** (đếm số từ đã khớp
+   phải bằng số từ truy vấn), xếp hạng `score = 3 × SUM(count_title) + SUM(count_body)`,
+   lọc `fetch_status = 'success'` và **bộ lọc quyền truy cập ngay trong SQL**
+   (`wa_library_access_sql()`), cộng thêm lọc thẻ / tên miền.
+6. `wa_search_snippet()` / `wa_search_highlight_title()` — so khớp trên **dạng đã bỏ dấu** nhưng
+   in ra **văn bản gốc có dấu**, bọc `<mark>`; mọi thứ đều escape HTML.
+
+Hai kịch bản CLI: `scripts/migrate_search.php` (tạo bảng, idempotent, dùng tài khoản ứng dụng)
+và `scripts/reindex_search.php` (xoá sạch rồi lập lại mọi snapshot thành công, idempotent).
+
+### 8d. Các phase sau cắm vào thế nào
 
 | Phase | Cần làm | Chỗ cắm |
 |-------|---------|----------|
 | ~~**Engine tải trang**~~ **XONG (P-CAPTURE)** | Pipeline thật: cURL → allowlist (kể cả chuỗi redirect) → bóc tách → sanitize → tải ảnh cục bộ → INSERT `saved_pages`/`snapshots`/`assets` | `src/capture.php` (thay `src/mock_capture.php`), `public/save.php` |
-| **Lưu trữ & tìm kiếm** | Chỉ mục FULLTEXT trên `snapshots(title, content_text)`, truy vấn snippet + `version_no` | `src/queries.php` (`wa_search_snapshots`), `public/search.php` |
+| ~~**Lưu trữ & tìm kiếm**~~ **XONG (P-SEARCH)** | Chỉ mục đảo tự dựng `search_terms` (không FULLTEXT): tokenizer + bỏ dấu + lập chỉ mục tự động khi lưu, truy vấn AND + xếp hạng + lọc quyền trong SQL, đoạn trích `<mark>` | `src/search.php`, `database/schema.sql`, `scripts/migrate_search.php`, `scripts/reindex_search.php`, `src/bootstrap.php` (`wa_vi_fold_map()`), `src/queries.php` (hook lập chỉ mục) |
 | **Phân quyền nâng cao** | Áp dụng vai trò `editor`/`viewer` khi sửa, xoá, xuất kho hoặc tải lại | `src/auth.php`, `src/queries.php` |
 | **Ghi chú & tài nguyên** | Hoàn thiện màn hình ghi chú (`notes`) và quản lý `assets` | `templates/`, `public/library.php` |
 
 **Đã chốt trong P-READ:** vai trò `editor`/`viewer` cho **tải lại** và **sửa/xoá ghi chú**
 (quyền ép ngay trong SQL), cùng màn hình ghi chú theo từng phiên bản.
-**Còn lại cho phase sau:** xuất kho (nút "Xuất PDF" hiện mới gọi `window.print()`)
-và FULLTEXT cho tìm kiếm.
+**Đã chốt trong P-SEARCH:** chỉ mục đảo tìm kiếm tự xây thay cho `LIKE`/FULLTEXT.
+**Còn lại cho phase sau:** xuất kho (nút "Xuất PDF" hiện mới gọi `window.print()`).
 
 Nguyên tắc: **giao diện không cần sửa**, chỉ thay lớp dữ liệu phía sau.
 

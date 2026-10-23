@@ -615,112 +615,20 @@ function wa_find_snapshot(int $snapshotId, ?array $actor = null): ?array
 }
 
 /* =============================================================================
-    TÌM KIẾM
+    TÌM KIẾM — P-SEARCH
+    -----------------------------------------------------------------------------
+    Hàm tìm kiếm KHÔNG còn nằm ở đây nữa. Nó đã chuyển sang src/search.php và
+    chạy trên bảng chỉ mục đảo `search_terms` do dự án tự dựng:
+        wa_search_tokenize() / wa_search_fold()   — tách từ + bỏ dấu
+        wa_search_index_snapshot()                 — lập chỉ mục một snapshot
+        wa_search_snapshots()                      — truy vấn ngữ nghĩa AND + xếp hạng
+        wa_search_snippet()                        — đoạn trích có <mark>
+    Các hàm dưới đây chỉ còn phần phục vụ giao diện: lấy danh sách tên miền và
+    danh sách thẻ để đổ vào hai ô lọc của public/search.php.
+
+    KHÔNG còn truy vấn nào trong dự án quét `snapshots.title` / `content_text`
+    bằng LIKE để tìm kiếm — việc so khớp diễn ra hoàn toàn trên `term_folded`.
     ============================================================================= */
-
-/**
- * Tìm kiếm trên nội dung snapshot đã lưu (LIKE trên title + content_text).
- *
- * QUY TẮC: chỉ tìm trong snapshot có fetch_status = 'success' — kết quả tìm kiếm
- * luôn trỏ tới một bản đọc hợp lệ, không bao giờ tới một lần lưu thất bại.
- *
- * @param array{q?:string,tag?:string,domain?:string} $filters
- * @return array<int, array<string, mixed>>
- */
-function wa_search_snapshots(array $filters, ?array $actor = null): array
-{
-    $actor = $actor ?? wa_actor();
-    [$accessSql, $params] = wa_library_access_sql($actor);
-
-    $query   = trim((string) ($filters['q'] ?? ''));
-    $tag     = trim((string) ($filters['tag'] ?? ''));
-    $domain  = trim((string) ($filters['domain'] ?? ''));
-
-    $where  = ["s.fetch_status = 'success'", $accessSql];
-    $bind   = $params;
-
-    if ($query !== '') {
-        // Hai tham số tên khác nhau (không dùng chung :q) vì prepares thật của PDO
-        // không cho phép lặp lại một tham số có tên trong cùng câu truy vấn.
-        $where[] = '(s.title LIKE :q_title OR s.content_text LIKE :q_text)';
-        $bind[':q_title'] = '%' . $query . '%';
-        $bind[':q_text']  = '%' . $query . '%';
-    }
-
-    if ($tag !== '') {
-        $where[] = 'EXISTS (SELECT 1 FROM `page_tags` pt JOIN `tags` t ON t.id = pt.tag_id
-                             WHERE pt.page_id = sp.id AND t.name = :tag)';
-        $bind[':tag'] = $tag;
-    }
-
-    if ($domain !== '') {
-        $where[] = 'sp.domain = :domain';
-        $bind[':domain'] = $domain;
-    }
-
-    // Khi không có điều kiện lọc nào, chỉ trả về danh sách rỗng (không liệt kê tất cả).
-    if ($query === '' && $tag === '' && $domain === '') {
-        return [];
-    }
-
-    $sql = "
-        SELECT
-            s.id, s.page_id, s.version_no, s.title, s.content_text, s.fetched_at,
-            sp.domain, sp.library_id, l.name AS library_name, l.slug AS library_slug,
-            (SELECT COUNT(*) FROM `assets` a WHERE a.snapshot_id = s.id AND a.mime_type LIKE 'image/%') AS image_count
-          FROM `snapshots` s
-          JOIN `saved_pages` sp ON sp.id = s.page_id
-          JOIN `libraries` l ON l.id = sp.library_id
-         WHERE " . implode(' AND ', $where) . "
-         ORDER BY s.fetched_at DESC, s.id DESC
-         LIMIT 200
-    ";
-
-    $stmt = db()->prepare($sql);
-    $stmt->execute($bind);
-
-    $rows = [];
-
-    foreach ($stmt->fetchAll() as $row) {
-        $row['id']         = (int) $row['id'];
-        $row['page_id']    = (int) $row['page_id'];
-        $row['version_no'] = (int) $row['version_no'];
-        $row['image_count'] = (int) $row['image_count'];
-        $row['saved_at']   = wa_datetime((string) $row['fetched_at']);
-        $row['tags']       = wa_page_tags((int) $row['page_id']);
-        $row['snippet']    = wa_snippet((string) $row['content_text'], $query);
-        $rows[] = $row;
-    }
-
-    return $rows;
-}
-
-/**
- * Tạo đoạn trích quanh từ khoá tìm kiếm.
- */
-function wa_snippet(string $text, string $keyword, int $radius = 110): string
-{
-    $text = trim(preg_replace('/\s+/u', ' ', strip_tags($text)) ?? '');
-
-    if ($text === '') {
-        return '';
-    }
-
-    if ($keyword === '') {
-        return wa_trim($text, $radius * 2);
-    }
-
-    $pos = mb_stripos($text, $keyword, 0, 'UTF-8');
-
-    if ($pos === false) {
-        return wa_trim($text, $radius * 2);
-    }
-
-    $start = max(0, $pos - $radius);
-    $chunk = mb_substr($text, $start, $radius * 2, 'UTF-8');
-
-    return ($start > 0 ? '…' : '') . $chunk . (mb_strlen($text, 'UTF-8') > $start + $radius * 2 ? '…' : '');
-}
 
 /**
  * Danh sách tên miền có trong kho (để lọc tìm kiếm).
@@ -1309,8 +1217,10 @@ function wa_parse_tag_input(string $input): array
  *   3. version_no = MAX(version_no) + 1
  *   4. THÀNH CÔNG: INSERT snapshots -> tải ảnh về máy chủ nội bộ -> UPDATE
  *      content_html/content_text -> INSERT assets -> UPDATE saved_pages -> gắn nhãn
+ *      -> LẬP CHỈ MỤC TÌM KIẾM (P-SEARCH) cho đúng snapshot vừa tạo
  *   5. THẤT BẠI: INSERT snapshots với fetch_status = mã lỗi và error_message
- *      tiếng Việt riêng cho từng mã (bản ghi lỗi KHÔNG bao giờ mở được để đọc)
+ *      tiếng Việt riêng cho từng mã (bản ghi lỗi KHÔNG bao giờ mở được để đọc,
+ *      và cũng không bao giờ có dòng chỉ mục tìm kiếm)
  *
  * Refetch dùng ĐÚNG hàm này nên: phiên bản cũ (kể cả ghi chú của chúng) không
  * bị đụng tới — hàm chỉ INSERT thêm một dòng snapshots mới.
@@ -1323,7 +1233,8 @@ function wa_parse_tag_input(string $input): array
  * @return array{
  *   ok:bool, error_code:?string, error_title:string, error_message:string,
  *   page_id:int, version:int, snapshot_id:?int, title:string, source_url:string,
- *   domain:string, http_status:int, fetched_at:string, image_count:int
+ *   domain:string, http_status:int, fetched_at:string, image_count:int,
+ *   indexed_terms:int
  * }
  */
 function wa_store_page_capture(int $libraryId, string $url, array $tagNames, int $userId): array
@@ -1391,6 +1302,11 @@ function wa_store_page_capture(int $libraryId, string $url, array $tagNames, int
         wa_update_page($pageId, (string) $result['title'], 'active');
         wa_apply_page_tags($pageId, $tagNames);
 
+        // 4f) P-SEARCH: lập chỉ mục tìm kiếm cho đúng BẢN SNAPSHOT NÀY.
+        //      Chỉ bản thành công mới có dòng chỉ mục; mỗi phiên bản có chỉ mục
+        //      riêng, nên kết quả tìm kiếm luôn gắn với đúng phiên bản đã lưu.
+        $indexedTerms = wa_search_index_snapshot($snapshotId);
+
         return [
             'ok'            => true,
             'error_code'    => null,
@@ -1405,6 +1321,7 @@ function wa_store_page_capture(int $libraryId, string $url, array $tagNames, int
             'http_status'   => (int) $result['http_status'],
             'fetched_at'    => (string) $result['fetched_at'],
             'image_count'   => count($images),
+            'indexed_terms' => $indexedTerms,
         ];
     }
 
@@ -1429,6 +1346,10 @@ function wa_store_page_capture(int $libraryId, string $url, array $tagNames, int
         wa_apply_page_tags($pageId, $tagNames);
     }
 
+    // P-SEARCH: bản ghi lỗi KHÔNG bao giờ có dòng chỉ mục tìm kiếm. Xoá sạch
+    // phòng vệ để một lần lưu thất bại không bao giờ lọt vào kết quả tìm kiếm.
+    wa_search_index_snapshot($failedSnapshotId);
+
     return [
         'ok'            => false,
         'error_code'    => $errorCode,
@@ -1443,6 +1364,7 @@ function wa_store_page_capture(int $libraryId, string $url, array $tagNames, int
         'http_status'   => (int) $result['http_status'],
         'fetched_at'    => (string) $result['fetched_at'],
         'image_count'   => 0,
+        'indexed_terms' => 0,
     ];
 }
 

@@ -7,6 +7,11 @@
 > Toàn bộ phần ghi CSDL đã gom về **một hàm dùng chung** `wa_store_page_capture()`, được gọi
 > bởi cả `save.php` lẫn `refetch.php` (nút "Lấy phiên bản mới" trong trình đọc).
 
+> **GIAI ĐOẠN TÌM KIẾM — P-SEARCH phase.**
+> `public/search.php` **không quét `LIKE`** nữa. Trang đọc trên **chỉ mục đảo tự xây** — bảng
+> `search_terms` do chính dự án dựng (`wa_search_index_snapshot()`), **không** dùng
+> FULLTEXT / `MATCH ... AGAINST` của MySQL. Chi tiết ở mục 5.1.
+
 Ứng dụng lưu nội dung (snapshot) của trang web để đọc lại và tìm kiếm về sau, tổ chức trong
 thư viện theo chủ đề, gắn nhãn và phân quyền thành viên. Toàn bộ giao diện bằng **tiếng Việt**,
 viết bằng **PHP thuần** — không framework, không bước build.
@@ -111,15 +116,18 @@ khoá, `linh.pham@demo.vn`) dùng để minh hoạ màn hình quản trị.
 ```
 prompt.md                      Đặc tả giai đoạn này
 PROJECT_CONTEXT.md             Tóm tắt đặc tả, bản đồ trang, cách các phase sau cắm vào
-database/schema.sql            Lược đồ MySQL (10 bảng, InnoDB, utf8mb4, khoá ngoại)
+database/schema.sql            Lược đồ MySQL (11 bảng, InnoDB, utf8mb4, khoá ngoại)
 database/seed.sql              Dữ liệu mẫu (INSERT) — chạy lại được nhiều lần
 scripts/setup_db.php           Cài đặt CSDL + tài khoản riêng + nạp seed (CLI, idempotent)
+scripts/migrate_search.php     Tạo bảng chỉ mục `search_terms` (CLI, idempotent, tài khoản ứng dụng)
+scripts/reindex_search.php     Lập lại toàn bộ chỉ mục tìm kiếm (CLI, idempotent)
 config/db.php                  Nạp cấu hình CSDL, dựng DSN (KHÔNG chứa mật khẩu)
 config/db.local.php            Thông tin kết nối thật — .gitignore, KHÔNG commit
 src/db.php                     PDO singleton + trang lỗi tiếng Việt khi CSDL lỗi
 src/auth.php                   Session + require_login() / require_admin() / current_user()
 src/bootstrap.php              Đường dẫn, nạp src, hàm trợ giúp, polyfill mbstring
 src/queries.php                Toàn bộ truy vấn CSDL (thay thế src/sample_data.php)
+src/search.php                 Chỉ mục đảo tìm kiếm tự xây: tokenizer, bỏ dấu, lập chỉ mục, truy vấn AND, đoạn trích <mark>
 src/capture.php                Engine lưu trang THẬT (cURL + DOMDocument + sanitizer + tải ảnh)
 templates/                     2 layout dùng chung + trang lỗi 403 + trang lỗi CSDL
 public/                        WEB ROOT
@@ -167,6 +175,90 @@ trang nội bộ thì xoá dòng đó trong `/admin/allowlist.php`.
 
 ---
 
+## 5.1 Tìm kiếm tự xây (P-SEARCH) — chỉ mục đảo không dùng FULLTEXT
+
+**Vì sao tự làm?** Đề tài yêu cầu phần lưu trữ – phiên bản – tìm kiếm – phân quyền phải **tự
+xây** và **giải thích được trong phần vấn đáp**. Vì vậy dự án **không** tạo FULLTEXT index và
+**không** dùng `MATCH ... AGAINST` của MySQL. Thay vào đó dự án dựng chỉ mục đảo của riêng mình.
+
+### Bảng `search_terms`
+
+| Cột | Kiểu | Ý nghĩa |
+|-----|------|---------|
+| `id` | `BIGINT UNSIGNED` PK | khoá chính |
+| `term` | `VARCHAR(100)` | token gốc đã hạ chữ thường, **giữ nguyên dấu tiếng Việt** |
+| `term_folded` | `VARCHAR(100)` | token **đã bỏ dấu** — đây là khoá so khớp |
+| `snapshot_id` | `INT UNSIGNED` FK → `snapshots(id)` `ON DELETE CASCADE` | bản snapshot chủ sở hữu dòng này |
+| `count_title` | `INT UNSIGNED` | số lần từ xuất hiện trong **tiêu đề** |
+| `count_body` | `INT UNSIGNED` | số lần từ xuất hiện trong **thân bài** |
+
+Chỉ mục: `UNIQUE (term_folded, snapshot_id)` + `INDEX (term_folded)`.
+
+> **Vì sao UNIQUE lại quan trọng?** Vì mỗi cặp (từ, snapshot) chỉ được có **một** dòng, nên:
+> (1) số lần xuất hiện được **cộng dồn lúc lập chỉ mục** thay vì phải quét lại `content_text`
+> mỗi lần tìm; (2) khi viết điều kiện AND ta đếm được chính xác bao nhiêu từ của truy vấn mà
+> bản snapshot đó có thực sự chứa.
+
+### Tách từ (`wa_search_tokenize`)
+
+1. Hạ chữ thường bằng `mb_strtolower()`.
+2. Tách ở **mọi ký tự không phải chữ cái hoặc chữ số Unicode** (`/[^\p{L}\p{N}]+/u`) — dấu chấm,
+   gạch ngang, gạch dưới, dấu phẩy, xuống dòng… đều là ranh giới. Vì vậy
+   `khoa_tu_ban_than_webarchive` và `khoa-tu-ban-than` ra cùng các token.
+3. Bỏ token ngắn hơn **2 ký tự** (số "1", dấu câu lọt vào không có nghĩa).
+4. Cắt token dài hơn **100 ký tự**.
+
+Tiếng Việt **không** dùng bộ tách từ theo từ điển — tách theo khoảng trắng là đủ, nên không
+cần thêm gói tiếng Việt nào (đây cũng là ưu điểm để giải thích khi hỏi).
+
+### Bỏ dấu tiếng Việt (`wa_search_fold`)
+
+`a/ă/â → a`, `e/ê → e`, `i → i`, `o/ô/ơ → o`, `u/ư → u`, `y → y`, `đ → d`, mọi dấu thanh bị
+xoá (các cặp hai chữ như `ươ`, `uô`, `iê`… cũng được xử lý). Hàm này **chỉ gọi** bảng bỏ dấu
+dùng chung `wa_vi_fold_map()` khai báo trong `src/bootstrap.php` — **toàn dự án chỉ có MỘT bảng
+bỏ dấu**, không chép thêm bản thứ hai trong `src/search.php`.
+
+> **Vì sao phải bỏ dấu?** Người Việt gõ "luu trang" (phím không dấu) nhưng bài đã lưu chứa
+> "lưu trang". Chỉ so khớp được hai bên khi cả hai cùng được bỏ dấu.
+
+### Khi nào việc lập chỉ mục chạy
+
+| Thời điểm | Cơ chế |
+|-----------|--------|
+| Ngay sau khi lưu trang thành công | `wa_store_page_capture()` gọi `wa_search_index_snapshot()` — tự động, người dùng không phải làm gì |
+| Lần lưu thất bại | **không** tạo dòng chỉ mục nào (và xoá sạch nếu có) → tìm kiếm không bao giờ trả về một lần lưu lỗi |
+| Cần dựng lại toàn bộ | `php scripts/reindex_search.php` (xoá sạch rồi lập lại, chạy lại được) |
+| Cài mới / nâng cấp CSDL | `php scripts/migrate_search.php` (chỉ tạo bảng, `CREATE TABLE IF NOT EXISTS`) |
+
+Hàm lập chỉ mục **xoá dòng cũ của snapshot trước khi ghi**, nên gọi lại nhiều lần vẫn cho kết
+quả giống hệt nhau (**idempotent**). Mỗi phiên bản giữ **riêng** bộ dòng chỉ mục của nó, nên kết
+quả tìm kiếm gắn với **đúng phiên bản** người đang đọc, không bị phiên bản mới "đè" mất.
+
+### Ngữ nghĩa AND và xếp hạng
+
+- **AND**: một bản snapshot chỉ được trả về khi chứa **TẤT CẢ** từ của câu truy vấn. Điều kiện
+  nằm ngay trong SQL: số từ **đã khớp** phải bằng số từ trong truy vấn.
+- **Xếp hạng**: `score = 3 × SUM(count_title) + SUM(count_body)` — hệ số 3 cho tiêu đề vì tiêu đề
+  đáng tin hơn phần thân. Sắp theo `score` giảm dần, rồi `fetched_at` giảm dần.
+- **Chỉ** `fetch_status = 'success'`, và **chỉ** trong thư viện người dùng sở hữu / là thành viên /
+  là quản trị — bộ lọc quyền **nằm trong SQL** (`wa_library_access_sql()`), nên không thể lách
+  bằng cách sửa tham số `GET`.
+- Bộ lọc **thẻ** và **tên miền** cộng thêm vào điều kiện, vẫn giữ ngữ nghĩa AND.
+
+### Đoạn trích và làm nổi bật `<mark>`
+
+So khớp để tìm đoạn trích chạy trên **dạng đã bỏ dấu**, còn phần **hiển thị giữ nguyên dấu**:
+nội dung được tách thành token kèm vị trí, so khớp `wa_search_fold()` từng token, rồi mới ghép lại
+**văn bản gốc** và bọc `<mark>` quanh đúng khoảng ký tự đó. Vì vậy gõ "luu trang" vẫn bắt được
+"lưu trang" và hiển thị đúng chữ có dấu.
+
+Các từ khớp liền nhau (nối bằng dấu gạch dưới/dấu chấm/khoảng trắng) được gom thành **một chùm**
+và bọc `<mark>` trọn vẹn — nên `khoa_tu_ban_than_webarchive` hiện nguyên vẹn chứ không bị cắt vụn.
+Đoạn trích neo vào **chùm dài nhất** và dài khoảng 200 ký tự. Mọi thứ lấy từ `content_text` đều được
+**escape HTML** trước khi in; không có chỗ nào in thẳng `content_text` vào mẫu.
+
+---
+
 ## 6. Phạm vi của giai đoạn này
 
 **Đã có (CSDL + session):**
@@ -187,6 +279,13 @@ trang nội bộ thì xoá dòng đó trong `/admin/allowlist.php`.
   snapshot lỗi / không tồn tại → **404**; khách chưa đăng nhập → chuyển hướng `login.php`.
 - **Chống giả mạo:** mọi form POST mới (tải lại, thêm/sửa/xoá ghi chú) đều có token CSRF
   sinh bằng `random_bytes()` trong session và kiểm tra bằng `hash_equals()`.
+- **Tìm kiếm tự xây (P-SEARCH):** `public/search.php` đọc trên **chỉ mục đảo** `search_terms`
+  (xem mục 5.1) — **không** `LIKE`, **không** FULLTEXT. Ngữ nghĩa **AND**, xếp hạng
+  `score = 3 × SUM(count_title) + SUM(count_body)`, bỏ dấu tiếng Việt để gõ không dấu vẫn ra,
+  đoạn trích bọc `<mark>` theo dạng đã bỏ dấu nhưng hiển thị giữ nguyên dấu, lọc thẻ/tên miền,
+  và **lọc quyền truy cập ngay trong SQL**. Bản snapshot lưu thành công được **lập chỉ mục
+  ngay** trong `wa_store_page_capture()`; kịch bản `scripts/migrate_search.php` và
+  `scripts/reindex_search.php` dựng/chạy lại chỉ mục khi cần.
 - Trang thư viện hiện **số phiên bản** trên từng thẻ bài viết (link tới bản mới nhất) và mục
   **"Lưu thất bại gần đây"** (5 lần lỗi gần nhất: URL, lý do, thời điểm) cho người có quyền sửa.
 
@@ -197,7 +296,7 @@ trang nội bộ thì xoá dòng đó trong `/admin/allowlist.php`.
 - ~~Tải lại bản đã lưu (nút "Lấy phiên bản mới" chưa nối engine).~~ **ĐÃ LÀM (P-READ).**
 - ~~Ghi chú trên từng phiên bản (mới hiện khung giao diện).~~ **ĐÃ LÀM (P-READ).**
 - ~~Siết chặt phân quyền editor/viewer cho tải lại và ghi chú.~~ **ĐÃ LÀM (P-READ).**
-- Tìm kiếm thật — `search.php` hiện dùng `LIKE` trên `snapshots.title` / `content_text`.
+- ~~Tìm kiếm thật — `search.php` hiện dùng `LIKE` trên `snapshots.title` / `content_text`.~~ **ĐÃ LÀM (P-SEARCH)** — chỉ mục đảo tự xây, xem mục 5.1.
 - Các nút "tạo thư viện", "mời người dùng" chỉ hiển thị giao diện.
 - Xuất kho — nút "Xuất PDF" trong trình đọc hiện mới gọi `window.print()`.
 
@@ -215,9 +314,29 @@ trang nội bộ thì xoá dòng đó trong `/admin/allowlist.php`.
 5. Thử bằng tài khoản khác: gửi thẳng form sửa/xoá ghi chú của người khác → bị từ chối,
    dữ liệu trong CSDL **không đổi**.
 
+## 6.3 Cách thử tìm kiếm tự xây (P-SEARCH)
+
+> Chạy `php scripts/migrate_search.php` rồi `php scripts/reindex_search.php` **một lần** nếu
+> vừa cài lại CSDL. Từ lần lưu trang thành công trở đi, mọi bản snapshot mới đều được lập chỉ mục
+> tự động nên không cần chạy lại kịch bản.
+
+1. Đăng nhập `user@demo.vn` / `demo123`, vào **Tìm kiếm**, gõ `luu trang` (cố tình **không gõ dấu**)
+   → vẫn ra các bài có chữ "lưu trang" **có dấu**, và đoạn trích bọc `<mark>` đúng chữ có dấu.
+2. Gõ nhiều từ `viet truyen` → chỉ ra bài có **cả hai** từ (AND), không phải bài có "hoặc".
+3. Lọc theo **thẻ** `#MySQL` rồi theo **tên miền** `techblog.dev` → kết quả thu hẹp dần.
+4. Lưu thêm `http://localhost:8090/article.html` (bật fixture server ở bước 7 mục 6), **không** chạy
+   reindex → tìm `khoa_tu_ban_than_webarchive` là thấy ngay bản vừa lưu: việc lập chỉ mục đã
+   chạy ngay trong lúc lưu.
+5. Gõ `nguong` (chỉ có ở các bài mới) → vẫn thấy bản cũ nhất; gõ `refetch` (chỉ có ở bản từ v2 trở
+   đi) → không thấy bản cũ nhất. Chứng minh kết quả gắn với **từng phiên bản một**.
+6. Gõ một từ chỉ có trong `tests/fixtures/notice.html` (trang này chưa bao giờ lưu thành công) như
+   `doctype` hay `charset` → **0 kết quả**.
+
 ## 6. Cách trải nghiệm nhanh
 
-1. Chạy `php scripts/setup_db.php` một lần để tạo CSDL (xem mục 1.1).
+1. Chạy `php scripts/setup_db.php` một lần để tạo CSDL (xem mục 1.1), rồi
+   `php scripts/migrate_search.php` và `php scripts/reindex_search.php` để có chỉ mục tìm kiếm
+   (mục 5.1).
 2. Mở `http://localhost:8080` — trang chủ dành cho **khách**.
 3. Bấm **Đăng nhập**, dùng `user@demo.vn` / `demo123` → vào `libraries.php`.
 4. Mở thư viện **CNTT & Lập Trình** → xem thẻ bài viết, bảng thành viên, bảng lưu URL.

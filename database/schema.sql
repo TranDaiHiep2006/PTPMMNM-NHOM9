@@ -145,6 +145,38 @@ CREATE TABLE `snapshots` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------
+-- search_terms — CHỈ MỤC ĐẢO (INVERTED INDEX) TỰ XÂY DỰNG cho tìm kiếm (P-SEARCH)
+-- -----------------------------------------------------------------------------
+-- Mỗi dòng là một (từ đã bỏ dấu, snapshot) kèm số lần xuất hiện trong tiêu đề
+-- và trong thân bài. Cơ chế này do dự án TỰ LÀM — KHÔNG dùng FULLTEXT /
+-- MATCH ... AGAINST của MySQL.
+--   * term        : token gốc đã hạ chữ thường (giữ nguyên dấu tiếng Việt).
+--   * term_folded : token sau khi bỏ dấu tiếng Việt — đây là khoá so khớp.
+--   * UNIQUE (term_folded, snapshot_id): một từ chỉ có MỘT dòng cho mỗi bản
+--     snapshot, nên đếm tần suất ngay trong lúc lập chỉ mục (không cần quét lại
+--     content_text lúc tìm).
+--   * FK ON DELETE CASCADE: xoá snapshot thì dòng chỉ mục của nó tự biến mất.
+-- LƯU Ý kiểu dữ liệu: `id` dùng BIGINT UNSIGNED (bảng chỉ mục có thể rất lớn),
+-- còn `snapshot_id` phải là INT UNSIGNED để khớp đúng kiểu cột được tham chiếu
+-- `snapshots.id` — MySQL không cho khoá ngoại giữa hai kiểu khác nhau.
+-- -----------------------------------------------------------------------------
+DROP TABLE IF EXISTS `search_terms`;
+CREATE TABLE `search_terms` (
+    `id`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `term`        VARCHAR(100)   NOT NULL,
+    `term_folded` VARCHAR(100)   NOT NULL,
+    `snapshot_id` INT UNSIGNED  NOT NULL,
+    `count_title` INT UNSIGNED   NOT NULL DEFAULT 0,
+    `count_body`  INT UNSIGNED   NOT NULL DEFAULT 0,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_search_terms_folded_snapshot` (`term_folded`, `snapshot_id`),
+    KEY `ix_search_terms_folded` (`term_folded`),
+    CONSTRAINT `fk_search_terms_snapshot`
+        FOREIGN KEY (`snapshot_id`) REFERENCES `snapshots` (`id`)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
 -- assets — tài nguyên (ảnh) tải về máy chủ nội bộ
 -- -----------------------------------------------------------------------------
 DROP TABLE IF EXISTS `assets`;
