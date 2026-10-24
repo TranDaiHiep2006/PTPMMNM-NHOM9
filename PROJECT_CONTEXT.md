@@ -1,8 +1,12 @@
 # PROJECT_CONTEXT.md — WebArchive (Đề tài 16)
 
-> Tài liệu ngữ cảnh dự án. **Giai đoạn hiện tại: P-FINAL-2 — Stage A xong (commit
-> `647a5b4`), Stage B xong; Stage C (dựng lại dữ liệu demo) đang chờ người dùng tự
-> chạy `scripts/setup_db.php`.** Tag phát hành được khuyến nghị: **`v1.0.1`**
+> Tài liệu ngữ cảnh dự án. **Giai đoạn hiện tại: P-FINAL-2 — Stage A, B, C đều XONG.**
+> Stage C (dựng lại dữ liệu demo) đã chạy trên CSDL thật sau khi người dùng tự chạy
+> `scripts/setup_db.php`: allowlist khôi phục **6 → 9** tên miền, `reindex_search.php`
+> (8 snapshot, 1553 dòng chỉ mục), `seed_samples.php` (**15/15 khớp**), lưu lại bài
+> Wikipedia PHP vào `cntt-lap-trinh` (snapshot 8958, 4 ảnh), chuỗi **3 phiên bản**
+> trên bài fixture (8959→8960→8961) kèm 1 ghi chú, `run_tests.php` **6/6 PASS** exit 0,
+> và **ảnh cục bộ thiếu = 0**. Tag phát hành được khuyến nghị: **`v1.0.1`**
 > (giữ nguyên tag `v1.0.0` cũ).
 > Tất cả năm chức năng nghiệp vụ của đề tài đã chạy thật và được kiểm chứng tự động.
 > `capture_url()` là engine tải trang thật; phần ghi CSDL đã gom về một hàm
@@ -758,6 +762,83 @@ P-FINAL-2 Stage B).
 - Kiểm tra gói bằng `git archive --format=zip --output=… HEAD` rồi giải nén ra thư mục
   tạm, đối chiếu danh sách tệp và chạy `php -l` trên toàn bộ tệp PHP trong gói —
   kết quả thô ở báo cáo P-FINAL-2 Stage B.
+
+---
+
+## 8j. P-FINAL-2 — Stage C: dựng lại dữ liệu demo (CSDL thật)
+
+Stage C chạy **sau khi người dùng tự chạy `scripts/setup_db.php`** trong terminal của
+họ. Stage C **không** chạy lại `setup_db.php` và **không** xoá tay tệp trong
+`public/uploads/`.
+
+### Step 0 — Khôi phục allowlist (6 → 9 tên miền)
+
+Cài CSDL sạch chỉ nạp **6** tên miền seed. Ba tên miền còn lại phải khôi phục
+**qua giao diện quản trị** (`POST /admin/allowlist.php`, đăng nhập `admin@demo.vn`):
+
+| # | Tên miền | Ghi chú đã ghi |
+|---|-----------|----------------|
+| 7 | `localhost` | Máy chủ thử nghiệm cục bộ (fixture server cổng 8090) |
+| 8 | `vi.wikipedia.org` | Wikipedia tiếng Việt (kiểm thử lưu trang thật) |
+| 9 | `thumb.wikimedia.org` | Kho ảnh Wikimedia (ảnh của bài Wikipedia) |
+
+Đây đúng là **9 tên miền** mà `README.md` và `PROJECT_CONTEXT.md` mục 7 đã mô tả —
+không thêm tên miền nào khác. Sau bước này `allowlist_domains` có **9 dòng**, xác nhận
+bằng truy vấn trực tiếp.
+
+### C1 — Lập lại chỉ mục tìm kiếm + nạp bộ mẫu
+
+- `php scripts/reindex_search.php` → **8 snapshot thành công được lập chỉ mục,
+  1553 dòng chỉ mục, 406 từ đã bỏ dấu khác nhau**, bỏ qua 0 snapshot lỗi, exit 0.
+  (Bảng `search_terms` **đã tồn tại** sau `setup_db.php` nên **không** cần
+  `scripts/migrate_search.php`.)
+- `php scripts/seed_samples.php` → tạo thư viện **«Kho dữ liệu mẫu»** (id=4) và nạp
+  **15/15 trang mẫu khớp với kết quả mong đợi** (13 `success`, 1 `error_no_content`,
+  1 `error_blocked`, 1 `error_timeout`), cộng thêm `bai-05.html` lên **phiên bản 2**.
+  Cần bật máy chủ mẫu `php -S localhost:8091 -t tests/samples` trước khi chạy.
+
+### C2 — Lưu trang thật + chuỗi phiên bản
+
+**Bài Wikipedia tiếng Việt.** Lưu qua **đường lưu thật** (`POST /save.php` →
+`wa_store_page_capture()`), không chèn SQL tay:
+
+- `https://vi.wikipedia.org/wiki/PHP` → thư viện **`cntt-lap-trinh`** (id=1),
+  nhãn `PHP, Wikipedia, Lap trinh` → **snapshot 8958**, `fetch_status = success`,
+  `http_status = 200`, tiêu đề *"PHP – Wikipedia tiếng Việt"*, **4 ảnh** tải về
+  máy chủ nội bộ, `content_html` dài 62 911 ký tự với
+  **`<script>` = 0, `onclick` = 0, `<iframe>` = 0, `<img src="http…">` = 0**.
+
+**Chuỗi 3 phiên bản trên bài fixture** (`http://localhost:8090/article.html`, cùng
+thư viện `cntt-lap-trinh`) — tạo bằng cách sửa tạm nội dung fixture giữa các lần
+tải, rồi **khôi phục tệp fixture về nguyên bản** (xác nhận `git status` sạch):
+
+| Phiên bản | Snapshot | Cách tạo | Dấu hiệu bản 2 | Dấu hiệu bản 3 |
+|-----------|----------|----------|----------------|----------------|
+| 1 | 8959 | `POST /save.php` | không | không |
+| 2 | 8960 | `POST /refetch.php` | **có** | không |
+| 3 | 8961 | `POST /refetch.php` | có | **có** |
+
+Kèm **1 ghi chú** gắn riêng vào **phiên bản 1** (`snapshot_id = 8959`):
+*"Bản lưu lúc 9h sáng — dùng làm căn cứ đối chiếu khi nguồn thay đổi."*
+
+Đây chính là vật liệu cho **kịch bản trình diễn 2** (`docs/DEMO.md`).
+
+### C3 — Hồi quy + trạng thái cuối
+
+- `php scripts/run_tests.php` → **6/6 PASS**, **exit code 0**.
+- Trạng thái cuối (đo trên CSDL thật, dùng chính `wa_metrics_for_libraries()` của
+  ứng dụng): **111 tài nguyên cục bộ — thiếu 0**; **103 ảnh cục bộ — thiếu 0**.
+  ⇒ Xác minh tại Stage B (B5) là đúng: sau `setup_db.php`, bước 5b sinh tệp thật và
+  bộ đếm không còn báo thiếu ảnh.
+
+Bảng số liệu đầy đủ (số dòng từng bảng, số trang/snapshot theo thư viện, bộ đếm
+metrics) nằm ở **`README.md` mục 6.1 — "Trạng thái dữ liệu cuối"**.
+
+### C4 — Kết quả
+
+- Tài liệu cập nhật: `README.md` (mục **6.1** mới + sửa "10 bảng" → **11 bảng**),
+  `PROJECT_CONTEXT.md` (mục **8j** mới + trạng thái phase ở đầu tài liệu).
+- Tag phát hành **`v1.0.1`** **khuyến nghị** ở commit cuối cùng sau Stage C.
 
 ---
 

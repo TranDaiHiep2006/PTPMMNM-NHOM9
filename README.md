@@ -540,7 +540,9 @@ Tên thư viện và tài khoản rác có hậu tố ngẫu nhiên nên **chạ
 Mọi tính năng của đề tài đã **hoàn thành**. Danh sách dưới đây là phần tính
 năng đầy đủ, không phải phạm vi của một giai đoạn.
 
-- **CSDL thật:** MySQL qua PDO; 10 bảng InnoDB utf8mb4 có khoá ngoại và UNIQUE.
+- **CSDL thật:** MySQL qua PDO; **11 bảng** InnoDB utf8mb4 có khoá ngoại và UNIQUE
+  (`users`, `libraries`, `library_members`, `tags`, `saved_pages`, `page_tags`, `snapshots`,
+  `search_terms`, `assets`, `notes`, `allowlist_domains`).
   Mọi truy vấn có tham số đều là **prepared statement**.
 - **Tài khoản:** đăng nhập/đăng ký/đăng xuất đối chiếu bảng `users`; đăng ký **ghi thật**
   vào CSDL, mật khẩu băm bằng `password_hash()`.
@@ -574,6 +576,82 @@ năng đầy đủ, không phải phạm vi của một giai đoạn.
 > `mock_capture.php` → engine thật (P-CAPTURE) · tải lại + ghi chú (P-READ) ·
 > `LIKE` → chỉ mục đảo (P-SEARCH) · nút quản lý thư viện chỉ hiển thị giao diện → ghi thật
 > (P-LIB) · bộ mẫu + kiểm thử + tài liệu OSS (P-FINAL).
+
+---
+
+## 6.1 Trạng thái dữ liệu cuối (đo trên CSDL thật — P-FINAL-2 Stage C)
+
+> Mọi con số dưới đây lấy từ **CSDL MySQL thật** sau khi chạy lại toàn bộ pipeline
+> (`reindex_search.php` → `seed_samples.php` → lưu trang thật → `run_tests.php`).
+> Không có con số nào ở đây là số bịa đặt.
+
+### Số dòng từng bảng
+
+| Bảng | Số dòng |
+|------|---------|
+| `users` | 5 |
+| `libraries` | 4 |
+| `library_members` | 8 |
+| `tags` | 32 |
+| `saved_pages` | 25 |
+| `page_tags` | 53 |
+| `snapshots` | 28 |
+| `search_terms` | 4944 |
+| `assets` | 111 |
+| `notes` | 1 |
+| `allowlist_domains` | 9 |
+
+### Số trang / snapshot theo thư viện
+
+| Thư viện | slug | Trang | Snapshot | Thành công | Lỗi | `version_no` cao nhất |
+|----------|------|------|----------|-----------|-----|----------------------|
+| CNTT & Lập Trình | `cntt-lap-trinh` | 6 | 8 | 8 | 0 | 3 |
+| Tài liệu học tập | `tai-lieu-hoc-tap` | 2 | 2 | 2 | 0 | 1 |
+| Nghiên cứu công nghệ | `nghien-cuu-cong-nghe` | 2 | 2 | 2 | 0 | 3 |
+| Kho dữ liệu mẫu | `kho-du-lieu-mau` | 15 | 16 | 13 | 3 | 2 |
+
+### Bộ đếm metrics của ứng dụng (`wa_metrics_for_libraries()`)
+
+| Chỉ số | Giá trị |
+|--------|---------|
+| Thư viện | 4 |
+| Trang | 25 (thành công 22, lỗi 3) |
+| Snapshot | 28 (thành công 25, lỗi 3) |
+| Tài nguyên cục bộ | 111 — **có trên đĩa 111, thiếu 0** |
+| Ảnh cục bộ | 103 — **có trên đĩa 103, thiếu 0** |
+| Tổng dung lượng | 107 005 byte |
+
+> **Ảnh cục bộ thiếu = 0** — đây là con số đã sửa ở Stage B (B5): 99 dòng `assets`
+> trong `database/seed.sql` trỏ tới tệp không tồn tại; nay `scripts/setup_db.php`
+> (bước 5b) **tạo thật** từng tệp trên đĩa rồi cập nhật `size_bytes`.
+> Riêng thư viện `cntt-lap-trinh`: 6 trang, 8 snapshot, **36 ảnh cục bộ — thiếu 0**,
+> 40 tài nguyên — thiếu 0.
+
+### Snapshot theo trạng thái
+
+| `fetch_status` | Số |
+|----------------|-----|
+| `success` | 25 |
+| `error_timeout` | 1 |
+| `error_blocked` | 1 |
+| `error_no_content` | 1 |
+
+> Ba snapshot lỗi là **các ca lỗi có chủ đích** của bộ mẫu (`cham.php` → timeout,
+> `chuyen-huong-ngoai.php` → chuyển hướng ra ngoài allowlist, `bai-12.html` → nội dung
+> quá ngắn). Chúng **không** hiện trong danh sách bài viết, kết quả tìm kiếm hay trình đọc
+> (điều kiện `fetch_status = 'success'` nằm ngay trong SQL) — nhưng vẫn được đếm trong
+> bảng quản trị.
+
+### Chuỗi phiên bản (kịch bản trình diễn 2)
+
+| Trang | Thư viện | Số bản | Phiên bản | Nguồn |
+|-------|----------|--------|-----------|-------|
+| 13 | `kho-du-lieu-mau` | 2 | 1, 2 | `http://localhost:8091/bai-05.html` |
+| 25 | `cntt-lap-trinh` | 3 | 1, 2, 3 | `http://localhost:8090/article.html` |
+
+Chuỗi 3 bản của trang 25 được tạo **qua engine thật**: lưu lần 1 (nội dung gốc chưa có
+dấu hiệu phiên bản) → bấm **Lấy phiên bản mới** lần 2 (thêm dấu hiệu bản 2) → lần 3
+(thêm dấu hiệu bản 3), rồi **ghi chú 1** gắn riêng với phiên bản 1.
 
 ---
 
