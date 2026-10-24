@@ -458,13 +458,21 @@ không xoá tệp trong `public/uploads/`.
 đơn "Tạo tài khoản" bằng `Đăng nhập` (ghost, `login.php`) + `Đăng ký` (primary,
 `register.php`). Xoá luôn quy tắc `@media (min-width: 1024px) { .guest-cta .btn--outline
 { display: none; } }` trong `app.css` vì nó vô hiệu hoá lối đăng nhập trên màn rộng.
+`public/login.php` và `public/register.php` bỏ `$hideTopbar = true` nên thanh trên của
+layout khách (và cả hai nút) hiện trên **mọi** trang khách, không chỉ trang chủ; khối
+`.auth` được đẩy xuống dưới thanh trên cố định bằng
+`padding-top: calc(var(--wa-header-h) + var(--wa-space-xl))`.
 
 **2. Lỗi bố cục trang chủ.** (a) Ba thẻ tính năng dùng `grid-auto-rows: 1fr` + khối
 `.feature__body` flex để cao bằng nhau và icon/nhãn/tiêu đề/đoạn văn thẳng hàng. (b) Khối
 "không gian đọc" trở lại lưới **12 cột** (`span 5` cột chữ, `span 7` cột minh hoạ), ảnh
 minh hoạ `width:100%; height:auto`; hai tệp SVG `public/assets/img/reader-diagram.svg` và
 `reader-cover.svg` được sửa lại byte UTF-8 hợp lệ (trước đó XML lỗi nên ảnh vỡ và
-cột bị dồn).
+cột bị dồn). Ngoài ra khối `.hero` được đẩy xuống dưới thanh trên cố định
+(`padding-top: calc(var(--wa-header-h) + var(--wa-space-xl))`): trước đó huy hiệu
+"Phiên bản …" nằm ở `top=40..68` nên bị thanh trên che kín **hoàn toàn**
+(`elementFromPoint` trả về `.topbar__inner`), tức là nhãn phiên bản không bao giờ
+nhìn thấy được.
 
 **3. Cụm tài khoản trên thanh trong workspace.** `.topbar` cao đúng `var(--wa-header-h)`
 (68px), `.topbar__inner` cao `calc(var(--wa-header-h) - 4px)`; `.topbar__right`,

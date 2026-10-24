@@ -67,7 +67,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $pageTitle = 'Tạo tài khoản — WebArchive';
 $bodyClass = 'landing';
-$hideTopbar = true;
+// P-FIX-UI (1): giữ thanh trên của layout khách để "Đăng nhập" / "Đăng ký"
+// xuất hiện đồng nhất trên mọi trang khách.
 $hideFooter = true;
 
 require __DIR__ . '/../templates/header_guest.php';

@@ -54,7 +54,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 $pageTitle = 'Đăng nhập — WebArchive';
 $bodyClass = 'landing';
-$hideTopbar = true;
+// P-FIX-UI (1): trang đăng nhập vẫn dùng layout KHÁCH, nên thanh trên (chứa
+// "Đăng nhập" + "Đăng ký") hiện cùng với trang chủ. Trước đây $hideTopbar = true
+// khiến nút "Đăng ký" biến mất khỏi mọi trang khách ngoài trang chủ.
 $hideFooter = true;
 
 require __DIR__ . '/../templates/header_guest.php';

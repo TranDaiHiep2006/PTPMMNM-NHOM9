@@ -533,7 +533,9 @@ table { border-collapse: collapse; }
    -------------------------------------------------------------------------- */
 .auth {
   min-height: 100vh; display: flex; align-items: center; justify-content: center;
-  padding: var(--wa-space-xl) var(--wa-space-md);
+  /* P-FIX-UI (1): thanh trên của layout khách là `position: fixed` cao
+     --wa-header-h — thẻ xác thực phải nằm dưới thanh, không bị che. */
+  padding: calc(var(--wa-header-h) + var(--wa-space-xl)) var(--wa-space-md) var(--wa-space-xl);
   background:
     radial-gradient(900px 480px at 50% -120px, rgba(179, 212, 255, .45), transparent 70%),
     var(--wa-canvas);
