@@ -4,11 +4,12 @@
  * -----------------------------------------------------------------------------
  * SỐ LIỆU THẬT TỪ CSDL — dùng chung cho các trang giao diện (P-FIX-UI, mục 6).
  *
- * Bản mock trong bản tham chiếu có nhiều con số bịa đặt ("2.4 GB", "48 bài
- * viết", "312 ảnh", "100% nguyên vẹn", "1 Chủ sở hữu • 1 Biên tập viên •
- * 1 Người xem", ...). Nếu giao diện hiện những con số đó thì giao diện nói dối
- * người dùng. File này gom các phép tính lấy từ CSDL vào một chỗ để mọi
- * template chỉ cần gọi hàm, không tự viết SQL rải rác.
+ * Bản mock trong bản tham chiếu có nhiều con số bịa đặt (dung lượng lưu trữ
+ * hàng GB, số bài viết hàng chục, số ảnh hàng trăm, tỉ lệ "100% nguyên vẹn",
+ * và một dòng liệt kê sẵn số thành viên theo vai trò, ...). Nếu giao diện hiện
+ * những con số đó thì giao diện nói dối người dùng. File này gom các phép tính
+ * lấy từ CSDL vào một chỗ để mọi template chỉ cần gọi hàm, không tự viết SQL
+ * rải rác.
  *
  * NGUYÊN TẮC
  *   1. Chỉ ĐỌC. Không INSERT/UPDATE/DELETE, không đổi schema.
