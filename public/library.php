@@ -24,10 +24,22 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/bootstrap.php';
+// P-FIX-UI (6): số liệu thật từ CSDL (số thành viên theo vai trò, ảnh lỗi…).
+require_once __DIR__ . '/../templates/wa_metrics.php';
 
 require_login();
 
-$slug = (string) ($_GET['slug'] ?? 'cntt-lap-trinh');
+// P-FIX-UI (5): KHÔNG hardcode slug thư viện nào. Trước đây trang mở mặc
+// định về một thư viện không còn tồn tại trong CSDL, nên
+// mọi lần mở trang mà không truyền ?slug= đều dẫn tới "Không tìm thấy thư viện".
+// Nay: thiếu slug -> chuyển hẳn về trang danh sách thư viện.
+$slug = trim((string) ($_GET['slug'] ?? ''));
+
+if ($slug === '') {
+    header('Location: ' . wa_url('libraries.php'), true, 302);
+    exit;
+}
+
 $library = wa_find_library($slug);
 
 if ($library === null) {
@@ -108,9 +120,59 @@ $library['tags']          = wa_library_tags($libraryId);
 $library['tag_count']     = count($library['tags']);
 $library['storage_label'] = wa_format_mb($library['size_bytes']);
 $library['asset_size']    = $library['storage_label'];
-$library['broken_images'] = 0;
-$library['integrity']     = '100% nguyên vẹn';
 $library['updated']       = 'Cập nhật ' . wa_datetime((string) $library['created_at']);
+
+/* ---------------------------------------------------------------------------
+ * P-FIX-UI (6): mọi con số còn lại của trang này phải TÍNH TỪ CSDL.
+ *
+ *  - "Ảnh lỗi" (broken_images): đếm tài nguyên ảnh mà bảng `assets` ghi nhưng
+ *    tệp KHÔNG còn trên đĩa. Trước đây gán cứng 0 và kèm dòng
+ *    "Bảo toàn vĩnh viễn 100%" — nói dối khi ảnh đã bị dọn khỏi đĩa.
+ *  - "100% nguyên vẹn" (integrity): chỉ hiện khi thật sự không có ảnh nào
+ *    hỏng; nếu có thì nói đúng số ảnh hỏng.
+ *  - Phân rã vai trò thành viên: đếm trực tiếp từ danh sách thành viên
+ *    (wa_library_members) thay vì một dòng tĩnh liệt kê sẵn số thành viên
+ *    theo từng vai trò (thực tế thư viện này chỉ có 1 thành viên).
+ * ------------------------------------------------------------------------- */
+$libMetrics = wa_metrics_for_libraries([$libraryId]);
+
+$library['broken_images'] = $libMetrics['image_missing'];
+$library['integrity']     = $libMetrics['snapshots'] === 0
+    ? 'Chưa có bản lưu'
+    : ($libMetrics['snapshots_ok'] === $libMetrics['snapshots']
+        ? 'Bản lưu thành công 100%'
+        : $libMetrics['snapshots_ok'] . '/' . $libMetrics['snapshots'] . ' bản lưu thành công');
+$library['image_integrity'] = $libMetrics['image_total'] === 0
+    ? 'Chưa có ảnh cục bộ'
+    : ($libMetrics['image_missing'] === 0
+        ? 'Ảnh cục bộ nguyên vẹn 100%'
+        : $libMetrics['image_missing'] . ' ảnh cục bộ không tìm thấy');
+
+// Phân rã số thành viên theo vai trò — tính từ danh sách thành viên thật.
+$roleLabels = wa_member_role_labels();
+$memberBreakdown = ['owner' => 0, 'editor' => 0, 'viewer' => 0];
+
+foreach ($members as $member) {
+    $role = (string) $member['role'];
+
+    if (!isset($memberBreakdown[$role])) {
+        $memberBreakdown[$role] = 0;
+    }
+
+    $memberBreakdown[$role]++;
+}
+
+$memberBreakdownParts = [];
+
+foreach ($memberBreakdown as $role => $count) {
+    if ($count > 0) {
+        $memberBreakdownParts[] = $count . ' ' . ($roleLabels[$role] ?? $role);
+    }
+}
+
+$memberBreakdownText = $memberBreakdownParts === []
+    ? 'Chưa có thành viên'
+    : implode(' • ', $memberBreakdownParts);
 
 // Phân trang: 6 bài mỗi trang.
 $perPage = 6;
@@ -234,7 +296,7 @@ require __DIR__ . '/../templates/header_app.php';
       <span class="ms ms-18" style="color:var(--wa-action)">supervised_user_circle</span>
     </div>
     <div class="stat-card__value"><b><?= $library['member_count'] ?></b><span>tài khoản</span></div>
-    <div class="stat-card__note">1 Chủ sở hữu • 1 Biên tập viên • 1 Người xem</div>
+    <div class="stat-card__note"><?= wa_e($memberBreakdownText) ?></div>
   </div>
 
   <div class="stat-card">
@@ -243,7 +305,7 @@ require __DIR__ . '/../templates/header_app.php';
       <span class="ms ms-18" style="color:var(--wa-teal-deep)">verified</span>
     </div>
     <div class="stat-card__value"><b><?= $library['broken_images'] ?></b><span>Ảnh lỗi</span></div>
-    <div class="stat-card__note" style="color:var(--wa-teal-deep)">Bảo toàn vĩnh viễn 100%</div>
+    <div class="stat-card__note" style="color:var(--wa-teal-deep)"><?= wa_e($library['image_integrity']) ?></div>
   </div>
 </div>
 

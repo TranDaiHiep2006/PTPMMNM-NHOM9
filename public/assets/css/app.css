@@ -222,12 +222,13 @@ table { border-collapse: collapse; }
    -------------------------------------------------------------------------- */
 .topbar {
   position: fixed; inset: 0 0 auto 0; z-index: 60;
+  height: var(--wa-header-h);
   background: var(--wa-white);
   box-shadow: 0 1px 8px rgba(0, 0, 0, .04);
 }
 .topbar__accent { height: 4px; background: var(--wa-primary); }
 .topbar__inner {
-  height: 64px; max-width: var(--wa-max); margin: 0 auto;
+  height: calc(var(--wa-header-h) - 4px); max-width: var(--wa-max); margin: 0 auto;
   padding: 0 var(--wa-margin);
   display: flex; align-items: center; justify-content: space-between; gap: var(--wa-space-lg);
 }
@@ -246,7 +247,10 @@ table { border-collapse: collapse; }
 .topnav a:hover { background: var(--wa-surface-soft); color: var(--wa-text); }
 .topnav a.is-active { background: var(--wa-surface-mid); color: var(--wa-primary); font-weight: 600; }
 
-.topbar__right { display: flex; align-items: center; gap: var(--wa-space-md); }
+/* P-FIX-UI (3): cụm tài khoản trên thanh trong workspace được CHUẨN HOÁ —
+   avatar, tên hiển thị và nút "Đăng xuất" cùng căn giữa theo trục dọc của
+   thanh trên; chiều cao thanh thống nhất ở mọi trang workspace. */
+.topbar__right { display: flex; align-items: center; gap: var(--wa-space-md); flex: 0 0 auto; }
 .offline-pill {
   display: none; align-items: center; gap: 6px;
   padding: 4px 10px; border-radius: var(--wa-radius-full);
@@ -259,21 +263,52 @@ table { border-collapse: collapse; }
 .dot--grey { background: var(--wa-border-strong); }
 @keyframes wa-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 
-.user-chip { display: flex; align-items: center; gap: var(--wa-space-sm); padding-left: var(--wa-space-sm); }
+.user-chip {
+  display: flex; align-items: center; gap: var(--wa-space-sm);
+  padding-left: var(--wa-space-sm); min-width: 0; align-self: center;
+}
 .avatar {
   width: 32px; height: 32px; border-radius: 50%; flex: 0 0 32px;
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--wa-primary); color: var(--wa-on-primary);
   font-size: 12px; font-weight: 700; letter-spacing: .02em;
+  line-height: 1;
 }
 .avatar--alt { background: var(--wa-action); }
 .avatar--light { background: var(--wa-surface-highest); color: var(--wa-action); }
-.user-chip__meta { display: none; flex-direction: column; line-height: 1.25; }
-.user-chip__name { font-size: 12px; line-height: 16px; font-weight: 600; color: var(--wa-text); }
+.user-chip__meta {
+  display: flex; flex-direction: column; justify-content: center; line-height: 1.25;
+  min-width: 0; text-align: left;
+}
+.user-chip__name {
+  font-size: 12px; line-height: 16px; font-weight: 600; color: var(--wa-text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 180px;
+}
 .user-chip__role { font-size: 11px; line-height: 14px; color: var(--wa-text-muted); }
 
-/* Guest header đúng vai trò khách: KHÔNG có user chip / đăng xuất */
-.guest-cta { display: flex; align-items: center; gap: var(--wa-space-sm); }
+/* Nút "Đăng xuất": nút chữ rõ ràng, cùng cao với avatar, căn giữa. */
+.topbar__logout {
+  align-self: center; flex: 0 0 auto;
+  height: 32px; padding: 0 12px; line-height: 30px; white-space: nowrap;
+}
+
+/* Guest header đúng vai trò khách: KHÔNG có user chip / đăng xuất.
+   P-FIX-UI (1): HAI hành động riêng biệt — "Đăng nhập" dạng ghost (người đã có
+   tài khoản) và "Đăng ký" dạng primary (người mới). Trước đây nút đăng nhập bị
+   ẩn ở màn hình rộng, khiến người dùng quay lại không có lối đăng nhập. */
+.guest-cta { display: flex; align-items: center; gap: var(--wa-space-sm); flex: 0 0 auto; }
+.guest-cta .btn--login {
+  color: var(--wa-primary);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--wa-border-strong);
+}
+.guest-cta .btn--login:hover {
+  background: var(--wa-surface-low);
+  color: var(--wa-primary);
+  box-shadow: inset 0 0 0 1px var(--wa-action);
+}
+.guest-cta .btn--register { background: var(--wa-action); color: var(--wa-on-primary); }
+.guest-cta .btn--register:hover { background: var(--wa-action-hover); color: var(--wa-on-primary); }
 
 /* --------------------------------------------------------------------------
    7. App shell + sidebar
@@ -304,6 +339,13 @@ table { border-collapse: collapse; }
 }
 .sidebar nav a:hover { background: var(--wa-surface-low); color: var(--wa-text); }
 .sidebar nav a.is-active { background: var(--wa-surface-mid); color: var(--wa-primary); font-weight: 600; }
+
+/* P-FIX-UI (5): danh sách thư viện động trong sidebar — tên thư viện dài
+   phải cắt gọn một dòng (ellipsis) để sidebar không bị vỡ bố cục. */
+.sidebar__libs a { min-width: 0; }
+.sidebar__lib-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .sidebar__foot { padding: 0 var(--wa-space-md); }
 .sidebar__card {
   display: flex; align-items: center; gap: var(--wa-space-sm);
@@ -532,7 +574,11 @@ table { border-collapse: collapse; }
 .hero {
   position: relative; overflow: hidden;
   max-width: var(--wa-max); margin: 0 auto;
-  padding: var(--wa-space-xl) var(--wa-margin);
+  /* P-FIX-UI (2): thanh trên là `position: fixed` cao --wa-header-h, nên khối
+     hero phải đẩy xuống dưới thanh. Trước đây huy hiệu "Phiên bản ..." nằm
+     ở top=40..68 — bị thanh trên che kín hoàn toàn (elementFromPoint trả về
+     .topbar__inner), nên nhãn này không bao giờ nhìn thấy được. */
+  padding: calc(var(--wa-header-h) + var(--wa-space-xl)) var(--wa-margin) var(--wa-space-xl);
 }
 .hero::before {
   content: ""; position: absolute; top: -160px; left: 50%; transform: translateX(-50%);
@@ -570,22 +616,32 @@ table { border-collapse: collapse; }
 
 .feature-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: var(--wa-space-lg); }
 @media (min-width: 768px) { .feature-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* P-FIX-UI (2a): ba thẻ tính năng phải CAO BẰNG NHAU và các khối bên trong
+   (icon, nhãn, tiêu đề, đoạn văn) phải thẳng hàng giữa các thẻ.
+   - grid-auto-rows: 1fr kéo các hàng của grid về cùng chiều cao;
+   - .feature__body là khối nội dung dùng chung, cho phép so sánh vị trí
+     từng phần tử giữa ba thẻ. */
+.feature-grid { grid-auto-rows: 1fr; }
 .feature {
-  display: flex; flex-direction: column; justify-content: space-between; gap: var(--wa-space-lg);
+  display: flex; flex-direction: column; gap: var(--wa-space-lg);
   padding: var(--wa-space-lg); background: var(--wa-white);
   border: 1px solid var(--wa-border); border-radius: var(--wa-radius-xl); box-shadow: var(--wa-shadow-1);
 }
+.feature__body { display: flex; flex-direction: column; flex: 1 1 auto; }
 .feature__icon {
   width: 48px; height: 48px; border-radius: var(--wa-radius-lg);
   display: inline-flex; align-items: center; justify-content: center;
   background: var(--wa-surface-mid); color: var(--wa-primary); margin-bottom: var(--wa-space-lg);
+  flex: 0 0 48px;
 }
 .feature__icon--blue { background: var(--wa-secondary-container); color: #26496D; }
 .feature__icon--mint { background: var(--wa-surface-highest); color: var(--wa-primary); }
 .feature__eyebrow { font-size: 11px; line-height: 14px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--wa-action); }
 .feature h3 { font-size: 18px; line-height: 26px; font-weight: 700; color: var(--wa-primary); margin-top: 4px; }
 .feature p { font-size: 14px; line-height: 22px; color: var(--wa-text-soft); margin-top: var(--wa-space-sm); }
-.feature__foot { padding: var(--wa-space-md); border-radius: var(--wa-radius-md); background: var(--wa-surface-low); }
+/* P-FIX-UI (2a): khối chân thẻ luôn nằm sát đáy thẻ, sau khi phần nội dung
+   chính đã lấp đầy — nhờ vậy mép dưới của ba thẻ thẳng hàng. */
+.feature__foot { padding: var(--wa-space-md); border-radius: var(--wa-radius-md); background: var(--wa-surface-low); margin-top: auto; }
 .feature__foot-top { display: flex; align-items: center; justify-content: space-between; gap: var(--wa-space-sm); font-size: 11px; line-height: 14px; color: var(--wa-text-muted); }
 .feature__foot-top b { color: var(--wa-primary); }
 .feature__tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
@@ -603,12 +659,17 @@ table { border-collapse: collapse; }
 .step p { font-size: 14px; line-height: 22px; color: var(--wa-text-soft); margin-top: 4px; }
 .step__note { margin-top: var(--wa-space-md); padding: var(--wa-space-sm); border-radius: var(--wa-radius-sm); background: var(--wa-surface-low); font-size: 11px; line-height: 14px; color: var(--wa-text-muted); word-break: break-all; }
 
+/* P-FIX-UI (2b): khối "không gian đọc" phải là lưới HAI CỘT cân bằng như bản
+   tham chiếu (lg:col-span-5 cho cột chữ, lg:col-span-7 cho cột minh hoạ) —
+   không được chồng lấn, cột minh hoạ không được dồn về giữa làm lệch hàng. */
 .showcase { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: var(--wa-space-lg); align-items: center; }
 @media (min-width: 1024px) { .showcase { grid-template-columns: repeat(12, minmax(0, 1fr)); } }
-.showcase__text { grid-column: span 12; }
+.showcase__text { grid-column: span 12; min-width: 0; }
 @media (min-width: 1024px) { .showcase__text { grid-column: span 5; } }
-.showcase__art { grid-column: span 12; }
+.showcase__art { grid-column: span 12; min-width: 0; }
 @media (min-width: 1024px) { .showcase__art { grid-column: span 7; } }
+/* Ảnh minh hoạ phải giữ đúng tỉ lệ khung vẽ (640x360) và không bị bóp méo. */
+.showcase__art img { width: 100%; height: auto; display: block; }
 .checklist { margin-top: var(--wa-space-lg); display: flex; flex-direction: column; gap: var(--wa-space-sm); }
 .checklist li { display: flex; align-items: flex-start; gap: var(--wa-space-sm); list-style: none; }
 .checklist .ms { color: var(--wa-teal); flex: 0 0 20px; margin-top: 2px; }
@@ -973,7 +1034,6 @@ pre code { background: none; padding: 0; color: inherit; }
 }
 @media (min-width: 1024px) {
   .app-shell { padding-left: var(--wa-sidebar-w); }
-  .guest-cta .btn--outline { display: none; }
 }
 @media (max-width: 639px) {
   .topnav { display: none; }

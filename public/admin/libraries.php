@@ -6,11 +6,18 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../src/bootstrap.php';
+// P-FIX-UI (6): số liệu thật từ CSDL thay cho các con số bịa đặt trong mock.
+require_once __DIR__ . '/../../templates/wa_metrics.php';
 
 require_admin();
 
 // Toàn bộ thư viện trên hệ thống; tên chủ sở hữu đã được JOIN sẵn trong truy vấn.
 $libraries = wa_all_libraries();
+
+$allMetrics = wa_metrics_for_libraries(array_column($libraries, 'id'));
+
+$personalCount = count(array_filter($libraries, static fn (array $l): bool => $l['visibility_code'] === 'private'));
+$sharedCount   = count($libraries) - $personalCount;
 
 $pageTitle = 'Tất cả thư viện';
 require __DIR__ . '/../../templates/header_app.php';
@@ -47,22 +54,22 @@ require __DIR__ . '/../../templates/header_app.php';
     <div class="stat">
       <span class="stat__icon stat__icon--blue"><span class="ms ms-18">article</span></span>
       <span>
-        <span class="stat__value">48 Bài viết</span>
-        <span class="stat__note">Snapshot đã lưu</span>
+        <span class="stat__value"><?= $allMetrics['pages'] ?> Bài viết</span>
+        <span class="stat__note"><?= $allMetrics['pages_ok'] ?> có bản lưu thành công</span>
       </span>
     </div>
     <div class="stat">
       <span class="stat__icon stat__icon--teal"><span class="ms ms-18">perm_media</span></span>
       <span>
-        <span class="stat__value">312 Ảnh cục bộ</span>
-        <span class="stat__note">Dung lượng 2.4 GB</span>
+        <span class="stat__value"><?= $allMetrics['image_total'] ?> Ảnh cục bộ</span>
+        <span class="stat__note">Dung lượng <?= wa_e(wa_format_mb($allMetrics['bytes_total'])) ?></span>
       </span>
     </div>
     <div class="stat">
       <span class="stat__icon stat__icon--mint"><span class="ms ms-18">lock_open</span></span>
       <span>
-        <span class="stat__value">2 Được chia sẻ</span>
-        <span class="stat__note">1 Chỉ mình tôi</span>
+        <span class="stat__value"><?= $sharedCount ?> Được chia sẻ</span>
+        <span class="stat__note"><?= $personalCount ?> Chỉ mình tôi</span>
       </span>
     </div>
   </div>
@@ -71,8 +78,8 @@ require __DIR__ . '/../../templates/header_app.php';
 <div class="toolbar" style="margin-top:24px">
   <div class="tabs" role="tablist" aria-label="Lọc thư viện">
     <button type="button" class="is-active">Tất cả (<?= count($libraries) ?>)</button>
-    <button type="button">Cá nhân (2)</button>
-    <button type="button">Được chia sẻ (1)</button>
+    <button type="button">Cá nhân (<?= $personalCount ?>)</button>
+    <button type="button">Được chia sẻ (<?= $sharedCount ?>)</button>
   </div>
 
   <div class="toolbar__right">

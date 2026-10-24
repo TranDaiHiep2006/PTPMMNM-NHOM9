@@ -448,6 +448,55 @@ Nguyên tắc: **giao diện không cần sửa**, chỉ thay lớp dữ liệu 
 
 ---
 
+### 8g. Kiến trúc P-FIX-UI (sáu lỗi giao diện landing + workspace)
+
+P-FIX-UI **không đụng vào engine, schema hay dữ liệu** — chỉ sửa `templates/` và
+CSS/markup trong `public/`. Không chạy `scripts/setup_db.php`, không thêm/xoá dòng CSDL,
+không xoá tệp trong `public/uploads/`.
+
+**1. Header khách — hai hành động riêng biệt.** `templates/header_guest.php` thay nút
+đơn "Tạo tài khoản" bằng `Đăng nhập` (ghost, `login.php`) + `Đăng ký` (primary,
+`register.php`). Xoá luôn quy tắc `@media (min-width: 1024px) { .guest-cta .btn--outline
+{ display: none; } }` trong `app.css` vì nó vô hiệu hoá lối đăng nhập trên màn rộng.
+
+**2. Lỗi bố cục trang chủ.** (a) Ba thẻ tính năng dùng `grid-auto-rows: 1fr` + khối
+`.feature__body` flex để cao bằng nhau và icon/nhãn/tiêu đề/đoạn văn thẳng hàng. (b) Khối
+"không gian đọc" trở lại lưới **12 cột** (`span 5` cột chữ, `span 7` cột minh hoạ), ảnh
+minh hoạ `width:100%; height:auto`; hai tệp SVG `public/assets/img/reader-diagram.svg` và
+`reader-cover.svg` được sửa lại byte UTF-8 hợp lệ (trước đó XML lỗi nên ảnh vỡ và
+cột bị dồn).
+
+**3. Cụm tài khoản trên thanh trong workspace.** `.topbar` cao đúng `var(--wa-header-h)`
+(68px), `.topbar__inner` cao `calc(var(--wa-header-h) - 4px)`; `.topbar__right`,
+`.user-chip`, `.user-chip__meta` và `.topbar__logout` đều căn giữa theo trục dọc — đồng
+nhất trên `libraries.php`, `library.php`, `search.php`, `save.php`.
+
+**4. Nút "Mở thư viện".** Mọi thẻ thư viện trong `public/libraries.php` dùng chung
+`btn btn--dark` (đặc), bỏ nhánh điều kiện `btn--outline` cho thư viện không phải của
+chủ sở hữu.
+
+**5. Sidebar không hardcode thư viện.** Xoá mục cống định trỏ tới `library.php?slug=…`
+(trước đây là một thư viện không còn tồn tại trong CSDL). Sidebar nay render danh sách
+thư viện **động** của người dùng qua `wa_libraries()`, tô sáng mục đang mở theo `?slug=`
+(kèm `aria-current="page"`). `public/library.php` không còn slug mặc định — thiếu
+`?slug=` thì chuyển hướng về `libraries.php`.
+
+**6. Mọi con số bịa đặt đều lấy từ CSDL.** Mô-đun mới `templates/wa_metrics.php`
+(chỉ đọc) cung cấp `wa_metrics_for_libraries()`, `wa_metrics_showcase_snapshot()`,
+`wa_metrics_top_tags()`, `wa_metrics_reader_measure()`, `wa_metrics_contrast_ratio()`,
+`wa_metrics_library_count()`, `wa_metrics_all_library_ids()`. Đã thay: widget "Kho lưu trữ
+2.4 GB" → tổng `SUM(size_bytes)` định dạng bằng `wa_format_mb()`; khối "Bản quyền cá
+nhân / Sẵn sàng đồng bộ" → gỡ bỏ; badge "Phiên bản v2.4" → "Phiên bản v1.0.0"; dòng
+"1 Chủ sở hữu • 1 Biên tập viên • 1 Người xem" → đếm theo vai trò từ
+`wa_library_members()`; các số ở `public/admin/libraries.php` (48 bài viết / 312 ảnh /
+2.4 GB), `public/admin/users.php` (số đếm tab), `public/admin/index.php` ("100% nguyên
+vẹn"), `public/libraries.php` ("0 liên kết lỗi", "Snapshot HTML/WARC") và khối minh
+hoạ bản lưu mẫu ở `public/index.php` (mã snapshot, checksum, dung lượng, số ảnh,
+tác giả, thời gian đọc, "3 bộ sưu tập", "100% Tĩnh", "0 liên kết lỗi", "65-75 ký
+tự/dòng", "12:1") — tất cả đều tính từ dữ liệu thật.
+
+---
+
 ## 9. Hệ thống thiết kế
 
 Nguồn: `docs/design-reference/DESIGN.md` và 4 màn hình tham chiếu.
@@ -469,5 +518,5 @@ biểu tượng **Material Symbols** — luôn đi kèm nhãn chữ tiếng Vi�
 
 Trang chủ trong bộ tham chiếu **dùng nhầm header đã đăng nhập** (có user chip, nút “Đăng xuất”,
 menu workspace). Trang chủ là trang dành cho **khách**, nên dự án này dùng
-`templates/header_guest.php`: chỉ có điều hướng công khai + “Đăng nhập” / “Tạo tài khoản”.
-Hai kiểu header **không bao giờ trộn lẫn**.
+`templates/header_guest.php`: chỉ có điều hướng công khai + “Đăng nhập” (ghost) /
+“Đăng ký” (primary). Hai kiểu header **không bao giờ trộn lẫn**.

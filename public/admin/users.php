@@ -11,6 +11,11 @@ require_admin();
 
 $users = wa_users();
 
+// P-FIX-UI (6): số đếm trên các tab phải đến từ CSDL, không hardcode.
+$adminCount   = count(array_filter($users, static fn (array $u): bool => $u['role'] === 'admin'));
+$plainCount   = count(array_filter($users, static fn (array $u): bool => $u['role'] !== 'admin'));
+$lockedCount  = count(array_filter($users, static fn (array $u): bool => $u['status'] === 'locked'));
+
 $pageTitle = 'Quản lý người dùng';
 require __DIR__ . '/../../templates/header_app.php';
 ?>
@@ -37,9 +42,9 @@ require __DIR__ . '/../../templates/header_app.php';
 <div class="toolbar">
   <div class="tabs" role="tablist" aria-label="Lọc người dùng">
     <button type="button" class="is-active">Tất cả (<?= count($users) ?>)</button>
-    <button type="button">Quản trị viên (1)</button>
-    <button type="button">Người dùng (<?= count($users) - 1 ?>)</button>
-    <button type="button">Bị khóa (1)</button>
+    <button type="button">Quản trị viên (<?= $adminCount ?>)</button>
+    <button type="button">Người dùng (<?= $plainCount ?>)</button>
+    <button type="button">Bị khóa (<?= $lockedCount ?>)</button>
   </div>
 
   <div class="toolbar__right">

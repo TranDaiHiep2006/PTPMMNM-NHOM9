@@ -16,9 +16,31 @@ $pageTitle = $pageTitle ?? 'WebArchive';
 $user = current_user();
 $active = current_page();
 
+// ---------------------------------------------------------------------------
+// P-FIX-UI (5): DANH SÁCH THƯ VIỆN ĐỘNG của chính người dùng đang đăng nhập.
+//
+// Trước đây sidebar có một mục cống định trỏ tới một thư viện cụ thể
+// không tồn tại trong CSDL hiện tại, nên mục đó dẫn tới trang "Không tìm thấy
+// thư viện" và vẫn bị tô sáng "đang hoạt động" khi người dùng mở một thư viện
+// khác.
+// Nay danh sách thư viện được nạp từ CSDL qua lớp truy vấn sẵn có
+// (wa_libraries() trong src/queries.php) — cùng thứ tự với trang libraries.php
+// (ORDER BY l.id) — nên điều hướng không còn hardcode bất kỳ thư viện nào.
+//
+// Lưu ý: wa_libraries() lọc theo bộ lọc quyền sẵn có, nên người dùng chỉ thấy
+// đúng những thư viện mình sở hữu hoặc là thành viên.
+// ---------------------------------------------------------------------------
+$sidebarLibraries = $user !== null ? wa_libraries() : [];
+
+// Slug của thư viện đang mở (chỉ có ý nghĩa trên trang library.php).
+// Dùng để tô sáng đúng mục trong danh sách thư viện động.
+$openLibrarySlug = '';
+if ($active === 'library.php') {
+    $openLibrarySlug = trim((string) ($_GET['slug'] ?? ''));
+}
+
 $navMain = [
     ['file' => 'libraries.php', 'label' => 'Thư viện của tôi', 'icon' => 'folder'],
-    ['file' => 'library.php', 'label' => 'CNTT & Lập Trình', 'icon' => 'menu_book'],
     ['file' => 'search.php', 'label' => 'Tìm kiếm nội dung', 'icon' => 'search'],
     ['file' => 'save.php', 'label' => 'Lưu trang Web', 'icon' => 'add_link'],
 ];
@@ -63,12 +85,14 @@ $navAdmin = [
 
       <nav class="topnav" aria-label="Điều hướng chính">
         <a href="<?= wa_e(wa_url('libraries.php')) ?>" class="<?= $active === 'libraries.php' ? 'is-active' : '' ?>">Thư viện của tôi</a>
-        <a href="<?= wa_e(wa_url('library.php?slug=cntt-lap-trinh')) ?>" class="<?= $active === 'library.php' ? 'is-active' : '' ?>">Thư viện đang mở</a>
         <a href="<?= wa_e(wa_url('search.php')) ?>" class="<?= $active === 'search.php' ? 'is-active' : '' ?>">Tìm kiếm</a>
         <a href="<?= wa_e(wa_url('save.php')) ?>" class="<?= $active === 'save.php' ? 'is-active' : '' ?>">Lưu trang Web</a>
       </nav>
     </div>
 
+    <!-- P-FIX-UI (3): cụm tài khoản được chuẩn hoá — avatar, tên hiển thị và
+         nút "Đăng xuất" cùng nằm trên trục giữa của thanh trên, chiều cao
+         thanh thống nhất (--wa-header-h) trên mọi trang workspace. -->
     <div class="topbar__right">
       <div class="offline-pill">
         <span class="dot dot--live"></span>
@@ -83,7 +107,7 @@ $navAdmin = [
         </span>
       </div>
 
-      <a class="btn btn--danger-ghost" href="<?= wa_e(wa_url('logout.php')) ?>">Đăng xuất</a>
+      <a class="btn btn--danger-ghost topbar__logout" href="<?= wa_e(wa_url('logout.php')) ?>">Đăng xuất</a>
     </div>
   </div>
 </header>
@@ -99,6 +123,23 @@ $navAdmin = [
         </a>
       <?php endforeach; ?>
     </nav>
+
+    <!-- P-FIX-UI (5): danh sách thư viện ĐỘNG của người dùng đang đăng nhập.
+         Không hardcode thư viện nào; mục đang mở được tô sáng theo slug. -->
+    <?php if ($sidebarLibraries !== []): ?>
+      <div class="sidebar__label">Thư viện của tôi</div>
+      <nav aria-label="Thư viện của tôi" class="sidebar__libs">
+        <?php foreach ($sidebarLibraries as $lib): ?>
+          <?php $isOpen = $openLibrarySlug !== '' && $openLibrarySlug === (string) $lib['slug']; ?>
+          <a href="<?= wa_e(wa_url('library.php?slug=' . urlencode((string) $lib['slug']))) ?>"
+             class="sidebar__lib <?= $isOpen ? 'is-active' : '' ?>"
+             <?= $isOpen ? ' aria-current="page"' : '' ?>>
+            <span class="ms ms-18"><?= wa_e($lib['icon']) ?></span>
+            <span class="sidebar__lib-name"><?= wa_e($lib['name']) ?></span>
+          </a>
+        <?php endforeach; ?>
+      </nav>
+    <?php endif; ?>
 
     <?php if (($user['role'] ?? '') === 'admin'): ?>
       <div class="sidebar__label">Quản trị hệ thống</div>
@@ -118,22 +159,25 @@ $navAdmin = [
         <span class="ms ms-18">add_link</span>
         <span>Lưu snapshot URL</span>
       </a>
+      <?php
+        // P-FIX-UI (6): dung lượng lưu trữ phải TÍNH TỪ CSDL, không phải con
+        // số bịa đặt trong bản mock. storage_bytes của mỗi thư viện
+        // là SUM(size_bytes) của bảng `assets`; cộng lại cho toàn bộ thư viện
+        // của người dùng và định dạng y hệt thẻ thư viện (wa_format_mb).
+        $sidebarStorageBytes = 0;
+        $sidebarArticleCount = 0;
+
+        foreach ($sidebarLibraries as $lib) {
+            $sidebarStorageBytes += (int) ($lib['storage_bytes'] ?? 0);
+            $sidebarArticleCount += (int) ($lib['article_count'] ?? 0);
+        }
+        ?>
       <div class="sidebar__card">
         <span class="ms ms-18" style="color:var(--wa-action)">hard_drive</span>
         <div>
-          <strong>Kho lưu trữ 2.4 GB</strong>
-          <span>Sẵn sàng đồng bộ</span>
+          <strong>Kho lưu trữ <?= wa_e(wa_format_mb($sidebarStorageBytes)) ?></strong>
+          <span><?= count($sidebarLibraries) ?> thư viện · <?= $sidebarArticleCount ?> bài viết</span>
         </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="sidebar__foot">
-    <div class="sidebar__card">
-      <span class="ms ms-18" style="color:var(--wa-action)">verified</span>
-      <div>
-        <strong>Bản quyền cá nhân</strong>
-        <span>Sẵn sàng đồng bộ</span>
       </div>
     </div>
   </div>

@@ -6,6 +6,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../src/bootstrap.php';
+// P-FIX-UI (6): số liệu thật từ CSDL thay cho các con số bịa đặt trong mock.
+require_once __DIR__ . '/../../templates/wa_metrics.php';
 
 require_admin();
 
@@ -22,6 +24,7 @@ foreach ($allowlist as $entry) {
 }
 
 $allLibraries = wa_all_libraries();
+$allMetrics   = wa_metrics_for_libraries(array_column($allLibraries, 'id'));
 
 $pageTitle = 'Tổng quan hệ thống';
 require __DIR__ . '/../../templates/header_app.php';
@@ -94,7 +97,9 @@ require __DIR__ . '/../../templates/header_app.php';
       <span class="ms ms-18" style="color:var(--wa-action)">archive</span>
     </div>
     <div class="stat-card__value"><b><?= (int) $stats['snapshot_count'] ?></b><span>bản ghi</span></div>
-    <div class="stat-card__note" style="color:var(--wa-action)"><span class="dot dot--teal"></span> 100% nguyên vẹn</div>
+    <div class="stat-card__note" style="color:var(--wa-action)"><span class="dot dot--teal"></span>
+      <?= $allMetrics['snapshots_ok'] ?>/<?= $allMetrics['snapshots'] ?> bản lưu thành công
+    </div>
   </div>
 
   <div class="stat-card">

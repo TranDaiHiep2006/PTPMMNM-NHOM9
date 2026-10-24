@@ -11,8 +11,32 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/bootstrap.php';
+// P-FIX-UI (6): số liệu thật từ CSDL cho khối minh hoạ bản lưu mẫu.
+require_once __DIR__ . '/../templates/wa_metrics.php';
 
 $pageTitle = 'WebArchive — Lưu tri thức hôm nay. Đọc lại bất cứ lúc nào.';
+
+// P-FIX-UI (6): bản thật mới nhất trong CSDL để minh hoạ (có ảnh cục bộ còn
+// trên đĩa). Mọi con số hiển thị trong khối mock đều lấy từ đây.
+$showcase = wa_metrics_showcase_snapshot();
+
+// Tỉ lệ tương phản thật của bộ màu thiết kế: chữ #1C2937 trên nền giấy ngà
+// #FAF8F4 (biến --wa-text và --wa-ivory trong app.css).
+$readingContrast = wa_metrics_contrast_ratio('#1C2937', '#FAF8F4');
+
+// P-FIX-UI (6): tỉ lệ bản lưu thành công + số trang hỏng, đo trên toàn hệ
+// thống — thay cho "100% Tĩnh" và "0 liên kết lỗi" của bản mock.
+$landingMetrics = wa_metrics_for_libraries(wa_metrics_all_library_ids());
+$landingBrokenLinks = $landingMetrics['pages_failed'];
+$landingIntegrityLabel = $landingMetrics['snapshots'] === 0
+    ? 'Chưa có bản lưu'
+    : ($landingMetrics['snapshots_ok'] === $landingMetrics['snapshots']
+        ? '100% Tĩnh'
+        : $landingMetrics['snapshots_ok'] . '/' . $landingMetrics['snapshots'] . ' bản lưu');
+
+// P-FIX-UI (6): độ dài dòng của cột đọc tính từ --wa-reader-col (780px) và
+// cỡ chữ 18px — thay cho khẩu hiệu "65-75" ghi cứng trong bản mock.
+$readerMeasure = wa_metrics_reader_measure();
 
 require __DIR__ . '/../templates/header_guest.php';
 ?>
@@ -22,7 +46,9 @@ require __DIR__ . '/../templates/header_guest.php';
   <div class="hero__inner">
     <div class="hero__badge">
       <span class="dot dot--live"></span>
-      <span>Phiên bản v2.4</span>
+      <!-- P-FIX-UI (6): bản phát hành thật của dự án là v1.0.0 (tag git v1.0.0),
+           không phải con số phiên bản bịa đặt trong bản mock. -->
+      <span>Phiên bản v1.0.0</span>
       <span class="t-muted">•</span>
       <span class="t-muted">Đọc ngoại tuyến an toàn &amp; lưu trữ tĩnh HTML</span>
     </div>
@@ -56,7 +82,10 @@ require __DIR__ . '/../templates/header_guest.php';
   </div>
 </section>
 
-<!-- ===================== MOCKUP BẢN LƯU MẪU ===================== -->
+<!-- ===================== MOCKUP BẢN LƯU MẪU =====================
+     P-FIX-UI (6): khối này minh hoạ MỘT BẢN LƯU THẬT trong CSDL — mọi con
+     số (mã snapshot, mã kiểm chứng, dung lượng, số ảnh, tác giả, thời gian
+     đọc) đều lấy từ dữ liệu thật, không phải số bịa của bản mock. -->
 <section class="page page--plain" style="padding-top:0" id="ban-luu-mau">
   <div class="mock">
     <div class="mock__bar">
@@ -66,39 +95,39 @@ require __DIR__ . '/../templates/header_guest.php';
         <span class="dot" style="width:12px;height:12px;background:rgba(53,165,154,.6)"></span>
         <span class="mock__url">
           <span class="ms ms-14">lock</span>
-          <span>archive.local/snapshot/view?id=arc_89410</span>
+          <span>archive.local/snapshot/view?id=<?= $showcase !== null ? 'SNAP-' . $showcase['snapshot_id'] : 'SNAP-0' ?></span>
         </span>
       </div>
       <div class="chip chip--plain">
         <span class="ms ms-14" style="color:var(--wa-teal-deep)">verified</span>
-        <span>Mã kiểm chứng: sha256:d8c2e9</span>
+        <span>Mã kiểm chứng: sha256:<?= $showcase !== null ? substr($showcase['checksum'], 0, 6) : '—' ?></span>
       </div>
     </div>
 
     <div class="mock__body">
       <div class="row" style="gap:8px;margin-bottom:16px;flex-wrap:wrap">
-        <span class="chip chip--blue">PHP &amp; MySQL Architecture</span>
-        <span class="chip chip--plain">4.2 MB Snapshot</span>
+        <span class="chip chip--blue"><?= $showcase !== null ? wa_e($showcase['library_name']) : 'Thư viện Web tĩnh' ?></span>
+        <span class="chip chip--plain"><?= $showcase !== null ? wa_e($showcase['size_label']) : '—' ?> Snapshot</span>
         <span class="chip chip--teal">
           <span class="dot dot--teal"></span> HTML sạch đã bóc tách
         </span>
-        <span class="chip chip--plain">4 ảnh đã tải về máy chủ</span>
+        <span class="chip chip--plain"><?= $showcase !== null ? $showcase['image_present'] : 0 ?> ảnh đã tải về máy chủ</span>
       </div>
 
       <div class="mock__doc">
         <div class="row t-body-sm t-muted" style="gap:8px;margin-bottom:8px">
           <span class="ms ms-16">public</span>
-          <span>nguồn: dev-insights.org/posts/php-mysql-static-archive</span>
+          <span>nguồn: <?= $showcase !== null ? wa_e($showcase['source_url']) : '—' ?></span>
           <span>•</span>
-          <span>Đã sao lưu: 14:28, 21/10/2026</span>
+          <span>Đã sao lưu: <?= $showcase !== null ? wa_e($showcase['fetched_label']) : '—' ?></span>
         </div>
 
-        <h2 class="t-reader-title" style="color:var(--wa-primary);font-size:26px;line-height:36px">Tìm hiểu kiến trúc PHP &amp; MySQL trong lưu trữ Web tĩnh</h2>
+        <h2 class="t-reader-title" style="color:var(--wa-primary);font-size:26px;line-height:36px"><?= $showcase !== null ? wa_e($showcase['title']) : 'Bản lưu Web tĩnh' ?></h2>
 
         <div class="row t-body-sm t-muted" style="gap:16px;margin-top:8px;padding-bottom:16px">
-          <span>Tác giả: Nguyễn Đức Trọng</span>
+          <span>Tác giả: <?= $showcase !== null ? wa_e($showcase['creator']) : '—' ?></span>
           <span>•</span>
-          <span>Thời gian đọc: 7 phút</span>
+          <span>Thời gian đọc: <?= $showcase !== null ? wa_e($showcase['reading_label']) : '—' ?></span>
           <span class="chip chip--teal" style="gap:4px">
             <span class="ms ms-14">offline_pin</span> Sẵn sàng đọc ngoại tuyến
           </span>
@@ -126,7 +155,7 @@ require __DIR__ . '/../templates/header_guest.php';
           </div>
           <div class="row t-label-sm t-muted" style="gap:6px">
             <span class="ms ms-16">download_for_offline</span>
-            <span>Đã nén ZIP (4.2 MB)</span>
+            <span>Đã nén ZIP (<?= $showcase !== null ? wa_e($showcase['size_label']) : '—' ?>)</span>
           </div>
         </div>
       </div>
@@ -149,7 +178,7 @@ require __DIR__ . '/../templates/header_guest.php';
 
   <div class="feature-grid">
     <div class="feature">
-      <div>
+      <div class="feature__body">
         <div class="feature__icon"><span class="ms ms-24">folder_special</span></div>
         <span class="feature__eyebrow">Tổ chức khoa học</span>
         <h3>Thư viện ngăn nắp</h3>
@@ -160,19 +189,21 @@ require __DIR__ . '/../templates/header_guest.php';
       </div>
       <div class="feature__foot">
         <div class="feature__foot-top">
+          <!-- P-FIX-UI (6): "3 bộ sưu tập" là số bịa — thay bằng số thư viện
+               thật đang có trong CSDL. -->
           <span>Thư mục ví dụ</span>
-          <b>3 bộ sưu tập</b>
+          <b><?= wa_metrics_library_count() ?> bộ sưu tập</b>
         </div>
         <div class="feature__tags">
-          <span class="chip chip--plain">Khoa học máy tính</span>
-          <span class="chip chip--plain">Kiến trúc hệ thống</span>
-          <span class="chip chip--plain">Bảo mật web</span>
+          <?php foreach (wa_metrics_top_tags(3) as $topTag): ?>
+            <span class="chip chip--plain"><?= wa_e($topTag['name']) ?></span>
+          <?php endforeach; ?>
         </div>
       </div>
     </div>
 
     <div class="feature">
-      <div>
+      <div class="feature__body">
         <div class="feature__icon feature__icon--blue"><span class="ms ms-24">save_as</span></div>
         <span class="feature__eyebrow">Miễn nhiễm biến động</span>
         <h3>Lưu nội dung an toàn</h3>
@@ -184,17 +215,19 @@ require __DIR__ . '/../templates/header_guest.php';
       <div class="feature__foot">
         <div class="feature__foot-top">
           <span>Bảo vệ đường dẫn hỏng (Link rot)</span>
-          <b class="t-teal">100% Tĩnh</b>
+          <!-- P-FIX-UI (6): "100% Tĩnh" và "0 liên kết lỗi" là số bịa — thay bằng
+               tỉ lệ bản lưu thành công và số trang hỏng đo từ CSDL. -->
+          <b class="t-teal"><?= $landingIntegrityLabel ?></b>
         </div>
         <div class="feature__tags">
           <span class="chip chip--teal">SHA-256 xác thực</span>
-          <span class="chip chip--teal">0 liên kết lỗi</span>
+          <span class="chip chip--teal"><?= $landingBrokenLinks ?> liên kết lỗi</span>
         </div>
       </div>
     </div>
 
     <div class="feature">
-      <div>
+      <div class="feature__body">
         <div class="feature__icon feature__icon--mint"><span class="ms ms-24">menu_book</span></div>
         <span class="feature__eyebrow">Không gian thiền định</span>
         <h3>Đọc lại độc lập</h3>
@@ -207,7 +240,7 @@ require __DIR__ . '/../templates/header_guest.php';
       <div class="feature__foot">
         <div class="feature__foot-top">
           <span>Trải nghiệm người đọc</span>
-          <b>Tỉ lệ 65-75 ký tự/dòng</b>
+          <b><?= wa_e($readerMeasure['label']) ?></b>
         </div>
         <p class="t-reader-body" style="font-size:13px;line-height:22px;color:var(--wa-text-soft);font-style:italic;margin-top:6px">
           "Sự tĩnh lặng quý giá trong thời đại đầy rẫy thông tin phân mảnh."
@@ -320,7 +353,9 @@ require __DIR__ . '/../templates/header_guest.php';
             <span class="ms ms-24" style="color:var(--wa-primary)">auto_stories</span>
             <div>
               <div class="t-label-md" style="color:var(--wa-primary)">Chế độ đọc báo chí: Giấy ngà tự nhiên</div>
-              <div class="t-label-sm t-muted">Tỷ lệ tương phản 12:1 • Không chói mắt</div>
+              <!-- P-FIX-UI (6): "12:1" là con số bịa — thay bằng tỉ lệ tương
+                   phản WCAG thật của bộ màu thiết kế (chữ trên nền giấy ngà). -->
+              <div class="t-label-sm t-muted">Tỷ lệ tương phản <?= $readingContrast > 0 ? rtrim(rtrim(number_format($readingContrast, 1, ',', '.'), '0'), ',') : '—' ?>:1 • Không chói mắt</div>
             </div>
           </div>
           <span class="chip">Bản quyền mở</span>

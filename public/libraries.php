@@ -14,6 +14,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/bootstrap.php';
+// P-FIX-UI (6): số liệu thật từ CSDL cho các thẻ số liệu.
+require_once __DIR__ . '/../templates/wa_metrics.php';
 
 require_login();
 
@@ -34,11 +36,28 @@ $stats = [
     'library_count'      => count($libraries),
     'article_count'      => array_sum(array_column($libraries, 'article_count')),
     'image_count'        => array_sum(array_column($libraries, 'image_count')),
-    'broken_links'       => 0,
-    'storage_gb'         => wa_admin_stats()['storage_label'],
+    // P-FIX-UI (6): các con số này PHẢI đến từ CSDL, không hardcode.
+    // - broken_links: số trang đã lưu KHÔNG có bản snapshot thành công nào
+    //   (chính là các liên kết đã hỏng), đếm trên đúng các thư viện của
+    //   người dùng đang đăng nhập;
+    // - storage_label: tổng dung lượng tài nguyên, định dạng y hệt thẻ
+    //   thư viện (wa_format_mb) — trước đây lấy storage_label của TOÀN HỆ
+    //   THỐNG (wa_admin_stats), lệch phạm vi với trang "của tôi".
     'personal_libraries' => count(array_filter($libraries, static fn (array $l): bool => $l['category'] === 'personal')),
     'shared_libraries'   => count(array_filter($libraries, static fn (array $l): bool => $l['category'] === 'shared')),
 ];
+
+$libMetrics = wa_metrics_for_libraries(array_column($libraries, 'id'));
+$stats['broken_links']     = $libMetrics['pages_failed'];
+$stats['storage_bytes']    = $libMetrics['bytes_total'];
+$stats['storage_label']    = wa_format_mb($stats['storage_bytes']);
+$stats['image_present']    = $libMetrics['image_present'];
+$stats['image_missing']    = $libMetrics['image_missing'];
+$stats['integrity_label']  = $libMetrics['image_total'] === 0
+    ? 'Chưa có ảnh cục bộ'
+    : ($libMetrics['image_missing'] === 0
+        ? 'Ảnh cục bộ nguyên vẹn 100%'
+        : $libMetrics['image_missing'] . ' ảnh cục bộ không tìm thấy');
 
 // Lọc theo tab được chọn.
 $filter = (string) ($_GET['filter'] ?? 'all');
@@ -112,21 +131,23 @@ require __DIR__ . '/../templates/header_app.php';
         <span class="stat__icon stat__icon--blue"><span class="ms ms-18">auto_stories</span></span>
         <span>
           <span class="stat__value"><?= $stats['article_count'] ?> Bài viết đã lưu trữ</span>
-          <span class="stat__note">Snapshot HTML/WARC</span>
+          <!-- P-FIX-UI (6): ứng dụng lưu HTML tĩnh, KHÔNG lưu WARC — bỏ chữ
+               "WARC" khỏi nhãn để mô tả khớp với dữ liệu thật. -->
+          <span class="stat__note">Snapshot HTML tĩnh</span>
         </span>
       </div>
       <div class="stat">
         <span class="stat__icon stat__icon--teal"><span class="ms ms-18">perm_media</span></span>
         <span>
           <span class="stat__value"><?= $stats['image_count'] ?> Ảnh cục bộ</span>
-          <span class="stat__note">Nén không mất dữ liệu</span>
+          <span class="stat__note">Dung lượng <?= wa_e($stats['storage_label']) ?></span>
         </span>
       </div>
       <div class="stat">
         <span class="stat__icon stat__icon--mint"><span class="ms ms-18">verified</span></span>
         <span>
           <span class="stat__value"><?= $stats['broken_links'] ?> Liên kết lỗi</span>
-          <span class="stat__note">Bảo toàn vĩnh viễn 100%</span>
+          <span class="stat__note"><?= wa_e($stats['integrity_label']) ?></span>
         </span>
       </div>
     </div>
@@ -235,7 +256,12 @@ require __DIR__ . '/../templates/header_app.php';
       </div>
 
       <div class="lib-card__foot">
-        <a class="btn <?= $lib['role'] === 'owner' ? 'btn--dark' : 'btn--outline' ?>"
+        <!-- P-FIX-UI (4): nút "Mở thư viện" phải CÙNG MỘT KIỂU trên mọi thẻ.
+             Trước đây thẻ của người KHÔNG phải chủ sở hữu rơi vào
+             `btn--outline` (nền trắng) còn thẻ của chủ sở hữu là `btn--dark`
+             (nền đặc) — cùng một hành động nhưng hai ngoại hình khác nhau.
+             Nay mọi thẻ đều dùng nền đặc `btn--dark` bất kể vai trò. -->
+        <a class="btn btn--dark"
            href="<?= wa_e(wa_url('library.php?slug=' . urlencode($lib['slug']))) ?>">
           <span>Mở thư viện</span>
           <span class="ms ms-16">arrow_forward</span>

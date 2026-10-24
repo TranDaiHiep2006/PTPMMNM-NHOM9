@@ -7,7 +7,8 @@
  * ⚠ LƯU Ý QUAN TRỌNG (defect đã sửa so với bản tham chiếu):
  *   Bản tham chiếu dùng NHẦM header đã đăng nhập cho trang chủ (có user chip,
  *   nút "Đăng xuất" và menu workspace) — trang chủ là trang dành cho KHÁCH.
- *   Header dưới đây chỉ có điều hướng công khai + nút "Đăng nhập" / "Tạo tài khoản".
+ *   Header dưới đây chỉ có điều hướng công khai + HAI hành động RIÊNG BIỆT:
+ *   "Đăng nhập" (ghost) và "Đăng ký" (primary).
  *   TUYỆT ĐỐI không trộn hai loại header này.
  * -------------------------------------------------------------------------- */
 
@@ -59,10 +60,12 @@ $hideFooter = $hideFooter ?? false;
       </nav>
     </div>
 
-    <!-- Header KHÁCH: chỉ có lời mời đăng nhập / đăng ký, KHÔNG có user chip hay đăng xuất -->
+    <!-- Header KHÁCH: hai hành động RIÊNG BIỆT — "Đăng nhập" (ghost) cho người
+         đã có tài khoản và "Đăng ký" (primary) cho người mới. Trước đây chỉ có
+         một nút "Tạo tài khoản" nên người dùng quay lại không có lối đăng nhập. -->
     <div class="guest-cta">
-      <a class="btn btn--outline" href="<?= wa_e(wa_url('login.php')) ?>">Đăng nhập</a>
-      <a class="btn btn--primary" href="<?= wa_e(wa_url('register.php')) ?>">Tạo tài khoản</a>
+      <a class="btn btn--ghost btn--login" href="<?= wa_e(wa_url('login.php')) ?>">Đăng nhập</a>
+      <a class="btn btn--primary btn--register" href="<?= wa_e(wa_url('register.php')) ?>">Đăng ký</a>
     </div>
   </div>
 </header>
