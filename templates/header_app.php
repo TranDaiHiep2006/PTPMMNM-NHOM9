@@ -11,6 +11,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/bootstrap.php';
+// A8: sidebar cần bộ đếm "ảnh cục bộ còn trên đĩa" (đối chiếu tệp thật).
+require_once __DIR__ . '/wa_metrics.php';
 
 $pageTitle = $pageTitle ?? 'WebArchive';
 $user = current_user();
@@ -83,6 +85,13 @@ $navAdmin = [
         </span>
       </a>
 
+      <!-- A7: nhãn ngữ cảnh workspace để thanh trong ứng dụng ĐỌC KHÁC thanh
+           khách (header_guest.php không có nhãn này). -->
+      <span class="topbar__context">
+        <span class="ms ms-16">workspaces</span>
+        <span>Workspace</span>
+      </span>
+
       <nav class="topnav" aria-label="Điều hướng chính">
         <a href="<?= wa_e(wa_url('libraries.php')) ?>" class="<?= $active === 'libraries.php' ? 'is-active' : '' ?>">Thư viện của tôi</a>
         <a href="<?= wa_e(wa_url('search.php')) ?>" class="<?= $active === 'search.php' ? 'is-active' : '' ?>">Tìm kiếm</a>
@@ -92,7 +101,11 @@ $navAdmin = [
 
     <!-- P-FIX-UI (3): cụm tài khoản được chuẩn hoá — avatar, tên hiển thị và
          nút "Đăng xuất" cùng nằm trên trục giữa của thanh trên, chiều cao
-         thanh thống nhất (--wa-header-h) trên mọi trang workspace. -->
+         thanh thống nhất (--wa-header-h) trên mọi trang workspace.
+         A7: thanh workspace phải khác rõ thanh khách:
+           - nhãn ngữ cảnh "Workspace" ngay cạnh thương hiệu;
+           - nút "Đăng xuất" là GHOST NAVY (không phải hồng) để không lệch bảng
+             màu navy/teal của giao diện. -->
     <div class="topbar__right">
       <div class="offline-pill">
         <span class="dot dot--live"></span>
@@ -107,7 +120,10 @@ $navAdmin = [
         </span>
       </div>
 
-      <a class="btn btn--danger-ghost topbar__logout" href="<?= wa_e(wa_url('logout.php')) ?>">Đăng xuất</a>
+      <a class="btn btn--logout topbar__logout" href="<?= wa_e(wa_url('logout.php')) ?>">
+        <span class="ms ms-16">logout</span>
+        <span>Đăng xuất</span>
+      </a>
     </div>
   </div>
 </header>
@@ -125,10 +141,12 @@ $navAdmin = [
     </nav>
 
     <!-- P-FIX-UI (5): danh sách thư viện ĐỘNG của người dùng đang đăng nhập.
-         Không hardcode thư viện nào; mục đang mở được tô sáng theo slug. -->
+         Không hardcode thư viện nào; mục đang mở được tô sáng theo slug.
+         A8: tiêu đề khối này được đổi thành "Danh sách thư viện" vì bản cũ
+         ("Thư viện của tôi") TRÙNG với mục điều hướng ngay phía trên. -->
     <?php if ($sidebarLibraries !== []): ?>
-      <div class="sidebar__label">Thư viện của tôi</div>
-      <nav aria-label="Thư viện của tôi" class="sidebar__libs">
+      <div class="sidebar__label">Danh sách thư viện</div>
+      <nav aria-label="Danh sách thư viện" class="sidebar__libs">
         <?php foreach ($sidebarLibraries as $lib): ?>
           <?php $isOpen = $openLibrarySlug !== '' && $openLibrarySlug === (string) $lib['slug']; ?>
           <a href="<?= wa_e(wa_url('library.php?slug=' . urlencode((string) $lib['slug']))) ?>"
@@ -159,26 +177,31 @@ $navAdmin = [
         <span class="ms ms-18">add_link</span>
         <span>Lưu snapshot URL</span>
       </a>
+      <!--
+        A8: ô "Kho lưu trữ … / N thư viện · M bài viết" ở đáy sidebar đã bị GỠ
+        bỏ vì lặp lại y hệt dải số liệu chính ở đầu trang (số thư viện, số bài
+        viết, dung lượng) — không thêm thông tin mới nào. Số liệu duy nhất còn
+        lại ở đáy sidebar là "ảnh cục bộ còn trên đĩa", vốn KHÔNG có trong dải
+        số liệu, nên được giữ lại dưới dạng ghi chú nhỏ.
+      -->
       <?php
-        // P-FIX-UI (6): dung lượng lưu trữ phải TÍNH TỪ CSDL, không phải con
-        // số bịa đặt trong bản mock. storage_bytes của mỗi thư viện
-        // là SUM(size_bytes) của bảng `assets`; cộng lại cho toàn bộ thư viện
-        // của người dùng và định dạng y hệt thẻ thư viện (wa_format_mb).
-        $sidebarStorageBytes = 0;
-        $sidebarArticleCount = 0;
+        // Số ảnh cục bộ CÒN trên đĩa (đối chiếu tệp thật trong public/uploads),
+        // tính bằng bộ đếm dùng chung của giao diện.
+        $sidebarImagePresent = 0;
+        $sidebarImageTotal   = 0;
 
-        foreach ($sidebarLibraries as $lib) {
-            $sidebarStorageBytes += (int) ($lib['storage_bytes'] ?? 0);
-            $sidebarArticleCount += (int) ($lib['article_count'] ?? 0);
+        if ($sidebarLibraries !== []) {
+            $sidebarMetrics = wa_metrics_for_libraries(array_column($sidebarLibraries, 'id'));
+            $sidebarImagePresent = (int) $sidebarMetrics['image_present'];
+            $sidebarImageTotal   = (int) $sidebarMetrics['image_total'];
         }
         ?>
-      <div class="sidebar__card">
-        <span class="ms ms-18" style="color:var(--wa-action)">hard_drive</span>
-        <div>
-          <strong>Kho lưu trữ <?= wa_e(wa_format_mb($sidebarStorageBytes)) ?></strong>
-          <span><?= count($sidebarLibraries) ?> thư viện · <?= $sidebarArticleCount ?> bài viết</span>
+      <?php if ($sidebarImageTotal > 0): ?>
+        <div class="sidebar__note">
+          <span class="ms ms-16" style="color:var(--wa-action)">image</span>
+          <span><?= $sidebarImagePresent ?>/<?= $sidebarImageTotal ?> ảnh cục bộ còn trên đĩa</span>
         </div>
-      </div>
+      <?php endif; ?>
     </div>
   </div>
 </aside>

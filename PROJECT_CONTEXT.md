@@ -503,6 +503,75 @@ hoạ bản lưu mẫu ở `public/index.php` (mã snapshot, checksum, dung lư�
 tác giả, thời gian đọc, "3 bộ sưu tập", "100% Tĩnh", "0 liên kết lỗi", "65-75 ký
 tự/dòng", "12:1") — tất cả đều tính từ dữ liệu thật.
 
+### 8h. P-FINAL-2 Stage A — hoàn thiện giao diện landing + workspace
+
+Tiếp nối `8g`, xử lý 9 điểm người dùng rà soát lại từ ảnh chụp màn hình ngày 24/10.
+Vẫn **không** đụng engine/schema/dữ liệu, **không** chạy `scripts/setup_db.php`,
+**không** xoá tệp trong `public/uploads/`.
+
+**A1 — Ô "ảnh minh hoạ" trong mock hero.** Ô xanh nhạt trống bị xoá. Thay bằng khối
+`.mock__figure` có nội dung thật: tiêu đề ảnh, 4 dòng chữ mờ, và **3 thumbnail thật**
+đã tải về máy chủ (`wa_metrics_snapshot_thumbs()` đọc kích thước pixel bằng
+`getimagesize()`). Ảnh mẫu của dự án chỉ **64×64 / 136 byte** nên tuyệt đối không
+phóng to thành khối lớn (sẽ méo) — hiển thị đúng 64×64.
+
+**A2 — Sơ đồ "Không gian tập trung".** `public/assets/img/reader-diagram.svg` vẽ lại
+theo luồng **4 bước ngang**: `Trang Web → HTML tĩnh → MySQL + ảnh cục bộ → Đọc lại
+ngoại tuyến`. Ba đường nối **hoàn toàn ngang** (`H` tuyệt đối), mỗi bước một mũi
+tên `<marker>` (`orient="auto-start-reverse"`). Bản cũ có 4 đường chéo `l52-58` gây
+rối.
+
+**A3 — Panel CTA tối.** `.cta-banner__inner` thành lưới 2 cột từ `1024px`: cột trái
+giữ nội dung, cột phải là `.cta-banner__metrics` gồm **4 số liệu thật** từ CSDL
+(số thư viện, số trang đã lưu, số bản lưu thành công `ok/total`, tổng dung lượng).
+
+**A4 — Sửa chữ.** "HTML sạch đã bóc tách" → **"HTML sạch đã tách"**; câu trích dẫn
+"thông tin phân mảnh" bị **xoá** (thay bằng dòng số liệu thật); nhãn dung lượng
+tách rõ **HTML** và **ảnh** (`wa_metrics_showcase_snapshot()` trả thêm
+`html_size_label`, `total_size_label`) — nhãn cũ "408 B Snapshot" gộp nhầm byte ảnh
+với byte HTML; chân trang "© 2026 WebArchive **Inc.**" → **"© 2026 WebArchive —
+Đồ án môn Lập trình Nhóm 9"**.
+
+**A5 — Căn tiêu đề.** `.steps-head` đổi từ `margin: 0 auto` + `text-align: center`
+sang căn **trái** (`margin: 0 0` + `text-align: left`). Hero trang chủ **giữ** căn
+giữa.
+
+**A6 — Thống nhất chân ba thẻ tính năng.** Cả ba dùng cùng một mẫu: 1 nhãn nhỏ +
+1 dòng số liệu thật + 2 chip. (1) `Dung lượng thư viện` = `SUM(size_bytes)` →
+**2,9 MB**. (2) `Bản lưu thành công` = **17/20 bản lưu**. (3) `Tổng thời gian đọc` =
+**33 phút** (200 từ/phút × 5 ký tự/từ, `wa_metrics_reading_total()`).
+
+**A7 — Thanh workspace.** Nút "Đăng xuất" đổi từ `btn--danger-ghost` (hồng — màu
+duy nhất lệch bảng màu navy/teal) sang `.btn--logout` **ghost navy** (viền navy +
+chữ navy, hover viền đậm). Thêm nhãn ngữ cảnh `.topbar__context` ("Workspace") cạnh
+thương hiệu để thanh trong ứng dụng **đọc khác** thanh khách (`header_guest.php`
+không có nhãn này).
+
+**A8 — Sidebar.** Tiêu đề khối "Thư viện của tôi" (trùng mục điều hướng ngay trên)
+đổi thành **"Danh sách thư viện"**. Danh sách thư viện được **xếp thụp**: nhỏ hơn
+(13px vs 14px), thụt lề một cấp (`padding-left: 20px`), viền trái làm mốc, màu nhạt
+hơn. Ô "Kho lưu trữ 2,9 MB / 3 thư viện · 19 bài viết" ở đáy sidebar bị **xoá**
+(lặp lại y hệt dải số liệu đầu trang); thay bằng ghi chú nhỏ **"5/67 ảnh cục bộ còn
+trên đĩa"** — thông tin **không** có ở dải số liệu.
+
+**A9 — Rà soát số liệu bịa còn lại.** (a) `reader.php`: nhãn "Ngoại tuyến 100%" →
+**"3/3 tài nguyên cục bộ"** (`wa_metrics_snapshot_assets()`). (b) Hai chip phông
+"Serif"/"Sans" trong mock (trình đọc **không** có chuyển phông) → thay bằng "A- / A+
+đổi cỡ chữ" + "Nền sáng / ban đêm" (đúng điều khiển có thật trong `reader.php`).
+(c) URL ví dụ `https://themorningnews.org/article/deep-work` (đường dẫn bịa) → URL
+**thật** của bản lưu đang minh hoạ. (d) Câu "hiển thị nguyên vẹn 10 năm sau" (cam
+kết không kiểm chứng được) → bỏ. (e) `step__note` dùng URL thật.
+
+**Hàm mới trong `templates/wa_metrics.php`** (vẫn chỉ đọc): `wa_metrics_snapshot_thumbs()`,
+`wa_metrics_snapshot_assets()`, `wa_metrics_reading_total()`; `wa_metrics_showcase_snapshot()`
+bổ sung `image_src`, `html_size_label`, `total_bytes`, `total_size_label`.
+
+**Kiểm chứng Stage A (HTTP thật trên `php -S localhost:8080 -t public`):** trang chủ
+HTTP 200 không cảnh báo PHP; đăng nhập `user@demo.vn` → `/libraries.php`,
+`/library.php?slug=kho-du-lieu-mau`, `/search.php?q=php`, `/save.php`,
+`/reader.php?id=9102` đều 200, 0 lỗi PHP; `/admin/*.php` đăng nhập
+`admin@demo.vn` đều 200.
+
 ---
 
 ## 9. Hệ thống thiết kế

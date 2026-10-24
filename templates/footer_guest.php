@@ -18,7 +18,7 @@ $hideFooter = $hideFooter ?? false;
       <span class="t-body-md" style="font-weight:600;color:var(--wa-text)">WebArchive</span>
       <span class="t-body-sm t-muted">— Nền tảng lưu trữ snapshot và đọc offline cá nhân</span>
     </div>
-    <div class="t-label-sm t-muted">© 2026 WebArchive Inc. Mọi bản quyền được bảo hộ.</div>
+    <div class="t-label-sm t-muted">© 2026 WebArchive — Đồ án môn Lập trình Nhóm 9. Mọi bản quyền được bảo hộ.</div>
   </div>
 </footer>
 <?php endif; ?>

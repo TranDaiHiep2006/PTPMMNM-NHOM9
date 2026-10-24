@@ -286,11 +286,36 @@ table { border-collapse: collapse; }
 }
 .user-chip__role { font-size: 11px; line-height: 14px; color: var(--wa-text-muted); }
 
-/* Nút "Đăng xuất": nút chữ rõ ràng, cùng cao với avatar, căn giữa. */
+/* Nút "Đăng xuất": nút chữ rõ ràng, cùng cao với avatar, căn giữa.
+   A7: GHOST NAVY (đường viền + chữ navy) — KHÔNG dùng hồng vì hồng là màu
+   cảnh báo của nút xoá thư viện; nút đăng xuất chỉ là hành động điều hướng. */
 .topbar__logout {
   align-self: center; flex: 0 0 auto;
   height: 32px; padding: 0 12px; line-height: 30px; white-space: nowrap;
 }
+.btn--logout {
+  background: transparent;
+  color: var(--wa-primary);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--wa-border-strong);
+}
+.btn--logout:hover {
+  background: var(--wa-surface-low);
+  color: var(--wa-primary);
+  box-shadow: inset 0 0 0 1px var(--wa-primary);
+}
+
+/* A7: nhãn ngữ cảnh workspace — phần khác biệt rõ của thanh trong ứng dụng
+   so với thanh khách (header_guest.php không có nhãn này). */
+.topbar__context {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 10px; border-radius: var(--wa-radius-full);
+  background: var(--wa-surface-mid);
+  font-size: 11px; line-height: 14px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .06em;
+  color: var(--wa-primary);
+}
+.topbar__context .ms { font-size: 16px; }
 
 /* Guest header đúng vai trò khách: KHÔNG có user chip / đăng xuất.
    P-FIX-UI (1): HAI hành động riêng biệt — "Đăng nhập" dạng ghost (người đã có
@@ -341,8 +366,24 @@ table { border-collapse: collapse; }
 .sidebar nav a.is-active { background: var(--wa-surface-mid); color: var(--wa-primary); font-weight: 600; }
 
 /* P-FIX-UI (5): danh sách thư viện động trong sidebar — tên thư viện dài
-   phải cắt gọn một dòng (ellipsis) để sidebar không bị vỡ bố cục. */
-.sidebar__libs a { min-width: 0; }
+   phải cắt gọn một dòng (ellipsis) để sidebar không bị vỡ bố cục.
+   A8: danh sách thư viện là NỘI DUNG, nên phải XÉP THỤP hơn điều hướng chính:
+   nhỏ hơn, thụt lề một cấp, màu nhạt hơn. */
+.sidebar__libs a {
+  min-width: 0;
+  padding: 6px 8px 6px 20px;
+  font-size: 13px; line-height: 20px;
+  color: var(--wa-text-muted);
+  border-left: 2px solid var(--wa-border);
+  border-radius: 0 var(--wa-radius-md) var(--wa-radius-md) 0;
+}
+.sidebar__libs a:hover { background: var(--wa-surface-low); color: var(--wa-text); }
+.sidebar__libs a.is-active {
+  background: var(--wa-surface-low);
+  color: var(--wa-primary);
+  font-weight: 600;
+  border-left-color: var(--wa-action);
+}
 .sidebar__lib-name {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -354,6 +395,14 @@ table { border-collapse: collapse; }
 }
 .sidebar__card strong { display: block; font-size: 12px; line-height: 16px; font-weight: 500; color: var(--wa-text); }
 .sidebar__card span { display: block; font-size: 11px; line-height: 14px; color: var(--wa-text-muted); }
+
+/* A8: ghi chú nhỏ cuối sidebar (thay cho ô "Kho lưu trữ" bị trùng dải số liệu). */
+.sidebar__note {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; border-radius: var(--wa-radius-md);
+  background: var(--wa-surface-low);
+  font-size: 11px; line-height: 16px; color: var(--wa-text-muted);
+}
 
 .sidebar__toggle { display: none; }
 
@@ -616,6 +665,37 @@ table { border-collapse: collapse; }
 .mock__doc { max-width: 768px; margin: 0 auto; padding: var(--wa-space-lg); background: var(--wa-white); border: 1px solid var(--wa-border); border-radius: var(--wa-radius-lg); box-shadow: var(--wa-shadow-1); }
 .mock__placeholder { width: 100%; height: 180px; border-radius: var(--wa-radius-lg); background: linear-gradient(135deg, var(--wa-surface-high), var(--wa-surface-soft)); display: flex; align-items: center; justify-content: center; color: var(--wa-action); }
 
+/* A1: khối minh hoạ trong mock hero — MẪU THIẾT KẾ có nội dung thật thay cho
+   ô trống trông giống ảnh hỏng: tiêu đề, các dòng chữ mờ, và các thumbnail
+   thật ở kích thước gốc. */
+.mock__figure {
+  width: 100%; margin-top: var(--wa-space-md);
+  padding: var(--wa-space-md);
+  border: 1px solid var(--wa-border); border-radius: var(--wa-radius-lg);
+  background: linear-gradient(135deg, var(--wa-surface-high), var(--wa-surface-soft));
+  display: flex; flex-direction: column; gap: var(--wa-space-md);
+}
+.mock__figure-head { display: flex; align-items: center; gap: var(--wa-space-sm); }
+.mock__figure-title {
+  font-size: 13px; line-height: 18px; font-weight: 600; color: var(--wa-primary);
+}
+.mock__figure-lines { display: flex; flex-direction: column; gap: 7px; }
+.mock__figure-lines span {
+  display: block; height: 8px; border-radius: 4px;
+  background: rgba(21, 47, 74, .10);
+}
+.mock__figure-thumbs { display: flex; align-items: center; gap: var(--wa-space-sm); flex-wrap: wrap; }
+.mock__figure-thumb {
+  width: 64px; height: 64px; flex: 0 0 64px;
+  border-radius: var(--wa-radius-md); border: 1px solid var(--wa-border);
+  background: var(--wa-white); object-fit: contain;
+}
+.mock__figure-note {
+  flex: 1 1 220px; min-width: 200px;
+  font-size: 12px; line-height: 18px; color: var(--wa-text-muted);
+}
+.mock__figure-note code { font-size: 11px; color: var(--wa-primary); }
+
 .feature-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: var(--wa-space-lg); }
 @media (min-width: 768px) { .feature-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 /* P-FIX-UI (2a): ba thẻ tính năng phải CAO BẰNG NHAU và các khối bên trong
@@ -650,7 +730,9 @@ table { border-collapse: collapse; }
 
 .steps-panel { padding: var(--wa-space-lg); background: var(--wa-surface-low); border-radius: var(--wa-radius-xl); box-shadow: var(--wa-shadow-1); }
 @media (min-width: 768px) { .steps-panel { padding: var(--wa-space-xl); } }
-.steps-head { max-width: 640px; margin: 0 auto var(--wa-space-xl); text-align: center; }
+/* A5: tiêu đề khối nội dung phải CĂN TRÁI (giống các section khác); chỉ hero
+   của trang chủ mới được căn giữa. */
+.steps-head { max-width: 640px; margin: 0 0 var(--wa-space-xl); text-align: left; }
 .steps-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: var(--wa-space-lg); }
 @media (min-width: 768px) { .steps-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .step { display: flex; flex-direction: column; padding: var(--wa-space-lg); background: var(--wa-white); border-radius: var(--wa-radius-xl); box-shadow: var(--wa-shadow-1); }
@@ -684,6 +766,34 @@ table { border-collapse: collapse; }
   border-radius: 50%; background: rgba(179, 212, 255, .12); filter: blur(48px);
 }
 .cta-banner__inner { position: relative; z-index: 1; max-width: 640px; }
+/* A3: panel CTA tối chia hai cột — nội dung ở trái, khối số liệu thật ở phải —
+   để không còn nửa panel bị bỏ trống. */
+@media (min-width: 1024px) {
+  .cta-banner__inner {
+    max-width: none;
+    display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(260px, .65fr);
+    align-items: center; gap: var(--wa-space-xl);
+  }
+}
+.cta-banner__metrics {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--wa-space-md);
+  margin-top: var(--wa-space-lg);
+}
+@media (min-width: 1024px) { .cta-banner__metrics { margin-top: 0; } }
+.cta-banner__metric {
+  padding: var(--wa-space-md);
+  border-radius: var(--wa-radius-lg);
+  background: rgba(255, 255, 255, .08);
+  border: 1px solid rgba(255, 255, 255, .14);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.cta-banner__metric-value {
+  font-size: 26px; line-height: 32px; font-weight: 700; color: #fff; letter-spacing: -.01em;
+}
+.cta-banner__metric-label {
+  font-size: 11px; line-height: 16px; font-weight: 500; text-transform: uppercase;
+  letter-spacing: .06em; color: rgba(255, 255, 255, .72);
+}
 .cta-banner h2 { font-size: 32px; line-height: 40px; font-weight: 700; letter-spacing: -0.02em; }
 .cta-banner p { margin-top: var(--wa-space-md); font-size: 16px; line-height: 24px; color: var(--wa-surface-highest); }
 .cta-banner__actions { margin-top: var(--wa-space-xl); display: flex; flex-wrap: wrap; gap: var(--wa-space-md); }
@@ -1040,6 +1150,7 @@ pre code { background: none; padding: 0; color: inherit; }
 @media (max-width: 639px) {
   .topnav { display: none; }
   .user-chip__meta { display: none; }
+  .topbar__context { display: none; }
   .page { padding-left: 16px; padding-right: 16px; }
   .ribbon__title { font-size: 26px; line-height: 34px; }
   .pagehead__title { font-size: 26px; line-height: 34px; }

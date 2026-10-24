@@ -29,6 +29,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../src/bootstrap.php';
+// A9: bộ đếm tài nguyên cục bộ còn trên đĩa (thay nhãn "Ngoại tuyến 100%").
+require_once __DIR__ . '/../templates/wa_metrics.php';
 
 require_login();
 
@@ -107,6 +109,9 @@ $currentUserId = (int) ($currentUser['id'] ?? 0);
 $isAdmin      = wa_is_admin();
 $roleLabels   = wa_member_role_labels();
 $role         = (string) $context['role'];
+
+// A9: số tài nguyên cục bộ CÒN trên đĩa của bản lưu đang mở (đo thật).
+$snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -223,9 +228,13 @@ $role         = (string) $context['role'];
       <span class="reader__export-label">Xuất bản lưu</span>
     </a>
 
+    <!-- A9: nhãn "Ngoại tuyến 100%" là một con số BỊA. Thay bằng số đo thật:
+         bao nhiêu tài nguyên cục bộ của bản lưu này còn trên đĩa. -->
     <span class="chip chip--teal">
       <span class="ms ms-14">shield</span>
-      Ngoại tuyến 100%
+      <?= $snapshotAssets['total'] > 0
+          ? $snapshotAssets['present'] . '/' . $snapshotAssets['total'] . ' tài nguyên cục bộ'
+          : 'Đọc ngoại tuyến' ?>
     </span>
   </div>
 </header>

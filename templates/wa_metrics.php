@@ -248,6 +248,7 @@ if (!function_exists('wa_metrics_')) {
             $imagePresent = 0;
             $bytes = 0;
             $checksum = '';
+            $imageSrc = '';
 
             foreach ($assets->fetchAll(PDO::FETCH_ASSOC) as $asset) {
                 $imageCount++;
@@ -260,6 +261,11 @@ if (!function_exists('wa_metrics_')) {
                 }
 
                 $imagePresent++;
+
+                if ($imageSrc === '') {
+                    // Đường dẫn web của ảnh đã tải về (bản thật, mở được offline).
+                    $imageSrc = '/' . ltrim(str_replace('\\', '/', (string) $asset['local_path']), '/');
+                }
 
                 if ($checksum === '') {
                     // Tên tệp ảnh do ứng dụng sinh ra là SHA-256 (rút gọn) của
@@ -289,9 +295,16 @@ if (!function_exists('wa_metrics_')) {
                 'fetched_label' => wa_datetime((string) $row['fetched_at']),
                 'image_count'   => $imageCount,
                 'image_present' => $imagePresent,
+                'image_src'     => $imageSrc,
                 'bytes'         => $bytes,
                 'size_label'    => wa_format_bytes($bytes),
                 'content_bytes' => (int) $row['content_bytes'],
+                // A4: cần phân biệt rõ dung lượng PHẦN HTML và phần ẢNH, vì
+                // trước đây nhãn "Snapshot" ghi kèm số byte của ảnh khiến
+                // người đọc tưởng tổng dung lượng chỉ bằng vài trăm byte.
+                'html_size_label' => wa_format_bytes((int) $row['content_bytes']),
+                'total_bytes'   => $bytes + (int) $row['content_bytes'],
+                'total_size_label' => wa_format_bytes($bytes + (int) $row['content_bytes']),
                 'checksum'      => $checksum,
                 'creator'       => (string) $row['creator_name'],
                 'reading_minutes' => $readingMinutes,
@@ -466,6 +479,138 @@ if (!function_exists('wa_metrics_')) {
     function wa_metrics_tag_count(): int
     {
         return (int) (db()->query('SELECT COUNT(*) FROM `tags`')->fetchColumn() ?: 0);
+    }
+
+    /**
+     * Danh sách ảnh cục bộ đã tải về của một snapshot, kèm kích thước thật.
+     *
+     * Dùng cho khối minh hoạ ở trang chủ (A1). Chỉ trả về ảnh THẬT SỰ còn trên
+     * đĩa, và kèm kích thước pixel đọc từ tệp — không bao giờ phóng to ảnh nhỏ
+     * thành khối lớn (ảnh mẫu của dự án chỉ 64x64).
+     *
+     * @return array<int, array{src:string, width:int, height:int, bytes:int}>
+     */
+    function wa_metrics_snapshot_thumbs(int $snapshotId, int $limit = 3): array
+    {
+        $limit = max(1, $limit);
+
+        $stmt = db()->prepare(
+            "SELECT local_path, size_bytes
+               FROM `assets`
+              WHERE snapshot_id = ? AND mime_type LIKE 'image/%'
+              ORDER BY id"
+        );
+        $stmt->execute([$snapshotId]);
+
+        $out = [];
+
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $asset) {
+            if (count($out) >= $limit) {
+                break;
+            }
+
+            $file = wa_metrics_asset_file((string) $asset['local_path']);
+
+            if ($file === null) {
+                continue;
+            }
+
+            $size = @getimagesize($file);
+
+            if ($size === false) {
+                continue;
+            }
+
+            $out[] = [
+                'src'    => '/' . ltrim(str_replace('\\', '/', (string) $asset['local_path']), '/'),
+                'width'  => (int) $size[0],
+                'height' => (int) $size[1],
+                'bytes'  => (int) $asset['size_bytes'],
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Số tài nguyên cục bộ CÒN trên đĩa của một snapshot.
+     *
+     * Dùng để thay các nhãn "Ngoại tuyến 100%" / "100% nguyên vẹn" bằa số
+     * đo được: đối chiếu từng dòng bảng `assets` với tệp thật trong public/.
+     *
+     * @return array{total:int, present:int, missing:int, bytes:int, size_label:string}
+     */
+    function wa_metrics_snapshot_assets(int $snapshotId): array
+    {
+        $stmt = db()->prepare(
+            'SELECT local_path, size_bytes
+               FROM `assets`
+              WHERE snapshot_id = ?
+              ORDER BY id'
+        );
+        $stmt->execute([$snapshotId]);
+
+        $total = 0;
+        $present = 0;
+        $bytes = 0;
+
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $asset) {
+            $total++;
+            $bytes += (int) $asset['size_bytes'];
+
+            if (wa_metrics_asset_file((string) $asset['local_path']) !== null) {
+                $present++;
+            }
+        }
+
+        return [
+            'total'      => $total,
+            'present'    => $present,
+            'missing'    => $total - $present,
+            'bytes'      => $bytes,
+            'size_label' => wa_format_bytes($bytes),
+        ];
+    }
+
+    /**
+     * Tổng thời gian đọc ước lượng của các bản lưu thành công.
+     *
+     * Dùng cho thẻ tính năng "Đọc lại độc lập" ở trang chủ: thay cho con số
+     * bịa, ta báo cáo tổng số phút đọc của toàn bộ nội dung đã lưu trong CSDL
+     * (cùng công thức 200 từ/phút, trung bình 5 ký tự/từ, như
+     * wa_metrics_showcase_snapshot()).
+     *
+     * @return array{minutes:int, articles:int}
+     */
+    function wa_metrics_reading_total(array $libraryIds): array
+    {
+        $libraryIds = array_values(array_unique(array_map('intval', $libraryIds)));
+        $libraryIds = array_values(array_filter($libraryIds, static fn (int $id): bool => $id > 0));
+
+        if ($libraryIds === []) {
+            return ['minutes' => 0, 'articles' => 0];
+        }
+
+        [$in, $params] = wa_metrics_in_clause($libraryIds);
+
+        $stmt = db()->prepare(
+            "SELECT COUNT(*) AS articles,
+                    SUM(CHAR_LENGTH(COALESCE(s.content_text, ''))) AS chars
+               FROM `snapshots` s
+               JOIN `saved_pages` sp ON sp.id = s.page_id
+              WHERE s.fetch_status = 'success'
+                AND sp.library_id IN ({$in})"
+        );
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $articles = (int) ($row['articles'] ?? 0);
+        $chars    = (int) ($row['chars'] ?? 0);
+
+        return [
+            'minutes'  => $chars > 0 ? (int) ceil($chars / 5 / 200) : 0,
+            'articles' => $articles,
+        ];
     }
 
     /**
