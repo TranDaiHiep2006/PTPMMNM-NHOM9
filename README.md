@@ -41,6 +41,110 @@ php scripts/run_tests.php     # 6 bài kiểm thử bắt buộc, tự bật má
 
 ---
 
+## 0. Thông tin bài nộp
+
+### 0.1 Tên đề tài
+
+> **WebArchive — Lưu trang Web & đọc lại ngoại tuyến**
+> Đề tài số **16** của môn **Lập trình** — Hệ thống lưu trữ nội dung trang web
+> theo thư viện, có phiên bản, tìm kiếm và phân quyền thành viên.
+
+Tên đề tài trong `README.md` này và trong mã nguồn là **"WebArchive — Lưu trang Web &
+đọc lại ngoại tuyến"**. Nếu giảng viên yêu cầu một tên khác trên file nộp, chỉ cần
+sửa dòng tiêu đề đầu tiên của `README.md` (và dòng `<title>` trong `templates/`).
+
+### 0.2 Thành viên nhóm — **CHỜ NGƯỜI DÙNG ĐIỀN**
+
+> ⚠️ **Phần này CÒN THIẾU và PHẢI do người dùng (thành viên nhóm) điền trước khi nộp.**
+> Tác giả của mã nguồn **không tự điền tên, MSSV hay phần việc** để tránh ghi sai
+> thông tin cá nhân lên tài liệu nộp bài. Bảng dưới đây là **bảng kê trống có ghi
+> chú rõ ràng** — xoá dòng ghi chú và điền vào các ô `TODO`.
+
+| STT | Họ và tên | MSSV | Phần việc phụ trách | Trạng thái |
+|-----|-----------|------|---------------------|-----------|
+| 1 | `TODO — điền họ tên thành viên 1` | `TODO — MSSV` | `TODO — ví dụ: Engine lưu trang + sanitizer (src/capture.php)` | ☐ Chờ điền |
+| 2 | `TODO — điền họ tên thành viên 2` | `TODO — MSSV` | `TODO — ví dụ: Chỉ mục đảo tìm kiếm + trang tìm kiếm (src/search.php, public/search.php)` | ☐ Chờ điền |
+| 3 | `TODO — điền họ tên thành viên 3` | `TODO — MSSV` | `TODO — ví dụ: Thư viện, thành viên, nhãn, xuất bản lưu (src/queries.php, public/library_action.php)` | ☐ Chờ điền |
+| 4 | `TODO — điền họ tên thành viên 4` | `TODO — MSSV` | `TODO — ví dụ: Giao diện, kiểm thử tự động, tài liệu (templates/, scripts/run_tests.php, docs/)` | ☐ Chờ điền |
+| 5 | `TODO — điền họ tên thành viên 5` | `TODO — MSSV` | `TODO — ví dụ: Kiểm thử, dữ liệu mẫu, đóng gói phát hành (tests/, scripts/seed_samples.php)` | ☐ Chờ điền |
+
+> **Nhắc lại trạng thái:** cột *Họ và tên* và *MSSV* **đang trống** — đây là phần
+> chưa hoàn tất của hồ sơ nộp bài, và chỉ người dùng mới có thể điền được.
+
+### 0.3 Phạm vi chức năng — ánh xạ 5 chức năng của đề tài vào mã nguồn
+
+Năm chức năng nghiệp vụ của đề tài số 16 và **chỗ cài đặt thực tế** của từng chức năng:
+
+| # | Chức năng của đề tài | Mã nguồn cài đặt (tệp → hàm / route) |
+|---|----------------------|------------------------------------------|
+| 1 | **Thư viện, nhãn, phân quyền**; chỉ URL thuộc allowlist mới được lưu | `src/queries.php` → `wa_library_create()` (dòng 607), `wa_library_update()` (698), `wa_library_delete()` (807), `wa_member_add()` (936), `wa_member_update_role()` (1002), `wa_member_remove()` (1040); `public/library_action.php` (bộ điều khiển POST: `create`/`update`/`delete`/`member_add`/`member_role`/`member_remove`/`tags`); `src/capture.php` → `wa_capture_is_allowlisted()` (dòng 225 — kiểm tra allowlist **trước mọi** request); `public/admin/allowlist.php` (bảng `allowlist_domains`) |
+| 2 | **Tải HTML + bóc tách tiêu đề/nội dung, phân biệt lỗi** | `src/capture.php` → `capture_url()` (dòng 987), `wa_capture_http_get()` (dòng 273, tự đi tối đa 5 redirect và **kiểm tra lại allowlist ở từng đích**), `wa_capture_extract_title()` (587), `wa_capture_find_content_node()` (656); mã lỗi `error_404` / `error_timeout` / `error_blocked` / `error_no_content` / `error_http` / `error_invalid_url`; `src/queries.php` → `wa_store_page_capture()` (dòng 2103) ghi bản ghi lỗi với `fetch_status <> 'success'` |
+| 3 | **Bản đọc lại sạch, ảnh lưu cục bộ** | `src/capture.php` → `wa_capture_sanitize()` (dòng 779, whitelist thẻ/thuộc tính), `wa_capture_localize_images()` (1277 — tải về `public/uploads/snapshots/<id>/<sha256>.<ext>`, đổi `src` thành đường dẫn cục bộ), `wa_capture_assert_clean()` (945); `src/queries.php` → `wa_insert_assets()` (dòng 1987); `public/reader.php` (trình đọc nền giấy ngà) |
+| 4 | **Tìm kiếm tự xây trên nội dung đã lưu**, trả đoạn trích, gắn đúng phiên bản | `src/search.php` → `wa_search_index_snapshot()` (dòng 164), `wa_search_snapshots()` (dòng 258, ngữ nghĩa AND, `score = 3×count_title + count_body`, lọc theo **thẻ** và **tên miền nguồn**); `public/search.php` (route GET `q`/`tag`/`domain`); bảng `search_terms` (`database/schema.sql` dòng 164) |
+| 5 | **Tải lại (refetch) + ghi chú + xuất kho có phân quyền** | `public/refetch.php` (POST, gọi CHUNG `wa_store_page_capture()`); `public/note.php` (POST, ghi chú theo từng phiên bản); `public/export.php` (GET `id`, `wa_export_build_document()` — `src/queries.php` dòng 2935 — nhúng ảnh base64 data URI); `src/queries.php` → `wa_page_versions()` (dòng 2247, chỉ lấy `fetch_status = 'success'`) |
+
+**Hai yêu cầu kỹ thuật cốt lõi:**
+
+| Yêu cầu | Cài đặt |
+|---------|---------|
+| Không bao giờ coi trang lỗi là bài hợp lệ; luôn đọc từ snapshot đã lưu | `src/queries.php`: `wa_library_articles()` (dòng 1289), `wa_find_snapshot()` (1437), `wa_page_versions()` (2247) đều có điều kiện `fetch_status = 'success'` **ngay trong SQL**; `public/export.php` trả 404 cho bản ghi lỗi |
+| Snapshot không chứa script/tài nguyên ngoài; mọi đích tải về (kể cả sau redirect) phải qua allowlist | `src/capture.php`: whitelist thẻ/thuộc tính khi sanitize; `wa_capture_http_get()` kiểm tra allowlist **trước khi mở kết nối** và **lại ở từng bước chuyển hướng**; cURL dùng **không** `CURLOPT_FOLLOWLOCATION` |
+
+**Năm bài kiểm thử bắt buộc** (đề tài yêu cầu 5 bài; dự án có 6 vì tách riêng "nguồn
+đã chết" và "mã độc") — bản đồ chi tiết ở mục 5.3.3, tự động chạy bằng
+`php scripts/run_tests.php`:
+
+| Mã | Bài kiểm thử bắt buộc | Dấu hiệu PASS |
+|----|----------------------|----------------|
+| T1 | Nguồn đã chết — bản lưu vẫn đọc được kèm ảnh cục bộ | `reader=200`, ảnh cục bộ `200` |
+| T2 | Tìm theo **thân** bài | `SNAP-…` + thẻ "Phiên bản" + `<mark>` |
+| T3 | Phân biệt lỗi | `error_404`, `error_timeout`, `error_blocked` (3 mã khác nhau) |
+| T4 | Mã độc không chạy được | `content_html` không còn `script` / `onclick` / `iframe` |
+| T5 | Phiên bản + ghi chú sống sót | `v1=1`, `v2=2`, ghi chú ở v1 còn nguyên |
+| T6 | Người ngoài không vào được | `reader=403`, `export=403`; chủ sở hữu `export=200` |
+
+### 0.4 Tự xây dựng vs. tái sử dụng
+
+**Nhóm TỰ XÂY (không dùng thư viện ngoài, không dùng sẵn tính năng của framework):**
+
+| Phần | Tệp / hàm |
+|------|-----------|
+| Engine tải trang thật (cURL + DOMDocument, tự đi redirect) | `src/capture.php` → `capture_url()`, `wa_capture_http_get()` |
+| Sanitizer HTML whitelist (loại `script`/`iframe`/`onclick`/style inline) | `src/capture.php` → `wa_capture_sanitize()` (779), `wa_capture_assert_clean()` (945) |
+| Bản đọc lại sạch + nối đường dẫn ảnh cục bộ | `src/capture.php` → `wa_capture_localize_images()` (1277) |
+| Chỉ mục đảo tìm kiếm (tokenizer, bỏ dấu tiếng Việt, AND, xếp hạng, đoạn trích `<mark>`) | `src/search.php` — **không** `LIKE`, **không** FULLTEXT |
+| Quản lý phiên bản (mỗi lần lưu là một `version_no` riêng) | `src/queries.php` → `wa_store_page_capture()`, `wa_snapshot_versions()` |
+| Ghi chú theo từng phiên bản (ép quyền sở hữu bằng `user_id` trong SQL) | `public/note.php`, `src/queries.php` |
+| Phân quyền nhiều vai trò (owner / editor / viewer / admin) | `src/queries.php` → `wa_can_read_library()` (2533), `wa_can_write_library()` (1833), `wa_can_manage_library()` (575), `wa_library_access_sql()` (140) |
+| Quản lý thư viện / thành viên / nhãn | `src/queries.php` (`wa_library_create/update/delete`, `wa_member_add/update_role/remove`, `wa_page_tags_replace()` dòng 1130), `public/library_action.php` |
+| Xuất bản lưu HTML độc lập (nhúng base64, kiểm tra bằng DOMXPath) | `src/queries.php` → `wa_export_build_document()`, `wa_export_inline_images()`, `wa_export_html_is_standalone()` |
+| Chống giả mạo: CSRF (`random_bytes()` + `hash_equals()`), escape output | `src/bootstrap.php`, `src/auth.php` |
+| Bộ kiểm thử tự động T1–T6 (tự bật hai máy chủ riêng, HTTP thật) | `scripts/run_tests.php` |
+| Bộ dữ liệu mẫu 15 trang tiếng Việt + 5 ảnh PNG | `tests/samples/`, `scripts/seed_samples.php`, `scripts/make_sample_images.php` |
+| Toàn bộ giao diện (design token + component, tiếng Việt) | `public/assets/css/app.css`, `templates/` |
+
+**TÁI SỬ DỤNG (ngoài ra, không tự viết):**
+
+| Thứ | Nguồn | Ghi chú |
+|-----|-------|---------|
+| PHP 8.3 core — extension `curl` | extension chính thức của PHP | Dùng để tải trang; **không** dùng `CURLOPT_FOLLOWLOCATION` (tự đi redirect để kiểm allowlist) |
+| PHP 8.3 core — extension `dom` (`DOMDocument`, `DOMXPath`) | extension chính thức | Bóc tách nội dung + kiểm tra tệp xuất bằng XPath (không regex) |
+| PHP 8.3 core — extension `mbstring` | extension chính thức | `mb_strtolower()`, cắt chuỗi đa byte |
+| PHP 8.3 core — extension `fileinfo` (`finfo_buffer`) | extension chính thức | Nhận diện MIME ảnh **theo nội dung thật**, không tin phần mở rộng |
+| PHP 8.3 core — extension `openssl` (`random_bytes`) | extension chính thức | Sinh token CSRF, mật khẩu ngẫu nhiên tài khoản CSDL |
+| PHP 8.3 core — `password_hash()` / `password_verify()` (bcrypt) | hàm chuẩn PHP | Lưu mật khẩu trong bảng `users` |
+| PDO MySQL (`pdo_mysql`) | extension chính thức | Mọi truy vấn có tham số đều là prepared statement |
+| MySQL Server 8.0 | máy chủ CSDL | Chỉ dùng làm nơi lưu trữ; **không** dùng `MATCH … AGAINST` / FULLTEXT |
+| Font **Inter** + **Merriweather** | Google Fonts (`fonts.googleapis.com`) | Chỉ tải phông chữ; có phông hệ thống dự phòng nên demo offline vẫn hiển thị tốt |
+| Biểu tượng **Material Symbols Outlined** | Google Fonts (`fonts.googleapis.com`) | Luôn đi kèm nhãn chữ tiếng Việt, nên không phụ thuộc hiển thị biểu tượng |
+| Hình minh hoạ logo / sơ đồ | `public/assets/img/*.svg` — **tự vẽ** bằng SVG | Không dùng thư viện icon ngoài |
+
+> **Không dùng:** framework PHP, Composer, Tailwind/CSS framework, thư viện tìm kiếm,
+> thư viện HTML sanitizer, thư viện quản lý ảnh. Không có `package.json`,
+> `composer.json` hay thư mục `vendor/` trong dự án.
+
+---
+
 ## 1. Chạy dự án trên Windows
 
 Yêu cầu: **PHP 8.0 trở lên** (khuyến nghị 8.3) và **MySQL Server 8.0**.
@@ -143,7 +247,7 @@ prompt.md                      Đặc tả giai đoạn này
 PROJECT_CONTEXT.md             Tóm tắt đặc tả, bản đồ trang, cách các phase sau cắm vào
 database/schema.sql            Lược đồ MySQL (11 bảng, InnoDB, utf8mb4, khoá ngoại)
 database/seed.sql              Dữ liệu mẫu (INSERT) — chạy lại được nhiều lần
-scripts/setup_db.php           Cài đặt CSDL + tài khoản riêng + nạp seed (CLI, idempotent)
+scripts/setup_db.php           Cài đặt CSDL + tài khoản riêng + nạp seed + tạo tệp tài nguyên cục bộ (CLI, idempotent)
 scripts/migrate_search.php     Tạo bảng chỉ mục `search_terms` (CLI, idempotent, tài khoản ứng dụng)
 scripts/reindex_search.php     Lập lại toàn bộ chỉ mục tìm kiếm (CLI, idempotent)
 scripts/make_sample_images.php Sinh 5 tệp PNG nhỏ hợp lệ cho bộ trang mẫu (không cần GD)
@@ -571,3 +675,92 @@ năng đầy đủ, không phải phạm vi của một giai đoạn.
 - **Defect đã sửa:** trang chủ trong bộ tham chiếu dùng nhầm header đã đăng nhập. Trang chủ
   là trang dành cho khách, nên dự án này dùng header khách (chỉ có “Đăng nhập” / “Tạo tài khoản”).
   Hai kiểu header không bao giờ trộn lẫn.
+
+---
+
+## 9. Đóng gói bài nộp (Release)
+
+### 9.1 Quy trình tạo Release trên GitHub
+
+Bài nộp lấy từ **Release** của kho Git, không phải từ ZIP tải trực tiếp branch.
+Các bước (người dùng tự làm trên website):
+
+1. Đẩy code lên `main` (đã xong ở từng stage):
+   ```powershell
+   git push origin main
+   ```
+2. Trên website GitHub → vào kho → tab **Releases** → **Draft a new release**.
+3. **Choose a tag**: chọn tag `v1.0.1` (đã tạo sẵn ở bước 9.2). Tên tag khác theo
+   hướng dẫn đề tài cũng được, ví dụ `btl-nop-cuoi-ky`.
+4. **Target**: `main` (bắt buộc — commit cuối cùng của nhóm).
+5. **Release title**: ví dụ `WebArchive — Đề tài 16 (Nhóm 9) — v1.0.1`.
+6. **Describe**: dán nội dung tóm tắt, danh sách 5 chức năng, 6 bài kiểm thử T1–T6,
+   và các bước cài đặt (mục 1 của README này).
+7. Bấm **Publish release**.
+
+### 9.2 Tạo tag `v1.0.1` (KHÔNG dời tag `v1.0.0` cũ)
+
+> Tag `v1.0.0` đang trỏ tới commit cũ `6795727` — **giữ nguyên**, không dời.
+> Tag mới `v1.0.1` đặt ở commit cuối cùng sau khi hoàn tất Stage C.
+
+```powershell
+git tag -a v1.0.1 -m "WebArchive — Đề tài 16 — bản nộp BTL"
+git push origin v1.0.1
+```
+
+Kiểm tra:
+```powershell
+git tag -l -n1              # liệt kê tag
+git rev-parse v1.0.0 v1.0.1 # xem hash từng tag
+```
+
+### 9.3 Tải và đặt tên tệp ZIP theo đúng quy ước
+
+1. Vào tab **Releases** → bấm **Source code (zip)** của release `v1.0.1`.
+2. Tải tệp `WebArchive-1.0.1.zip` về máy.
+3. **Đổi tên** thành `BTL_Nhom09.zip` (nhóm 9, theo mẫu tên trong hướng dẫn nộp bài):
+   ```powershell
+   Rename-Item .\WebArchive-1.0.1.zip BTL_Nhom09.zip
+   ```
+4. Kiểm tra nội dung ZIP **không** chứa bí mật:
+   ```powershell
+   # Liệt kê tệp trong ZIP
+   Add-Type -AssemblyName System.IO.Compression.FileSystem
+   [IO.Compression.ZipFile]::OpenRead("$PWD\BTL_Nhom09.zip").Entries | Select-Object -ExpandProperty FullName
+   ```
+   Không được có `config/db.local.php`, không có thư mục `.local/`, không có tệp
+   `*:Zone.Identifier`, không có `vendor/` hay `node_modules/`.
+
+### 9.4 Kiểm tra gói phát hành bằng `git archive` (không cần mạng)
+
+Lệnh này tạo đúng nội dung mà GitHub sẽ đóng gói cho tag đã chọn:
+
+```powershell
+# Tạo gói từ HEAD
+git archive --format=zip --output="$env:TEMP\BTL_Nhom09.zip" HEAD
+
+# Liệt kê nội dung
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[IO.Compression.ZipFile]::OpenRead("$env:TEMP\BTL_Nhom09.zip").Entries |
+  Select-Object -ExpandProperty FullName | Sort-Object
+```
+
+Gói phát hành phải **có**: `README.md`, `LICENSE`, `CONTRIBUTING.md`, `docs/`,
+`tests/`, `scripts/`, `src/`, `templates/`, `public/`, `database/`.
+Gói phát hành phải **không có**: `config/db.local.php`, `.local/`, `*Zone.Identifier`.
+
+### 9.5 Checklist nộp bài
+
+| Mục | Giá trị cần điền |
+|-----|-------------------|
+| Tên nhóm | `TODO — điền tên nhóm (Nhóm 9)` |
+| Tên đề tài | `WebArchive — Lưu trang Web & đọc lại ngoại tuyến (Đề tài 16)` |
+| Link Release | `TODO — dán link trang Release trên GitHub` |
+| Commit hash đầy đủ | `TODO — dán hash từ lệnh `git rev-parse HEAD` (40 ký tự)` |
+| Tệp nộp | `BTL_Nhom09.zip` |
+| Thành viên | `TODO — điền ở mục 0.2 (tên + MSSV + phần việc)` |
+
+Lấy hash đầy đủ:
+```powershell
+git rev-parse HEAD
+```

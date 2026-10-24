@@ -99,7 +99,7 @@ try {
         PDO::ATTR_EMULATE_PREPARES   => false,
     ]);
 
-    out('[1/5] Đã kết nối MySQL bằng tài khoản quản trị "' . $adminUser . '" tại '
+    out('[1/6] Đã kết nối MySQL bằng tài khoản quản trị "' . $adminUser . '" tại '
         . WA_DB_HOST . ':' . WA_DB_PORT);
 
     // -------------------------------------------------------------------------
@@ -113,9 +113,9 @@ try {
             'CREATE DATABASE `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci',
             WA_DB_NAME
         ));
-        out('[2/5] Đã tạo database `' . WA_DB_NAME . '` (utf8mb4 / utf8mb4_unicode_ci)');
+        out('[2/6] Đã tạo database `' . WA_DB_NAME . '` (utf8mb4 / utf8mb4_unicode_ci)');
     } else {
-        out('[2/5] Database `' . WA_DB_NAME . '` đã tồn tại — dùng lại');
+        out('[2/6] Database `' . WA_DB_NAME . '` đã tồn tại — dùng lại');
     }
 
     // -------------------------------------------------------------------------
@@ -132,7 +132,7 @@ try {
         }
         $appUser     = (string) $existing['user'];
         $appPassword = (string) $existing['password'];
-        out('[3/5] Đã có config/db.local.php — tái sử dụng tài khoản ứng dụng "' . $appUser . '"');
+        out('[3/6] Đã có config/db.local.php — tái sử dụng tài khoản ứng dụng "' . $appUser . '"');
     } else {
         if (!is_dir($configDir) && !mkdir($configDir, 0o775, true) && !is_dir($configDir)) {
             throw new RuntimeException('Không tạo được thư mục config/.');
@@ -177,7 +177,7 @@ try {
             throw new RuntimeException('Không ghi được config/db.local.php.');
         }
 
-        out('[3/5] Đã tạo tài khoản "' . $appUser . "'@'" . WA_APP_HOST
+        out('[3/6] Đã tạo tài khoản "' . $appUser . "'@'" . WA_APP_HOST
             . "' (chỉ có quyền trên " . WA_DB_NAME . ".*) và ghi config/db.local.php");
     }
 
@@ -196,9 +196,82 @@ try {
         PDO::ATTR_EMULATE_PREPARES   => false,
     ]);
 
-    out('[4/5] Đang áp dụng lược đồ và dữ liệu mẫu...');
+    out('[4/6] Đang áp dụng lược đồ và dữ liệu mẫu...');
     apply_sql_file($app, dirname(__DIR__) . '/database/schema.sql');
     apply_sql_file($app, dirname(__DIR__) . '/database/seed.sql');
+
+    // -------------------------------------------------------------------------
+    // 5b. Vật chất hoá tài nguyên cục bộ của dữ liệu mẫu (P-FINAL-2 / B5)
+    //
+    // Dữ liệu mẫu khai báo mỗi dòng `assets` với đường dẫn
+    // '/uploads/snapshots/<snapshot_id>/…'. Ở bước này ta TẠO THẬT các tệp
+    // đó trên đĩa để các bộ đếm "ảnh cục bộ còn trên đĩa" báo thiếu ~ 0:
+    //   - ảnh  : sao chép từ tests/samples/anh-<NN>.png (tệp PNG đã commit)
+    //   - HTML : ghi content_html của chính snapshot đó
+    // size_bytes được cập nhật lại theo kích thước tệp thật.
+    // -------------------------------------------------------------------------
+    $assetRows = $app->query(
+        "SELECT a.id, a.snapshot_id, a.local_path, a.mime_type, s.content_html
+           FROM `assets` a
+           JOIN `snapshots` s ON s.id = a.snapshot_id
+          ORDER BY a.id"
+    )->fetchAll(PDO::FETCH_ASSOC);
+
+    $uploadsRoot = dirname(__DIR__) . '/public/uploads/snapshots';
+    $samplePngs  = glob(dirname(__DIR__) . '/tests/samples/anh-*.png') ?: [];
+    $written     = 0;
+    $updated     = 0;
+
+    $updateAsset = $app->prepare(
+        'UPDATE `assets` SET `size_bytes` = ? WHERE `id` = ?'
+    );
+
+    foreach ($assetRows as $asset) {
+        $relative = ltrim(str_replace('\\', '/', (string) $asset['local_path']), '/');
+
+        if (!str_starts_with($relative, 'uploads/snapshots/')) {
+            continue;
+        }
+
+        $target = dirname(__DIR__) . '/public/' . $relative;
+
+        if (!is_dir($dir = dirname($target)) && !@mkdir($dir, 0775, true) && !is_dir($dir)) {
+            throw new RuntimeException('Không tạo được thư mục ' . $dir);
+        }
+
+        $isHtml = str_starts_with((string) $asset['mime_type'], 'text/html');
+        $bytes  = null;
+
+        if ($isHtml) {
+            $html = (string) $asset['content_html'];
+
+            if ($html !== '') {
+                $bytes = $html;
+            }
+        } else {
+            $index = ((int) $asset['id'] % 5);
+
+            if (isset($samplePngs[$index])) {
+                $bytes = (string) file_get_contents($samplePngs[$index]);
+            }
+        }
+
+        if ($bytes === null) {
+            continue;
+        }
+
+        if (@file_put_contents($target, $bytes) === false) {
+            throw new RuntimeException('Không ghi được tệp tài nguyên ' . $target);
+        }
+
+        $written++;
+
+        $updateAsset->execute([strlen($bytes), (int) $asset['id']]);
+        $updated++;
+    }
+
+    out('  · Đã tạo ' . $written . ' tệp tài nguyên cục bộ và cập nhật '
+        . $updated . ' dòng assets (size_bytes theo tệp thật)');
 
     // -------------------------------------------------------------------------
     // 6. In số dòng của từng bảng
@@ -209,7 +282,7 @@ try {
     ];
 
     out('');
-    out('[5/5] Số dòng sau khi cài đặt (database `' . WA_DB_NAME . '`):');
+    out('[6/6] Số dòng sau khi cài đặt (database `' . WA_DB_NAME . '`):');
     out(str_repeat('-', 58));
 
     foreach ($tables as $table) {

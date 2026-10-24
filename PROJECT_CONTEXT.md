@@ -1,6 +1,9 @@
 # PROJECT_CONTEXT.md — WebArchive (Đề tài 16)
 
-> Tài liệu ngữ cảnh dự án. **Giai đoạn hiện tại: P-FINAL — HOÀN TẤT, phát hành `v1.0.0`.**
+> Tài liệu ngữ cảnh dự án. **Giai đoạn hiện tại: P-FINAL-2 — Stage A xong (commit
+> `647a5b4`), Stage B xong; Stage C (dựng lại dữ liệu demo) đang chờ người dùng tự
+> chạy `scripts/setup_db.php`.** Tag phát hành được khuyến nghị: **`v1.0.1`**
+> (giữ nguyên tag `v1.0.0` cũ).
 > Tất cả năm chức năng nghiệp vụ của đề tài đã chạy thật và được kiểm chứng tự động.
 > `capture_url()` là engine tải trang thật; phần ghi CSDL đã gom về một hàm
 > dùng chung `wa_store_page_capture()` mà cả `save.php` lẫn `refetch.php` đều gọi.
@@ -14,6 +17,14 @@
 > tìm kiếm trong `docs/SEARCH_QUERIES.md`, sáu bài kiểm thử bắt buộc T1–T6 trong
 > `scripts/run_tests.php` (tự bật máy chủ riêng ở cổng 18080/18091), kịch bản trình diễn
 > trong `docs/DEMO.md`, và gói mã nguồn mở `LICENSE` (MIT) + `CONTRIBUTING.md`.
+>
+> **P-FINAL-2 Stage B (BTL compliance — phần code/dự án):** xem mục **8i**. Tóm tắt:
+> README có mục 0 (tên đề tài, **bảng thành viên còn TRỐNG chờ người dùng điền**, ánh xạ
+> 5 chức năng → mã nguồn, tự xây vs tái sử dụng) và mục 9 (đóng gói `BTL_Nhom09.zip`);
+> secrets audit sạch; `run_tests.php` **6/6 PASS** exit 0; đối chiếu an toàn khi xoá:
+> **không có defect**; seed 99 dòng `assets` đã đồng bộ với tệp thật (`setup_db.php`
+> có bước 5b tạo tệp); gói `git archive` đã kiểm tra — không có `.local/`,
+> `config/db.local.php`, `*Zone.Identifier`, 42/42 tệp PHP qua `php -l`.
 
 ---
 
@@ -571,6 +582,182 @@ HTTP 200 không cảnh báo PHP; đăng nhập `user@demo.vn` → `/libraries.ph
 `/library.php?slug=kho-du-lieu-mau`, `/search.php?q=php`, `/save.php`,
 `/reader.php?id=9102` đều 200, 0 lỗi PHP; `/admin/*.php` đăng nhập
 `admin@demo.vn` đều 200.
+
+---
+
+## 8i. P-FINAL-2 — Stage B: BTL compliance (phần code / dự án)
+
+Stage B **không** đụng tới CSDL và **không** chạy `scripts/setup_db.php`. Mọi kiểm
+chứng dùng HTTP thật trên `php -S localhost:8080 -t public` và CSDL đang chạy.
+
+### B1 — README đầy đủ
+
+`README.md` bổ sung mục **0. Thông tin bài nộp**:
+
+- **0.1 Tên đề tài** — "WebArchive — Lưu trang Web & đọc lại ngoại tuyến (Đề tài 16)".
+- **0.2 Thành viên nhóm** — bảng **5 dòng TRỐNG**, mỗi dòng ghi rõ
+  `TODO — điền họ tên … / TODO — MSSV / TODO — phần việc`, cột *Trạng thái* = "☐ Chờ điền".
+  **Không có tên nào được bịa.** Phần này **chưa hoàn tất** cho tới khi người dùng điền.
+- **0.3 Phạm vi chức năng** — bảng ánh xạ **5 chức năng** của đề tài → tệp + hàm/route
+  (29 tham chiếu có số dòng, **đã kiểm tra tự động bằng script đọc lại tệp nguồn**:
+  sai lệch 0/29); kèm 2 yêu cầu kỹ thuật cốt lõi và 6 bài kiểm thử T1–T6.
+- **0.4 Tự xây vs tái sử dụng** — 14 hạng mục **tự xây** (engine cURL+DOMDocument,
+  sanitizer, chỉ mục đảo, phiên bản, ghi chú, phân quyền, xuất bản lưu, CSRF, bộ test,
+  bộ mẫu, toàn bộ CSS) và 12 hạng mục **tái sử dụng** — trong đó chỉ liệt kê
+  extension PHP (`curl`, `dom`, `mbstring`, `fileinfo`, `openssl`, `pdo_mysql`),
+  hàm chuẩn `password_hash`/`random_bytes`, MySQL 8.0, và **hai** tài nguyên Google
+  Fonts thực sự được template nạp: `Inter` + `Merriweather` và `Material Symbols Outlined`
+  (đã đọc `templates/header_guest.php`, `header_app.php`, `error_no_permission.php`,
+  `error_database.php`, `public/reader.php` để xác nhận — **không** framework CSS ngoài).
+- **Mục 9. Đóng gói bài nộp** — quy trình tạo Release, tạo tag `v1.0.1`, tải
+  `Source code (zip)` → đổi tên `BTL_Nhom09.zip`, kiểm tra gói bằng `git archive`,
+  và bảng checklist nộp bài (nhóm, tên đề tài, link Release, commit hash, tệp ZIP).
+
+**Các lệnh trong README đã chạy thật và đều exit 0**: `php scripts/migrate_search.php`
+(bảng `search_terms` đã tồn tại, 2985 dòng), `php scripts/reindex_search.php`
+(index 17 snapshot thành công / bỏ qua 3 snapshot lỗi), `php scripts/make_sample_images.php`
+(5 ảnh 64×64, 136 byte), `php scripts/run_tests.php` (6/6 PASS).
+
+### B2 — Secrets audit
+
+| Lệnh | Kết quả thô |
+|------|-------------|
+| `git ls-files \| Select-String db\.local` | **rỗng** |
+| `git ls-files \| Select-String '^\.local'` | **rỗng** |
+| `git ls-files \| Select-String Zone.Identifier` | **rỗng** |
+| `git ls-files` (tổng số tệp theo dõi) | **90** |
+| `git status --porcelain` | chỉ `M database/seed.sql`, `M scripts/setup_db.php` |
+| `git check-ignore -v config/db.local.php` | `.gitignore:11:config/db.local.php` |
+| `git check-ignore -v .local/wa_jar.txt` | `.gitignore:2:.local/` |
+| `git check-ignore -v public/uploads/snapshots/9102/x.png` | `.gitignore:23:public/uploads/snapshots/*` |
+
+Quét mẫu mật khẩu trên **90 tệp được theo dõi**: chỉ khớp các dòng **hướng dẫn**
+(`$env:WA_ADMIN_PASS = '<mat khau …>'`) và các dòng **đọc biến môi trường**
+(`getenv('WA_ADMIN_PASS')`), `IDENTIFIED BY '…'` với giá trị nội suy từ biến, và
+`'password' => $local['password']` — **không có chuỗi mật khẩu thật** trong git.
+`.gitignore` đã phủ đủ `config/db.local.php`, `.local/`, `public/uploads/snapshots/*`.
+
+### B3 — Rà soát 5 chức năng / 2 yêu cầu kỹ thuật / 5 bài kiểm thử
+
+| Hạng mục | Kết quả kiểm chứng HTTP thật |
+|----------|------------------------------|
+| **F4 — lọc theo NGUỒN (tên miền)** | **ĐÃ CÓ SẴN**: `public/search.php` dòng 95–102 có `<select id="domain">`; `src/search.php` dòng 322–325 thêm `sp.domain = :domain_filter`. Đo: `q=trang` không lọc → **14** kết quả; `domain=dev-insights.org` → **1**; `domain=phptutorial.vn` → **1**; `domain=tapchicongnghe.vn` → **1**; `domain=techblog.dev` → **1**; `domain=localhost` → **10**; `domain=example.com` → **0**; mọi response đều hiện nhãn "từ miền `<domain>`". |
+| **F4 — lọc theo THẺ** | `src/search.php` dòng 316–320 (`EXISTS … t.name = :tag_filter`). Đo: 34 thẻ trong dropdown; `tag=mau-webarchive` → **13**; `tag=html-css` → **3**; `tag=#CS` → **2**; `tag=#Security` → **1**; các thẻ seed không gắn trang (`#PHP`, `#MySQL`, `#HTML`…) → **0** — đúng dữ liệu, không phải lỗi. |
+| **Y1 — snapshot lỗi không hiện như bài đọc được** | CSDL có **3** snapshot lỗi; `reader.php?id=<lỗi>` và `export.php?id=<lỗi>` đều **404** (0 lỗi rò); `search.php` không chứa `SNAP-<id lỗi>` nào (**0**). Điều kiện `fetch_status = 'success'` nằm **trong SQL** ở `wa_library_articles()` (1289), `wa_find_snapshot()` (1454), `wa_page_versions()` (2252), `wa_search_snapshots()` (300). |
+| **Y2 — redirect phải kiểm lại allowlist** | `src/capture.php` `wa_capture_http_get()` (273): cURL **không** `CURLOPT_FOLLOWLOCATION`; vòng lặp kiểm allowlist **trước khi mở kết nối** (dòng 279–280) và **lại ở đầu mỗi vòng kế tiếp** sau khi chuyển hướng (338–366) → không đường nào lách được allowlist. |
+| **Y2 — export kiểm tra thành viên** | Khách (chưa đăng nhập) → chuyển hướng `login.php?next=%2Fexport.php%3Fid%3D8832`; đã đăng nhập nhưng **ngoài thư viện** (`linh.pham@demo.vn`) → `reader=403`, `export=403`; **chủ sở hữu** → `export=200`. Bản ghi lỗi → 404. |
+| **T1–T6** | `php scripts/run_tests.php` → **6/6 PASS**, exit code **0** (xem B6). |
+
+### B4 — Đối chiếu an toàn khi xoá (kết luận: **KHÔNG có defect**)
+
+Hai call site duy nhất gọi xoá thư viện, và **cả hai đều chọn đúng thư viện do chính
+script đó tạo/trong lần chạy đó** — không có call site nào có thể trúng thư viện khác:
+
+**`scripts/run_tests.php`** — không gọi `wa_library_delete` và không có
+`DELETE FROM libraries`; nó xoá qua **hành động HTTP thật** của ứng dụng:
+
+```php
+// run_tests.php:446 — tên có hậu tố ngẫu nhiên theo PID + thời gian
+$libraryName = 'Thư viện KIỂM THỬ ' . $runId;
+
+// run_tests.php:454 — tạo qua library_action.php (hành động thật)
+$createRes = t_http(WA_T_APP_BASE . '/library_action.php', ['action' => 'create', 'name' => $libraryName, ...], $ownerJar);
+
+// run_tests.php:493-502 — id lấy theo SLUG vừa nhận từ URL chuyển hướng,
+//                             KHÔNG đoán theo tên
+$stmt = db()->prepare('SELECT id FROM `libraries` WHERE slug = ? LIMIT 1');
+$stmt->execute([$ctx['library_slug']]);
+$libraryId = (int) $stmt->fetchColumn();
+...
+$ctx['library_id'] = $libraryId;
+
+// run_tests.php:918-923 — xoá ĐÚNG id trên
+t_http(WA_T_APP_BASE . '/library_action.php', [
+    'action' => 'delete', 'library_id' => (string) $ctx['library_id'], 'confirm' => '1',
+], $ownerJar);
+```
+
+⇒ Id xoá = id của thư viện mà chính lần chạy này vừa tạo, tra ra từ **slug** (duy
+nhất) chứ không phải từ tên. Ngoài ra `run_tests.php` còn xoá **tài khoản rác** bằng
+`DELETE FROM users WHERE id = ?` với `id` lấy từ chính `register.php` trong cùng lần
+chạy (`$ctx['outsider_id']`).
+
+**`scripts/seed_samples.php`** — **một** call site `wa_library_delete()`, và chỉ chạy
+khi có cờ `--force`:
+
+```php
+// seed_samples.php:157-167 — tìm thư viện theo TÊN *VÀ* CHỦ SỞ HỮU
+function seed_find_library_by_name(string $name, int $ownerId): ?array
+{
+    $stmt = db()->prepare(
+        'SELECT id, name, slug, owner_id FROM `libraries`
+          WHERE name = ? AND owner_id = ? ORDER BY id LIMIT 1'
+    );
+    $stmt->execute([$name, $ownerId]);
+    ...
+}
+
+// seed_samples.php:210-225 — chỉ khi --force
+if ($force) {
+    $deleted = wa_library_delete($libraryId, [
+        'id' => $ownerId, 'role' => 'user', 'is_admin' => false,
+    ]);
+}
+```
+
+⇒ Id xoá là thư viện có **đúng tên** (mặc định `Kho dữ liệu mẫu`) **và đúng
+`owner_id`** của tài khoản truyền vào (mặc định `user@demo.vn`). Không có
+`DELETE FROM libraries` thủ công trong script này, cũng không có xoá tệp tay trong
+`public/uploads/` — dọn ảnh đi qua `wa_library_delete()` (hàm tự xoá thư mục
+`public/uploads/snapshots/<id>/`).
+
+**Kết luận B4: không có defect cần sửa.** Cả hai script đều an toàn khi chạy lại nhiều lần.
+
+### B5 — Tính toàn vẹn tài nguyên của seed ("N ảnh cục bộ không tìm thấy")
+
+**Vấn đề:** 99 dòng `assets` trong `database/seed.sql` trỏ tới các đường dẫn **không
+tồn tại** (`assets/snapshots/2026-10/img_900.jpg`, `snapshots/2026-10/page_8941.html`),
+nên bộ đếm "ảnh cục bộ còn trên đĩa" báo thiếu hàng loạt.
+
+**Cách sửa (không cần chạy `setup_db.php`):**
+
+1. `database/seed.sql` — 99 dòng `assets` đổi sang quy ước **tương đối với web root**
+   `/uploads/snapshots/<snapshot_id>/…`:
+   - tài nguyên HTML → `/uploads/snapshots/<id>/page.html`
+   - tài nguyên ảnh → `/uploads/snapshots/<id>/anh-<NN>.png` (NN = 01…05, xoay vòng)
+   - `mime_type` ảnh → `image/png` (đúng loại tệp thật), `size_bytes` → `0` (sẽ được
+     `setup_db.php` cập nhật theo tệp thật).
+2. `scripts/setup_db.php` — thêm **bước 5b**: sau khi nạp `seed.sql`, script **tạo thật**
+   từng tệp tài nguyên trên đĩa rồi cập nhật `size_bytes`:
+   - ảnh → sao chép từ `tests/samples/anh-<NN>.png` (tệp PNG **đã commit**, 64×64, 136 byte);
+   - HTML → ghi `content_html` của chính snapshot đó.
+   Các bước được đánh số lại `[1/6] … [6/6]`.
+
+**Bảng ánh xạ đầy đủ (kiểm bằng script đọc `seed.sql`):** 99 dòng `assets`,
+**34 đường dẫn phân biệt**, mỗi đường dẫn ảnh đều có **nguồn** trong
+`tests/samples/anh-01..05.png` → **số đường dẫn không tìm thấy nguồn = 0**.
+`database/seed.sql` chỉ có **1** thẻ `<img>` (`/assets/img/reader-diagram.svg`) — tệp
+này **có thật** trong `public/assets/img/`, không phải tài nguyên tải về.
+
+> Xác minh số "thiếu ≈ 0" **trên CSDL thật** sẽ diễn ra ở **Stage C**, sau khi người
+> dùng tự chạy `scripts/setup_db.php` (bước 5b mới sinh tệp). Ở Stage B **không** chạy
+> `setup_db.php`.
+
+### B6 — Hồi quy
+
+`php scripts/run_tests.php` → **6/6 PASS**, exit code **0** (bản ghi thô ở báo cáo
+P-FINAL-2 Stage B).
+
+### B7 — Chuẩn bị phát hành
+
+- **KHÔNG** dời tag `v1.0.0` (đang trỏ tới commit cũ `6795727`).
+- **Khuyến nghị** tag **`v1.0.1`** ở commit cuối cùng **sau Stage C**; tên tag theo
+  hướng dẫn đề tài (`btl-nop-cuoi-ky`) cũng được.
+- Quy trình tạo Release, tải ZIP, đổi tên `BTL_Nhom09.zip` và checklist nộp bài đã
+  ghi ở `README.md` mục 9.
+- Kiểm tra gói bằng `git archive --format=zip --output=… HEAD` rồi giải nén ra thư mục
+  tạm, đối chiếu danh sách tệp và chạy `php -l` trên toàn bộ tệp PHP trong gói —
+  kết quả thô ở báo cáo P-FINAL-2 Stage B.
 
 ---
 
