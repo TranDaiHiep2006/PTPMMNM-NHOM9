@@ -944,6 +944,57 @@ cũ của khối còn nguyên từng ký tự.
 
 ---
 
+## 8m. P-FIX-LANDING-3 — vòng sửa giao diện trang chủ (lần 3)
+
+Phạm vi **CHỈ khả năng đọc + căn lề** của khối "Không gian tập trung"
+(`#khong-gian-doc`) trên trang chủ. **Không đổi câu chữ, không đổi minh hoạ trình
+đọc, không đổi con số/số liệu, không đụng section nào khác.** Không đụng engine /
+schema / dữ liệu, **không** chạy `scripts/setup_db.php`.
+
+**Vấn đề.** Ở vòng 2, hai cột của khối này bị *bóc* vào nhau và mép ngoài bị *dính*:
+khe hở giữa cột chữ và thẻ minh hoạ chỉ **24px**, hai cột lệch mép trên tới **58px**
+(thẻ minh hoạ bị đẩy xuống do `align-items: center`), và mép phải thẻ minh hoạ dính
+sát mép lưới nên trông chật ở cả hai bên.
+
+**1 — Hai cột thẳng mép trên.** `.showcase` đổi `align-items: center` → **`start`**.
+Cả cột chữ và thẻ minh hoạ nay cùng xuất phát từ một đường ngang (chênh lệch mép
+trên = **0px**, trước là 58px).
+
+**2 — Khe hở rộng hơn, hai cột tự thu hẹp.** `column-gap` 24px → **`clamp(40px,
+4.5vw, 64px)`**. Vì lưới vẫn là **12 cột chia đều**, tăng khe hở làm cả HAI cột tự
+thu hẹp: ở 1440px cột chữ **553px → 516px**, thẻ minh hoạ **784px → 749px**; khe
+hở **24px → 64px**.
+
+**3 — Mép ngoài đúng lưới.** Mép trái giữ nguyên **x=32** — thẳng với khối "Giá trị
+cốt lõi" và khối "Cách thức hoạt động trong 3 bước" (lệch **0px**). Mép phải lùi
+vào trong lưới **32px** (`padding-right` trên `.showcase`) nên **không vượt quá** mép
+phải của các khối phía trên, đồng thời bóng đổ của thẻ minh hoạ không còn dính sát
+mép trang.
+
+### Kiểm chứng
+
+- `php -l` trên mọi tệp PHP đã sửa → **không lỗi cú pháp**.
+- `php scripts/verify_landing_fix3.php http://127.0.0.1:8899/index.php` → **48/48 PASS**,
+  exit 0. Script **chỉ đọc** (GET qua HTTP + đọc CSS tĩnh + `git show HEAD`), **không**
+  ghi CSDL. Script tự đối chiếu: `public/index.php` **bất biến** so với HEAD, toàn bộ
+  rule `.readpreview` **bất biến** so với HEAD, và các lưới `.feature-grid` /
+  `.steps-grid` / `.steps-panel` không đổi.
+- `php scripts/verify_landing_fix2.php …` → **55/55 PASS**, exit 0; `verify_landing_fix1.php …`
+  → **39/39 PASS**, exit 0 (hai vòng trước không suy giảm).
+- Trang chủ trả về **HTTP 200** qua `php -S 127.0.0.1:8899 -t public`.
+- Đo hình học bằng Chrome DevTools Protocol — 1440px: khe hở **24px → 64px**; cột
+  chữ **553.08px → 516.41px**; thẻ minh hoạ **783.91px → 748.58px**; chênh lệch mép
+  trên **58.28px → 0px**; mép trái khối lệch khối "Giá trị cốt lõi" **0px**; mép trái
+  lệch khối 3 bước **0px**; mép phải thẻ lùi vào trong **32.02px** (không vượt mép
+  phải của các khối phía trên).
+- Responsive 768 / 1024 / 1280 / 1440px: **không tràn ngang**; ở 1024px khe hở 46.08px,
+  1280px 57.59px, 1440px 64px; dưới 1024px xếp dọc một cột như cũ.
+- Kiểm tra bằng mắt (ảnh chụp headless 1440px): hai cột thẳng nhau, khe hở thoáng,
+  mép ngoài không còn dính sát.
+- Hồi quy: `php scripts/run_tests.php` → **6/6 PASS**, exit 0 (không suy giảm).
+
+---
+
 ## 9. Hệ thống thiết kế
 
 Nguồn: `docs/design-reference/DESIGN.md` và 4 màn hình tham chiếu.

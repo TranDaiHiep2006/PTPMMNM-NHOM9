@@ -748,8 +748,27 @@ table { border-collapse: collapse; }
    Sơ đồ quy trình (Trang Web → HTML tĩnh → MySQL → Đọc lại) đã bị gỡ ở
    P-FIX-LANDING-1 và KHÔNG được trở lại — cột phải nay là một MINH HOẠ
    TRẢI NGHIỆM ĐỌC dựng từ chính bộ điều khiển có thật của trình đọc. */
-.showcase { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: var(--wa-space-lg); align-items: center; }
-@media (min-width: 1024px) { .showcase { grid-template-columns: repeat(12, minmax(0, 1fr)); } }
+/* P-FIX-LANDING-3 (vòng 3): CHỈ sửa khoảng cách + căn lề của khối "Không
+   gian tập trung". Không đổi câu chữ, không đổi minh hoạ, không đổi con số.
+
+   1. Hai cột thẳng mép trên: align-items center → start. Trước đây thẻ minh
+      hoạ (cao 277px) bị đẩy xuống thấp hơn cột chữ tới 58px, hai mép trên
+      lệch nhau; nay cả hai cột cùng xuất phát từ một đường ngang.
+   2. Khe hở giữa hai cột rộng hơn rõ rệt: column-gap 24px → clamp(40px, 4.5vw,
+      64px). Vì lưới vẫn là 12 cột chia đều, tăng khe hở làm cả HAI cột tự
+      thu hẹp: ở 1440px cột chữ 553px → 516px, thẻ minh hoạ 784px → 749px.
+   3. Mép ngoài: mép trái giữ nguyên x=32 — thẳng với khối "Giá trị cốt lõi"
+      và khối "Cách thức hoạt động trong 3 bước". Mép phải lùi vào trong
+      lưới 32px (padding-right) nên KHÔNG vượt quá mép phải của các khối phía
+      trên, đồng thời bóng đổ của thẻ minh hoạ không còn dính sát mép trang. */
+.showcase { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: var(--wa-space-lg); align-items: start; }
+@media (min-width: 1024px) {
+  .showcase {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    column-gap: clamp(40px, 4.5vw, 64px);
+    padding-right: 32px;
+  }
+}
 .showcase__text { grid-column: span 12; min-width: 0; }
 @media (min-width: 1024px) { .showcase__text { grid-column: span 5; } }
 .showcase__art { grid-column: span 12; min-width: 0; }
