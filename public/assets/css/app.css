@@ -436,10 +436,9 @@ table { border-collapse: collapse; }
 .section-title { font-size: 32px; line-height: 40px; font-weight: 700; letter-spacing: -0.02em; color: var(--wa-primary); }
 .section-sub { font-size: 16px; line-height: 24px; color: var(--wa-text-soft); }
 .section-head { margin-bottom: var(--wa-space-xl); }
-@media (min-width: 768px) {
-  .section-head--split { display: flex; flex-direction: row; align-items: flex-end; justify-content: space-between; gap: var(--wa-space-lg); }
-  .section-head--split .section-sub { max-width: 420px; margin-top: 0; }
-}
+/* P-FIX-LANDING-1 (2): khối tiêu đề "Giá trị cốt lõi" nay là MỘT khối căn trái
+   (kicker → heading → đoạn giới thiệu xếp dọc). Quy tắc chia hai cột cũ đã bị
+   bỏ vì làm đoạn giới thiệu lơ lửng bên phải, trông như lỗi bố cục. */
 
 /* --------------------------------------------------------------------------
    9. Cards & stats
@@ -743,17 +742,17 @@ table { border-collapse: collapse; }
 .step p { font-size: 14px; line-height: 22px; color: var(--wa-text-soft); margin-top: 4px; }
 .step__note { margin-top: var(--wa-space-md); padding: var(--wa-space-sm); border-radius: var(--wa-radius-sm); background: var(--wa-surface-low); font-size: 11px; line-height: 14px; color: var(--wa-text-muted); word-break: break-all; }
 
-/* P-FIX-UI (2b): khối "không gian đọc" phải là lưới HAI CỘT cân bằng như bản
-   tham chiếu (lg:col-span-5 cho cột chữ, lg:col-span-7 cho cột minh hoạ) —
-   không được chồng lấn, cột minh hoạ không được dồn về giữa làm lệch hàng. */
+/* P-FIX-LANDING-1 (3): khối "không gian đọc" nay là MỘT CỘT. Sơ đồ quy trình
+   (Trang Web → HTML tĩnh → MySQL → Đọc lại) đã bị gỡ khỏi trang giới thiệu vì
+   là nội dung hướng nhà phát triển, không phải lợi ích cho người dùng. Không
+   thay bằng sơ đồ khác — giữ nguyên nội dung cột chữ, chỉ dàn lại còn một cột
+   CĂN GIỮA với bề đọc vừa phải để không còn lỗ hổng trống bên phải. */
 .showcase { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: var(--wa-space-lg); align-items: center; }
-@media (min-width: 1024px) { .showcase { grid-template-columns: repeat(12, minmax(0, 1fr)); } }
-.showcase__text { grid-column: span 12; min-width: 0; }
-@media (min-width: 1024px) { .showcase__text { grid-column: span 5; } }
-.showcase__art { grid-column: span 12; min-width: 0; }
-@media (min-width: 1024px) { .showcase__art { grid-column: span 7; } }
-/* Ảnh minh hoạ phải giữ đúng tỉ lệ khung vẽ (640x360) và không bị bóp méo. */
-.showcase__art img { width: 100%; height: auto; display: block; }
+@media (min-width: 1024px) {
+  .showcase { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+  /* Một cột duy nhất, căn giữa, bề đọc ~820px — không còn vùng trống bên phải. */
+  .showcase__text { max-width: 820px; margin: 0 auto; }
+}
 .checklist { margin-top: var(--wa-space-lg); display: flex; flex-direction: column; gap: var(--wa-space-sm); }
 .checklist li { display: flex; align-items: flex-start; gap: var(--wa-space-sm); list-style: none; }
 .checklist .ms { color: var(--wa-teal); flex: 0 0 20px; margin-top: 2px; }

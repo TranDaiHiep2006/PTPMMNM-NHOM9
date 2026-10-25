@@ -842,6 +842,52 @@ metrics) nằm ở **`README.md` mục 6.1 — "Trạng thái dữ liệu cuối
 
 ---
 
+## 8k. P-FIX-LANDING-1 — vòng sửa giao diện trang chủ (lần 1)
+
+Ba lỗi bố cục trên **trang chủ khách** (`public/index.php`), đúng nguyên tắc thiết kế
+theo góc nhìn người dùng thường: trang giới thiệu **bán LỢI ÍCH** (lưu, đọc ngoại
+tuyến, không bị làm phiền), **không bán chi tiết kỹ thuật**.
+
+Không đụng engine / schema / dữ liệu, **không** chạy `scripts/setup_db.php`, không
+sửa trang khác, không đổi bất kỳ con số hay số liệu nào (đều là dữ liệu thật từ CSDL).
+
+**1 — Bỏ nhãn phiên bản khỏi hero.** Pill trên đầu hero từng hiện
+`Phiên bản v1.0.0 • Đọc ngoại tuyến an toàn & lưu trữ tĩnh HTML`. Nay chỉ giữ lại
+**tagline lợi ích** (`Đọc ngoại tuyến an toàn & lưu trữ tĩnh HTML`) kèm chấm tròn
+trạng thái; mốc số là thông tin dành cho nhà phát triển, không phải thứ bán cho
+người đọc.
+
+**2 — Tiêu đề "Giá trị cốt lõi" gộp thành một khối căn trái.** Trước đây tiêu đề
+dùng lớp `section-head--split` (flex 2 cột), khiến đoạn giới thiệu
+*"Không chỉ đánh dấu trang (bookmark)…"* nằm lơ lửng bên phải, trông như lỗi bố
+cục. Nay là **một khối xếp dọc**: kicker → heading → đoạn giới thiệu, tất cả căn trái.
+Đã gỡ luôn quy tắc CSS `.section-head--split` trong `public/assets/css/app.css`.
+Câu chữ đoạn giới thiệu **giữ nguyên**; ba thẻ tính năng bên dưới **không đổi**.
+
+**3 — Gỡ sơ đồ quy trình khỏi khối "Không gian tập trung".** Panel bên phải hiển thị
+luồng `Trang Web → HTML tĩnh → MySQL → Đọc lại` kèm ghi chú allowlist và dải chân
+là nội dung **hướng nhà phát triển** — không thuộc trang giới thiệu cho người dùng.
+Đã **xoá trọn panel** (không thay bằng sơ đồ khác) và **dàn lại thành MỘT cột**
+căn giữa, bề đọc ~820px để không còn lỗ hổng trống bên phải. Nội dung cột chữ giữ
+nguyên: heading, mô tả, hai mục checklist, liên kết *Trải nghiệm không gian đọc mẫu*.
+Tệp `public/assets/img/reader-diagram.svg` **vẫn giữ** vì seed trong CSDL vẫn tham
+chiếu tới nó ở trình đọc. Biến `$readingContrast` (tỉ lệ tương phản, chỉ dùng ở panel
+đã xoá) cũng được gỡ cho khỏi biến thừa.
+
+### Kiểm chứng
+
+- `php -l` trên mọi tệp đã sửa: `public/index.php`, `scripts/verify_landing_fix1.php`
+  → **không lỗi cú pháp**.
+- `php scripts/verify_landing_fix1.php http://127.0.0.1:8899/index.php` → **38/38 PASS**,
+  exit 0. Script **chỉ đọc** (GET qua HTTP), **không** ghi CSDL.
+- Trang chủ trả về **HTTP 200**; `login.php` và `register.php` cũng trả **200**.
+- Kiểm tra bằng mắt (ảnh chụp headless ở 1440px và 390px): hero không còn nhãn phiên
+  bản; tiêu đề "Giá trị cốt lõi" là khối dọc căn trái; khối "Không gian tập trung" là
+  một cột, không còn sơ đồ.
+- Hồi quy: `php scripts/run_tests.php` → **6/6 PASS**, exit 0 (không suy giảm).
+
+---
+
 ## 9. Hệ thống thiết kế
 
 Nguồn: `docs/design-reference/DESIGN.md` và 4 màn hình tham chiếu.

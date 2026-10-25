@@ -20,9 +20,8 @@ $pageTitle = 'WebArchive — Lưu tri thức hôm nay. Đọc lại bất cứ l
 // trên đĩa). Mọi con số hiển thị trong khối mock đều lấy từ đây.
 $showcase = wa_metrics_showcase_snapshot();
 
-// Tỉ lệ tương phản thật của bộ màu thiết kế: chữ #1C2937 trên nền giấy ngà
-// #FAF8F4 (biến --wa-text và --wa-ivory trong app.css).
-$readingContrast = wa_metrics_contrast_ratio('#1C2937', '#FAF8F4');
+// P-FIX-LANDING-1 (3): biến $readingContrast đã bị gỡ cùng panel sơ đồ quy
+// trình ở khối "Không gian tập trung" — không còn chỗ hiển thị nên không tính.
 
 // P-FIX-UI (6): tỉ lệ bản lưu thành công + số trang hỏng, đo trên toàn hệ
 // thống — thay cho "100% Tĩnh" và "0 liên kết lỗi" của bản mock.
@@ -54,13 +53,11 @@ require __DIR__ . '/../templates/header_guest.php';
 <!-- ===================== HERO ===================== -->
 <section class="hero">
   <div class="hero__inner">
+    <!-- P-FIX-LANDING-1 (1): gỡ nhãn mã số ra khỏi hero — người đọc không
+         cần biết mã số; pill chỉ giữ lại thông điệp lợi ích. -->
     <div class="hero__badge">
       <span class="dot dot--live"></span>
-      <!-- P-FIX-UI (6): bản phát hành thật của dự án là v1.0.0 (tag git v1.0.0),
-           không phải con số phiên bản bịa đặt trong bản mock. -->
-      <span>Phiên bản v1.0.0</span>
-      <span class="t-muted">•</span>
-      <span class="t-muted">Đọc ngoại tuyến an toàn &amp; lưu trữ tĩnh HTML</span>
+      <span>Đọc ngoại tuyến an toàn &amp; lưu trữ tĩnh HTML</span>
     </div>
 
     <h1 class="hero__title">
@@ -208,12 +205,13 @@ require __DIR__ . '/../templates/header_guest.php';
 
 <!-- ===================== 3 TÍNH NĂNG ===================== -->
 <section class="page page--plain" id="tinh-nang">
-  <div class="section-head section-head--split">
-    <div>
-      <span class="t-label-md t-upper t-accent">Giá trị cốt lõi</span>
-      <h2 class="section-title">Được thiết kế cho người nghiên cứu sâu</h2>
-    </div>
-    <p class="section-sub">
+  <!-- P-FIX-LANDING-1 (2): tiêu đề khối nay là MỘT khối căn trái duy nhất
+       (kicker → heading → đoạn giới thiệu xếp dọc). Trước đây đoạn giới thiệu
+       nằm lơ lửng bên phải, trông như lỗi bố cục. -->
+  <div class="section-head">
+    <span class="t-label-md t-upper t-accent">Giá trị cốt lõi</span>
+    <h2 class="section-title" style="margin-top:4px">Được thiết kế cho người nghiên cứu sâu</h2>
+    <p class="section-sub" style="margin-top:16px;max-width:640px">
       Không chỉ đánh dấu trang (bookmark). WebArchive lưu trữ nguyên vẹn văn bản và tệp hình ảnh
       vào hệ sinh thái của bạn.
     </p>
@@ -389,24 +387,6 @@ require __DIR__ . '/../templates/header_guest.php';
           <span>Trải nghiệm không gian đọc mẫu</span>
           <span class="ms ms-16">arrow_forward</span>
         </a>
-      </div>
-    </div>
-
-    <div class="showcase__art">
-      <div class="card" style="overflow:hidden;box-shadow:var(--wa-shadow-3)">
-        <img src="<?= wa_e(wa_asset('img/reader-diagram.svg')) ?>" alt="Minh hoạ kiến trúc lưu trữ nội dung Web tĩnh" style="width:100%;display:block">
-        <div class="row row--between" style="gap:12px;padding:16px;background:rgba(255,255,255,.95)">
-          <div class="row" style="gap:12px">
-            <span class="ms ms-24" style="color:var(--wa-primary)">auto_stories</span>
-            <div>
-              <div class="t-label-md" style="color:var(--wa-primary)">Chế độ đọc báo chí: Giấy ngà tự nhiên</div>
-              <!-- P-FIX-UI (6): "12:1" là con số bịa — thay bằng tỉ lệ tương
-                   phản WCAG thật của bộ màu thiết kế (chữ trên nền giấy ngà). -->
-              <div class="t-label-sm t-muted">Tỷ lệ tương phản <?= $readingContrast > 0 ? rtrim(rtrim(number_format($readingContrast, 1, ',', '.'), '0'), ',') : '—' ?>:1 • Không chói mắt</div>
-            </div>
-          </div>
-          <span class="chip">Bản quyền mở</span>
-        </div>
       </div>
     </div>
   </div>
