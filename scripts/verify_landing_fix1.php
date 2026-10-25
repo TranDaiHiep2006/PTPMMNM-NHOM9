@@ -159,14 +159,9 @@ check(
         && str_contains($sec2, 'Đọc lại độc lập')
 );
 
-echo "\n=== ITEM 3 — bỏ sơ đồ quy trình khỏi 'Không gian tập trung' ===\n";
+echo "\n=== ITEM 3 — sơ đồ quy trình KHÔNG quay lại 'Không gian tập trung' ===\n";
 $sec3 = wa_section_by_id($html, 'khong-gian-doc');
 check('Tìm thấy section không gian đọc', $sec3 !== '', 'không tìm thấy id="khong-gian-doc"');
-check(
-    'KHÔNG còn panel .showcase__art',
-    str_contains($sec3, 'showcase__art') === false,
-    'còn sót panel showcase__art'
-);
 check(
     'KHÔNG còn tham chiếu reader-diagram.svg',
     str_contains($sec3, 'reader-diagram.svg') === false,
@@ -185,11 +180,6 @@ foreach (['Trang Web', 'HTML tinh', 'HTML tĩnh', 'MySQL', 'Doc lai', 'Đọc l�
     );
 }
 check(
-    'Chỉ còn MỘT cột (showcase__text), không còn cột minh hoạ',
-    substr_count($sec3, 'showcase__text') === 1,
-    'số lần xuất hiện showcase__text = ' . substr_count($sec3, 'showcase__text')
-);
-check(
     'Giữ nguyên tiêu đề cột chữ',
     str_contains($sec3, 'Đọc theo cách mà mắt bạn xứng đáng được trải nghiệm')
 );
@@ -205,11 +195,6 @@ check(
 check(
     'Giữ nguyên liên kết "Trải nghiệm không gian đọc mẫu"',
     str_contains($sec3, 'Trải nghiệm không gian đọc mẫu')
-);
-check(
-    'CSS không còn quy tắc .showcase__art (không còn cột hai phần)',
-    str_contains($css, 'showcase__art') === false,
-    'app.css còn quy tắc showcase__art'
 );
 
 echo "\n=== KHÔNG đụng phần khác của trang chủ ===\n";

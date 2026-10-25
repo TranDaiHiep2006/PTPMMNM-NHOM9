@@ -888,6 +888,62 @@ chiếu tới nó ở trình đọc. Biến `$readingContrast` (tỉ lệ tươn
 
 ---
 
+## 8l. P-FIX-LANDING-2 — vòng sửa giao diện trang chủ (lần 2)
+
+Phạm vi **CHỈ khối "Không gian tập trung"** (`#khong-gian-doc`) trên trang chủ. Không
+đụng section khác, **không đổi bất kỳ câu chữ nào**, **không đổi con số nào**. Không
+đụng engine / schema / dữ liệu, **không** chạy `scripts/setup_db.php`.
+
+**Vấn đề.** Sau vòng 1, khối này bị dàn thành **một cột căn giữa**, lệch nhịp với
+hai khối ngay phía trên ("Giá trị cốt lõi", "Cách thức hoạt động trong 3 bước") đều
+căn trái cùng bề rộng.
+
+**1 — Căn trái + hai cột.** `.showcase` trở lại lưới **12 cột** (`public/assets/css/app.css`):
+cột chữ `span 5`, cột minh hoạ `span 7` từ 1024px trở lên; dưới 1024px xếp dọc một
+cột. Gỡ hẳn `max-width: 820px; margin: 0 auto` (thứ gây căn giữa) và `justify-items:
+center`. Kicker, tiêu đề, đoạn mô tả, hai mục checklist và liên kết *Trải nghiệm không
+gian đọc mẫu* nay **cùng xuất phát từ một mép trái** (x=32px ở 1440px — trùng mép trái
+của khối "Giá trị cốt lõi") và giữ **đúng nhịp** `margin-top:4px` / `16px` như các
+khối trên. Trong cả section **không còn** khai báo `text-align:center` nào.
+
+**2 — Minh hoạ TRẢI NGHIỆM ĐỌC ở cột phải.** Thay chỗ trống bằng thẻ
+`.readpreview` dựng từ **chính bộ điều khiển có thật** của `public/reader.php`:
+thanh tiến độ đọc (mảnh, màu teal), thanh trên có nút *A- / A+* và nút *Quay lại
+thư viện*, mẫu trang đọc nền giấy ngà `--wa-ivory` với phông chữ báo in
+`--wa-font-reader` (Merriweather), và chân thẻ có nhóm đổi nền đọc *Ấm áp / Trắng
+tinh / Ban đêm*. Không dùng ảnh ngoài, không sinh ảnh AI, không thêm tệp SVG mới.
+
+Tuyệt đối **không** có sơ đồ quy trình và **không** có thuật ngữ kỹ thuật trong
+minh hoạ: đã dò và xác nhận vắng mặt các từ *HTML, MySQL, snapshot, allowlist,
+pipeline, workflow, sơ đồ, kiến trúc, máy chủ, cơ sở dữ liệu, CSDL, lưu trữ, bản
+lưu, trích xuất*. Nguyên tắc của vòng 1 giữ nguyên: thiết kế từ góc nhìn người
+dùng thường.
+
+**3 — Copy giữ nguyên tuyệt đối.** `public/index.php` trong vòng này **chỉ thêm
+dòng, không xoá dòng nào** (`git diff` xác nhận 0 dòng bị xoá), nên toàn bộ câu chữ
+cũ của khối còn nguyên từng ký tự.
+
+### Kiểm chứng
+
+- `php -l` trên **mọi** tệp PHP trong repo → **ALL PHP FILES PASS php -l**.
+- `php scripts/verify_landing_fix2.php http://127.0.0.1:8899/index.php` → **55/55 PASS**,
+  exit 0. Script **chỉ đọc** (GET qua HTTP), **không** ghi CSDL.
+- `php scripts/verify_landing_fix1.php …` → **39/39 PASS**, exit 0 (vòng 1 không suy
+  giảm; hai kiểm tra "một cột / không còn `.showcase__art`" đã bị **thay** bằng tiêu
+  chí hai cột của vòng 2, còn mọi kiểm tra "không có sơ đồ quy trình" vẫn nguyên).
+- Trang chủ trả về **HTTP 200** qua `php -S 127.0.0.1:8899 -t public`.
+- Đo hình học bằng Chrome DevTools Protocol (1440px): cột chữ x=32, cột minh hoạ
+  x=615; **mọi** phần tử cột chữ (kicker, tiêu đề, đoạn, checklist, liên kết) đều
+  cùng x=32; **0** phần tử nào có `text-align:center`; mép trái của khối "Giá trị cốt
+  lõi" cũng là x=32 (khớp hoàn toàn).
+- Responsive 390 / 768 / 1024px: **không tràn ngang**, **0** phần tử căn giữa, các
+  phần tử cột chữ cùng một mép trái.
+- Kiểm tra bằng mắt (ảnh chụp headless 1440px): cột phải có thẻ minh hoạ trải
+  nghiệm đọc, **không** có sơ đồ quy trình.
+- Hồi quy: `php scripts/run_tests.php` → **6/6 PASS**, exit 0 (không suy giảm).
+
+---
+
 ## 9. Hệ thống thiết kế
 
 Nguồn: `docs/design-reference/DESIGN.md` và 4 màn hình tham chiếu.

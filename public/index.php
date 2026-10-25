@@ -389,6 +389,57 @@ require __DIR__ . '/../templates/header_guest.php';
         </a>
       </div>
     </div>
+
+    <!-- P-FIX-LANDING-2: minh hoạ TRẢI NGHIỆM ĐỌC ở cột phải — dựng lại từ
+         chính bộ điều khiển có thật của trình đọc (nền giấy ngà, thanh tiến độ
+         đọc, nút A- / A+, nút đổi nền đọc). TUYỆT ĐỐI không có sơ đồ quy trình
+         và không có thuật ngữ kỹ thuật: trang giới thiệu bán TRẢI NGHIỆM đọc,
+         không bán kiến trúc hệ thống. -->
+    <div class="showcase__art">
+      <figure class="readpreview" aria-label="Minh hoạ trải nghiệm đọc: nền giấy ngà, phông chữ báo in, thanh tiến độ đọc và nút đổi cỡ chữ.">
+        <!-- Thanh tiến độ đọc (giống thanh trên cùng của trình đọc thật). -->
+        <div class="readpreview__progress" aria-hidden="true"><i></i></div>
+
+        <div class="readpreview__bar">
+          <span class="readpreview__back">
+            <span class="ms ms-14" aria-hidden="true">arrow_back</span>
+            Quay lại thư viện
+          </span>
+          <!-- Nút A- / A+: đúng bộ điều khiển có thật trong reader.php. -->
+          <div class="readpreview__seggroup">
+            <span class="readpreview__seg">A-</span>
+            <span class="readpreview__sep" aria-hidden="true"></span>
+            <span class="readpreview__seg">A+</span>
+          </div>
+        </div>
+
+        <!-- Mẫu trang đọc: nền giấy ngà + phông chữ báo in. -->
+        <div class="readpreview__paper">
+          <h3 class="readpreview__title">Đọc chậm, đọc sâu</h3>
+          <p class="readpreview__text">
+            Một trang giấy ngà dịu mắt, cỡ chữ vừa phải và khoảng trắng thoải mái
+            giúp bạn đọc được những bài dài mà không mỏi mắt. Tiến độ đọc luôn
+            nằm trong tầm mắt để bạn biết mình đang ở đâu.
+          </p>
+          <div class="readpreview__row">
+            <span class="readpreview__track" aria-hidden="true"><i></i></span>
+            <span class="readpreview__rowlabel">Tiến độ đọc</span>
+          </div>
+        </div>
+
+        <!-- Nút đổi nền đọc: đúng bộ điều khiển có thật trong reader.php. -->
+        <div class="readpreview__foot">
+          <div class="readpreview__seggroup">
+            <span class="readpreview__seg is-active">Ấm áp</span>
+            <span class="readpreview__sep" aria-hidden="true"></span>
+            <span class="readpreview__seg">Trắng tinh</span>
+            <span class="readpreview__sep" aria-hidden="true"></span>
+            <span class="readpreview__seg">Ban đêm</span>
+          </div>
+          <span class="t-label-sm t-muted">Nền giấy ngà · Phông chữ báo in</span>
+        </div>
+      </figure>
+    </div>
   </div>
 </section>
 
