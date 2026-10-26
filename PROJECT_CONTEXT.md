@@ -995,6 +995,99 @@ mép trang.
 
 ---
 
+## 8n. P-FIX-LANDING-4 — vòng sửa giao diện trang chủ (lần 4): căn lề LAPTOP
+
+Phạm vi **CHỈ CSS** của trang chủ. **Không đổi câu chữ, không đổi số liệu, không đổi
+minh hoạ, không đổi markup (`public/index.php` bất biến), không đụng trang khác.**
+Không đụng engine / schema / dữ liệu, **không** chạy `scripts/setup_db.php`.
+
+> **Lưu ý phạm vi.** Vòng này sửa lỗi ở màn hình **LAPTOP/DESKTOP**. Không sửa gì ở
+> phone/mobile: nội dung sát mép trên màn hình nhỏ là **chấp nhận được, ngoài phạm vi**.
+
+**Vấn đề (ảnh chụp laptop của người dùng).** Ở các section "Giá trị cốt lõi",
+"Cách thức hoạt động trong 3 bước" và "Không gian tập trung", nội dung bám sát mép
+viewport (chỉ **32px**) và các section **không thẳng nhau**: hero bị giới hạn riêng
+`max-width: 1440px` nên lệch tới **48px** ở màn 1536px, còn khối "Không gian tập trung"
+lùi mép phải **32px** do `padding-right` của P-FIX-LANDING-3.
+
+**Cách sửa — MỘT container dùng chung, CHỈ trong `@media (min-width: 1024px)`.**
+
+- Thêm hai token trên `.landing`: `--wa-landing-max: var(--wa-max)` (= 1440px) và
+  `--wa-landing-gutter: 64px`.
+- Mọi section trang chủ (`.landing .page`, `.landing .hero`) dùng **chung**:
+  `max-width: var(--wa-landing-max)`, `margin: auto`, `padding-left/right:
+  var(--wa-landing-gutter)` ⇒ mọi section có **cùng mép trái và mép phải (lệch 0px)** và
+  luôn còn khoảng hở **64px mỗi bên** (ở 1536px là 112px do container 1440px).
+- Thanh trên và chân trang **của trang chủ** cùng nằm trên lưới đó. Thanh trên được giới
+  hạn bằng `body.landing:has(#khong-gian-doc)` để **đăng nhập / đăng ký / workspace giữ
+  nguyên 100%**.
+- Khối "Không gian tập trung": giữ nguyên `padding-right: 32px` của lưới (lề an toàn
+  bên trong) và **bù lại ở cột minh hoạ** bằng `margin-right: -32px` ⇒ mép phải thẻ
+  minh hoạ thẳng với mép phải container chung, còn hộp lưới vẫn nằm gọn trong container.
+- Toàn bộ khối nằm trong `@media (min-width: 1024px)` ⇒ **không một style phone/mobile
+  nào bị đổi**.
+
+### Đo trước / sau (Chrome headless, mép nội dung thực tế của từng section)
+
+| Rộng | Section | Trước: trái → phải | Sau: trái → phải | Lề trước | Lề sau |
+|------|---------|--------------------|------------------|-----------|--------|
+| 1280 | Hero | 200 → 1080 | **64 → 1216** | 200/200 | **64/64** |
+| 1280 | Giá trị cốt lõi | 32 → 1248 | **64 → 1216** | 32/32 | **64/64** |
+| 1280 | 3 bước | 32 → 1248 | **64 → 1216** | 32/32 | **64/64** |
+| 1280 | Không gian tập trung | 32 → 1216 | **64 → 1216** | 32/64 | **64/64** |
+| 1280 | CTA cuối | 32 → 1248 | **64 → 1216** | 32/32 | **64/64** |
+| 1366 | Hero | 243 → 1123 | **64 → 1302** | 243/243 | **64/64** |
+| 1366 | Giá trị cốt lõi | 32 → 1334 | **64 → 1302** | 32/32 | **64/64** |
+| 1366 | 3 bước | 32 → 1334 | **64 → 1302** | 32/32 | **64/64** |
+| 1366 | Không gian tập trung | 32 → 1302 | **64 → 1302** | 32/64 | **64/64** |
+| 1366 | CTA cuối | 32 → 1334 | **64 → 1302** | 32/32 | **64/64** |
+| 1440 | Hero | 280 → 1160 | **64 → 1376** | 280/280 | **64/64** |
+| 1440 | Giá trị cốt lõi | 32 → 1408 | **64 → 1376** | 32/32 | **64/64** |
+| 1440 | 3 bước | 32 → 1408 | **64 → 1376** | 32/32 | **64/64** |
+| 1440 | Không gian tập trung | 32 → 1376 | **64 → 1376** | 32/64 | **64/64** |
+| 1440 | CTA cuối | 32 → 1408 | **64 → 1376** | 32/32 | **64/64** |
+| 1536 | Hero | 328 → 1208 | **112 → 1424** | 328/328 | **112/112** |
+| 1536 | Giá trị cốt lõi | 32 → 1504 | **112 → 1424** | 32/32 | **112/112** |
+| 1536 | 3 bước | 32 → 1504 | **112 → 1424** | 32/32 | **112/112** |
+| 1536 | Không gian tập trung | 32 → 1472 | **112 → 1424** | 32/64 | **112/112** |
+| 1536 | CTA cuối | 32 → 1504 | **112 → 1424** | 32/32 | **112/112** |
+
+**Lệch mép giữa các section: trước 168px (1280) / 211px (1366) / 248px (1440) /
+296px (1536) → sau 0px ở cả bốn rộng.** Không section nào chạm mép viewport; khoảng
+hở hai bên luôn bằng nhau.
+
+### Kiểm chứng
+
+- `php -l` trên mọi tệp PHP đã sửa → **không lỗi cú pháp**.
+- `php scripts/verify_landing_fix4.php http://127.0.0.1:8899/index.php` → **38/38 PASS**,
+  exit 0. Script **chỉ đọc** (GET qua HTTP + đọc CSS tĩnh + `git show HEAD`), **không**
+  ghi CSDL. Script tự đối chiếu: `public/index.php` **bất biến** so với HEAD, các khối
+  `@media (max-width: 639px)` và `(max-width: 1023px)` **bất biến** so với HEAD, và rule
+  `.page` dùng chung cho workspace **bất biến** so với HEAD.
+- `php scripts/verify_landing_fix3.php …` → **48/48 PASS**; `verify_landing_fix2.php …` →
+  **55/55 PASS**; `verify_landing_fix1.php …` → **39/39 PASS** (ba vòng trước không suy giảm).
+- Trang chủ trả về **HTTP 200** qua `php -S 127.0.0.1:8899 -t public`.
+- Đo hình học bằng Chrome headless (CDP, `--hide-scrollbars`) ở 1280/1366/1440/1536px:
+  **lệch mép 0.00px** ở cả bốn rộng (riêng 1366px lệch mép phải 0.02px do làm tròn
+  subpixel), khoảng hở hai bên **bằng nhau**, **không tràn ngang**
+  (`scrollWidth == clientWidth`).
+- **Thanh trên + chân trang** trang chủ cũng nằm đúng lưới: mép nội dung `64 → 1216`
+  (1280px), `112 → 1424` (1536px) — khớp mép nội dung của mọi section.
+- **Mobile không đổi (đối chiếu tĩnh):** các khối `@media (max-width: 639px)` và
+  `(max-width: 1023px)` **bất biến** so với HEAD; trong `@media (min-width: 1024px)`
+  **không khối cũ nào bị sửa/mất** (13 → 15 khối, chỉ **thêm** 2 khối mới); các rule
+  top-level `.page`, `.hero__inner`, `.topbar__inner`, `.landing-foot__inner` **bất biến**.
+  Token `--wa-landing-gutter` / `--wa-landing-max` chỉ xuất hiện **trong** khối desktop.
+- **Trang khác không đổi:** `login.php` và `register.php` đối chiếu **từng phần tử**
+  (box, padding, max-width, display) ở 1280px và 1440px → **0 khác biệt**; `public/index.php`
+  là file duy nhất dùng `.landing .page`.
+- **Nội dung desktop không đổi:** `.hero__badge` / `.hero__title` / `.hero__lead` /
+  `.hero__micro` / cả hai nút hero giữ nguyên toạ độ **0.00px** (đo cả phần tử con);
+  hash `innerText` của trang **không đổi** (sha256 `ed41e901778e41d5…`, 4774 ký tự).
+- Hồi quy: `php scripts/run_tests.php` → **6/6 PASS**, exit 0 (không suy giảm).
+
+---
+
 ## 9. Hệ thống thiết kế
 
 Nguồn: `docs/design-reference/DESIGN.md` và 4 màn hình tham chiếu.

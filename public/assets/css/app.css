@@ -620,7 +620,59 @@ table { border-collapse: collapse; }
 /* --------------------------------------------------------------------------
    14. Landing page
    -------------------------------------------------------------------------- */
-.landing { background: var(--wa-canvas); }
+.landing {
+  background: var(--wa-canvas);
+  /* P-FIX-LANDING-4 (vòng 4): CONTAINER DÙNG CHUNG cho MỌI section trang chủ.
+     Một max-width + một padding đối xứng ⇒ mọi section có cùng mép trái và
+     mép phải (lệch 0px) và luôn còn khoảng hở thoáng so với mép viewport. */
+  --wa-landing-max: var(--wa-max);
+  --wa-landing-gutter: 64px;   /* khoảng hở mỗi bên, chỉ dùng từ 1024px trở lên */
+}
+/* --------------------------------------------------------------------------
+   P-FIX-LANDING-4 (vòng 4): LƯỚI CONTAINER DÙNG CHUNG CHO TRANG CHỦ
+   --------------------------------------------------------------------------
+   Vấn đề (ảnh chụp màn hình LAPTOP): các section "Giá trị cốt lõi",
+   "Cách thức hoạt động trong 3 bước" và "Không gian tập trung" dùng lề
+   32px nên bám sát mép viewport; hero lại bị giới hạn 1440px riêng lẻ nên
+   mép không thẳng với các section còn lại (lệch 48px ở màn 1536px).
+
+   Cách sửa — CHỈ CSS, KHÔNG đụng phone/mobile:
+   - Mọi section trang chủ dùng CHUNG một container: max-width 1440px, canh
+     giữa, padding đối xứng 64px mỗi bên ⇒ mọi section có cùng mép trái và
+     mép phải (lệch 0px), luôn còn khoảng hở thoáng ở CẢ HAI bên.
+   - Thanh trên + chân trang của trang chủ cùng nằm trên lưới này.
+   - Toàn bộ khối nằm trong @media (min-width: 1024px) ⇒ KHÔNG thay đổi bất
+     kỳ style nào ở phone/mobile (nội dung sát mép trên màn hình nhỏ vẫn
+     giữ nguyên như trước).
+   -------------------------------------------------------------------------- */
+@media (min-width: 1024px) {
+  .landing .page,
+  .landing .hero {
+    max-width: var(--wa-landing-max);
+    margin-left: auto;
+    margin-right: auto;
+    padding-left: var(--wa-landing-gutter);
+    padding-right: var(--wa-landing-gutter);
+  }
+  /* Hero giữ nguyên nội dung CĂN GIỮA: khối chữ .hero__inner mở rộng hết bề
+     rộng container (nội dung con vẫn căn giữa, mọi kích thước chữ/lead/CTA
+     giữ nguyên nên HÌNH DÁNG hero không đổi), nhờ đó mép nội dung của hero
+     cũng thẳng với các section còn lại. */
+  .landing .hero__inner { max-width: none; width: 100%; }
+  /* Chân trang trang chủ nằm cùng lưới container. */
+  .landing .landing-foot__inner {
+    max-width: var(--wa-landing-max);
+    padding-left: var(--wa-landing-gutter);
+    padding-right: var(--wa-landing-gutter);
+  }
+  /* Thanh trên của TRANG CHỦ nằm cùng lưới container. Dùng :has() để chỉ áp
+     dụng cho trang chủ — các trang khác (đăng nhập/đăng ký/workspace) giữ
+     nguyên hoàn toàn. */
+  body.landing:has(#khong-gian-doc) .topbar__inner {
+    padding-left: var(--wa-landing-gutter);
+    padding-right: var(--wa-landing-gutter);
+  }
+}
 .hero {
   position: relative; overflow: hidden;
   max-width: var(--wa-max); margin: 0 auto;
@@ -761,6 +813,16 @@ table { border-collapse: collapse; }
       và khối "Cách thức hoạt động trong 3 bước". Mép phải lùi vào trong
       lưới 32px (padding-right) nên KHÔNG vượt quá mép phải của các khối phía
       trên, đồng thời bóng đổ của thẻ minh hoạ không còn dính sát mép trang. */
+/* P-FIX-LANDING-4 (vòng 4): khối "Không gian tập trung" nay dùng CHUNG
+   container với các section khác (xem khối @media ở trên). Lề trong 32px
+   do P-FIX-LANDING-3 đặt vào đây làm mép phải của thẻ minh hoạ lệch 32px so
+   với mép phải của "Giá trị cốt lõi" / "3 bước" / CTA. Nay GIỮ NGUYÊN lề
+   trong 32px của lưới (lề an toàn bên trong lưới, vẫn thỏa P-FIX-LANDING-3)
+   và BÙ LẠI ở CỘT MINH HOẠ bằng margin-right âm ⇒ mép phải thẻ minh hoạ
+   thẳng với mép phải container chung (lệch 0px), còn HỘP LƯỚI vẫn nằm gọn
+   trong container (không tràn ra ngoài).
+   Khe hở cột clamp(40px, 4.5vw, 64px) và tỉ lệ span 5 / span 7 giữ nguyên
+   ⇒ bề rộng hai cột và tỉ lệ hình học của desktop KHÔNG đổi. */
 .showcase { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: var(--wa-space-lg); align-items: start; }
 @media (min-width: 1024px) {
   .showcase {
@@ -773,6 +835,9 @@ table { border-collapse: collapse; }
 @media (min-width: 1024px) { .showcase__text { grid-column: span 5; } }
 .showcase__art { grid-column: span 12; min-width: 0; }
 @media (min-width: 1024px) { .showcase__art { grid-column: span 7; } }
+/* P-FIX-LANDING-4: bù lề trong 32px của lưới để mép phải thẻ minh hoạ thẳng
+   với mép phải container chung (không lệch 32px so với các section khác). */
+@media (min-width: 1024px) { .showcase__art { margin-right: -32px; } }
 
 /* --------------------------------------------------------------------------
    Minh hoạ trải nghiệm đọc (P-FIX-LANDING-2)
