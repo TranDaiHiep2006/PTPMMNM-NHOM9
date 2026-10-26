@@ -612,11 +612,16 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
     if (box) { box.classList.remove('is-open'); }
   }
 
-  // ---- Nút tải lại: cảnh báo ngắn rồi gửi đi ----
+  // ---- Nút tải lại: khoá nút khi form ĐÃ bắt đầu gửi đi ----
+  // KHÔNG khoá nút trong sự kiện click: trình duyệt thấy nút submit
+  // bị disabled trước lúc gửi thì huỷ luôn việc gửi form (nút kẹt ở
+  // "Đang tải lại…" mà server không nhận được POST nào). Khoá trong
+  // sự kiện submit thì việc gửi đã bắt đầu nên không bị huỷ, vẫn
+  // chống được bấm đúp.
   (function () {
     var btn = document.querySelector('[data-wa-refetch]');
-    if (!btn) { return; }
-    btn.addEventListener('click', function () {
+    if (!btn || !btn.form) { return; }
+    btn.form.addEventListener('submit', function () {
       btn.setAttribute('disabled', 'disabled');
       var label = btn.querySelector('span:last-child');
       if (label) { label.textContent = 'Đang tải lại…'; }

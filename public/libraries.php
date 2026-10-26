@@ -5,7 +5,7 @@
  * Bám theo bản tham chiếu (code1.html): sidebar, dải số liệu, tab lọc,
  * lưới thẻ thư viện có badge vai trò, thẻ nhận diện, số đếm và nút "Mở thư viện".
  *
- * P-LIB: nút "+ Tạo thư viện mới" đã là BIỂU MẪU THẬT — POST sang
+ * P-LIB: nút "Tạo thư viện mới" đã là BIỂU MẪU THẬT — POST sang
  * library_action.php (CSRF + prepared statement), sinh slug bỏ dấu từ tên có hậu
  * tố -2/-3 nếu trùng, tạo dòng chủ sở hữu trong library_members, rồi chuyển
  * thẳng tới trang chi tiết thư viện vừa tạo.
@@ -112,7 +112,7 @@ require __DIR__ . '/../templates/header_app.php';
     <div class="row" style="flex-shrink:0">
       <button class="btn btn--dark" type="button" data-modal-open="modal-create">
         <span class="ms ms-18">add</span>
-        <span>+ Tạo thư viện mới</span>
+        <span>Tạo thư viện mới</span>
       </button>
     </div>
   </div>
@@ -276,7 +276,7 @@ require __DIR__ . '/../templates/header_app.php';
     <span class="ms ms-32">folder_off</span>
     <h3><?= $libraries === [] ? 'Bạn chưa có thư viện nào' : 'Không có thư viện nào khớp bộ lọc' ?></h3>
     <p><?= $libraries === []
-        ? 'Bấm “+ Tạo thư viện mới” để tạo thư viện đầu tiên của bạn.'
+        ? 'Bấm “Tạo thư viện mới” để tạo thư viện đầu tiên của bạn.'
         : 'Hãy chuyển sang tab khác, xoá từ khoá tìm kiếm, hoặc tạo một thư viện mới.' ?></p>
   </div>
 <?php endif; ?>

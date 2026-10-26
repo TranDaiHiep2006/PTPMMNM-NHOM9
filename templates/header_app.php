@@ -171,7 +171,12 @@ $navAdmin = [
       </nav>
     <?php endif; ?>
 
-    <div class="sidebar__label">Công cụ bảo tồn</div>
+  </div>
+
+  <!-- Khối snapshot ở ĐÁY sidebar, không còn nhãn "Công cụ bảo tồn".
+       .sidebar là flex column với justify-content: space-between nên
+       nhóm thứ hai này tự dính xuống đáy. -->
+  <div class="sidebar__group">
     <div class="stack--sm">
       <a class="btn btn--outline btn--block" href="<?= wa_e(wa_url('save.php')) ?>">
         <span class="ms ms-18">add_link</span>
@@ -208,3 +213,4 @@ $navAdmin = [
 
 <div class="app-shell">
 <main class="page">
+  

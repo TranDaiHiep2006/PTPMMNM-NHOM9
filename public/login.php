@@ -139,7 +139,7 @@ require __DIR__ . '/../templates/header_guest.php';
       </div>
 
       <div class="auth__demo">
-        <b>Tài khoản demo (giai đoạn giao diện):</b>
+        <b>Tài khoản demo:</b>
         <div style="margin-top:6px">Người dùng: <code>user@demo.vn</code> / <code>demo123</code></div>
         <div>Quản trị viên: <code>admin@demo.vn</code> / <code>admin123</code></div>
       </div>

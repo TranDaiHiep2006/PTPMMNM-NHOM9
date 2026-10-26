@@ -325,6 +325,7 @@ require __DIR__ . '/../templates/header_app.php';
   </div>
 
   <form class="capture__form" method="post" action="<?= wa_e(wa_url('save.php')) ?>">
+    <?= wa_csrf_field() ?>
     <!-- Thư viện đích chính là thư viện hiện tại nên chỉ cần gửi id. -->
     <input type="hidden" name="library_id" value="<?= (int) $library['id'] ?>">
     <div class="capture__input">

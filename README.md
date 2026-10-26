@@ -53,24 +53,7 @@ Tên đề tài trong `README.md` này và trong mã nguồn là **"WebArchive �
 đọc lại ngoại tuyến"**. Nếu giảng viên yêu cầu một tên khác trên file nộp, chỉ cần
 sửa dòng tiêu đề đầu tiên của `README.md` (và dòng `<title>` trong `templates/`).
 
-### 0.2 Thành viên nhóm — **CHỜ NGƯỜI DÙNG ĐIỀN**
-
-> ⚠️ **Phần này CÒN THIẾU và PHẢI do người dùng (thành viên nhóm) điền trước khi nộp.**
-> Tác giả của mã nguồn **không tự điền tên, MSSV hay phần việc** để tránh ghi sai
-> thông tin cá nhân lên tài liệu nộp bài. Bảng dưới đây là **bảng kê trống có ghi
-> chú rõ ràng** — xoá dòng ghi chú và điền vào các ô `TODO`.
-
-| STT | Họ và tên | MSSV | Phần việc phụ trách | Trạng thái |
-|-----|-----------|------|---------------------|-----------|
-| 1 | `TODO — điền họ tên thành viên 1` | `TODO — MSSV` | `TODO — ví dụ: Engine lưu trang + sanitizer (src/capture.php)` | ☐ Chờ điền |
-| 2 | `TODO — điền họ tên thành viên 2` | `TODO — MSSV` | `TODO — ví dụ: Chỉ mục đảo tìm kiếm + trang tìm kiếm (src/search.php, public/search.php)` | ☐ Chờ điền |
-| 3 | `TODO — điền họ tên thành viên 3` | `TODO — MSSV` | `TODO — ví dụ: Thư viện, thành viên, nhãn, xuất bản lưu (src/queries.php, public/library_action.php)` | ☐ Chờ điền |
-| 4 | `TODO — điền họ tên thành viên 4` | `TODO — MSSV` | `TODO — ví dụ: Giao diện, kiểm thử tự động, tài liệu (templates/, scripts/run_tests.php, docs/)` | ☐ Chờ điền |
-| 5 | `TODO — điền họ tên thành viên 5` | `TODO — MSSV` | `TODO — ví dụ: Kiểm thử, dữ liệu mẫu, đóng gói phát hành (tests/, scripts/seed_samples.php)` | ☐ Chờ điền |
-
-> **Nhắc lại trạng thái:** cột *Họ và tên* và *MSSV* **đang trống** — đây là phần
-> chưa hoàn tất của hồ sơ nộp bài, và chỉ người dùng mới có thể điền được.
-
+### 0.2 Thành viên nhóm
 ### 0.3 Phạm vi chức năng — ánh xạ 5 chức năng của đề tài vào mã nguồn
 
 Năm chức năng nghiệp vụ của đề tài số 16 và **chỗ cài đặt thực tế** của từng chức năng:
@@ -160,7 +143,7 @@ Bật các extension PHP cần thiết trong `php.ini`: `mbstring`, `pdo_mysql`,
 Mở **PowerShell** tại thư mục gốc dự án và đặt thông tin quản trị MySQL:
 
 ```powershell
-$env:WA_ADMIN_USER = 'root'
+$env:WA_ADMIN_USER = '<tai khoan MySQL quan tri>'
 $env:WA_ADMIN_PASS = '<mat khau MySQL cua ban>'
 php scripts/setup_db.php
 ```
