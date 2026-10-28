@@ -328,6 +328,17 @@ function wa_search_snapshots(array $filters, ?array $actor = null): array
         $bind[':domain_filter'] = $domain;
     }
 
+    $librarySlug = trim((string) ($filters['library'] ?? ''));
+    if ($librarySlug !== '') {
+        // Chỉ tìm trong thư viện này (slug phải thuộc về thư viện mà người
+        // dùng được xem; slug lạ hoặc không có quyền thì bỏ qua lọc này).
+        $scopeLibrary = wa_find_library($librarySlug, $actor);
+        if ($scopeLibrary !== null) {
+            $where[] = 'sp.library_id = :library_filter';
+            $bind[':library_filter'] = (int) $scopeLibrary['id'];
+        }
+    }
+
     // XẾP HẠNG — công thức đúng đặc tả:
     //     score = 3 × SUM(count_title) + SUM(count_body)
     // JOIN chỉ nối đúng các dòng chỉ mục thuộc tập từ truy vấn, nên SUM ở đây

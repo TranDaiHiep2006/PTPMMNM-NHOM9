@@ -529,6 +529,12 @@
   /* Tab-panel trong thư viện: panel nào không active thì JS ẩn bằng [hidden];
      ô lọc + nút chuyển chỉ thuộc về tab bài viết nên cũng ẩn theo. */
   .tab-panel[hidden], .toolbar__right[hidden] { display: none; }
+  /* Vai trò trong bảng thành viên: bấm vào vai trò hiện tại thì hiện các lựa
+     chọn ngay dưới nó (mở rộng trong ô, không dùng menu nổi để khỏi bị cắt
+     trong bảng cuộn). JS ẩn các lựa chọn lúc tải trang. */
+  .role-picker { display: inline-block; }
+  .role-picker__options { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+  .role-picker__options[hidden] { display: none; }
   
   .toolbar {
     display: flex; flex-direction: column; gap: var(--wa-space-md);

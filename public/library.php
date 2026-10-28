@@ -504,7 +504,7 @@ require __DIR__ . '/../templates/header_app.php';
             <?php else: ?>
               <?php foreach ($article['tags_display'] as $tag): ?>
                 <a class="tag tag--btn"
-                   href="<?= wa_e(wa_url('search.php?tag=' . urlencode($tag))) ?>"><?= wa_e($tag) ?></a>
+                   href="<?= wa_e(wa_url('search.php?tag=' . urlencode($tag) . '&library=' . urlencode($library['slug']))) ?>"><?= wa_e($tag) ?></a>
               <?php endforeach; ?>
               <?php if ($article['tag_count'] === 0): ?>
                 <span class="t-label-sm t-muted">chưa có nhãn</span>
@@ -625,12 +625,12 @@ require __DIR__ . '/../templates/header_app.php';
     <div class="row" style="gap:6px">
       <?php foreach ($library['tags'] as $tagIndex => $tag): ?>
         <a class="tag <?= $tagIndex === 0 ? 'tag--active' : 'tag--btn' ?>"
-           href="<?= wa_e(wa_url('search.php?tag=' . urlencode($tag))) ?>"
-           title="Mở Tìm kiếm lọc theo nhãn <?= wa_e($tag) ?>"><?= wa_e($tag) ?></a>
+           href="<?= wa_e(wa_url('search.php?tag=' . urlencode($tag) . '&library=' . urlencode($library['slug']))) ?>"
+           title="Mở Tìm kiếm lọc theo nhãn <?= wa_e($tag) ?> trong thư viện này"><?= wa_e($tag) ?></a>
       <?php endforeach; ?>
     </div>
     <p class="t-label-sm t-muted" style="margin-top:12px">
-      Bấm vào một nhãn để mở <a href="<?= wa_e(wa_url('search.php')) ?>">Tìm kiếm</a> đã lọc theo nhãn đó.
+      Bấm vào một nhãn để mở <a href="<?= wa_e(wa_url('search.php')) ?>">Tìm kiếm</a> đã lọc theo nhãn đó trong thư viện này.
       Sửa nhãn của từng bài viết tại ô <b>Nhãn</b> trên mỗi thẻ bài viết bên dưới.
     </p>
   </div>
@@ -664,6 +664,7 @@ require __DIR__ . '/../templates/header_app.php';
           </tr>
         </thead>
         <tbody>
+          <?php $roleLabels = wa_member_role_labels(); ?>
           <?php foreach ($members as $member): ?>
             <tr>
               <td>
@@ -682,22 +683,38 @@ require __DIR__ . '/../templates/header_app.php';
               <td class="t-muted"><?= wa_e($member['email']) ?></td>
               <td>
                 <?php if ($canManage && (string) $member['role'] !== 'owner'): ?>
-                  <!-- Đổi vai trò: chỉ chuyển qua lại giữa biên tập viên / người xem.
-                       Dòng chủ sở hữu KHÔNG có nút này (và SQL cũng chặn). -->
-                  <form method="post" action="<?= wa_e(wa_url('library_action.php')) ?>" style="display:inline">
-                    <?= wa_csrf_field() ?>
-                    <input type="hidden" name="action" value="member_role">
-                    <input type="hidden" name="library_id" value="<?= $libraryId ?>">
-                    <input type="hidden" name="user_id" value="<?= (int) $member['id'] ?>">
-                    <input type="hidden" name="role"
-                           value="<?= (string) $member['role'] === 'editor' ? 'viewer' : 'editor' ?>">
-                    <button class="btn btn--outline btn--sm" type="submit"
-                            title="Đổi vai trò của thành viên này">
+                  <!-- Đổi vai trò: bấm vào vai trò hiện tại để hiện các lựa chọn,
+                       bấm vào một vai trò mới mới gửi đổi (không còn chuyển ngay
+                       khi bấm như nút chuyển đổi trước đây). Dòng chủ sở hữu
+                       KHÔNG có nút này (và SQL cũng chặn). -->
+                  <div class="role-picker">
+                    <button class="btn btn--outline btn--sm role-picker__current" type="button"
+                            title="Bấm để chọn vai trò khác cho thành viên này"
+                            aria-haspopup="true" aria-expanded="false">
                       <span class="member-pill__role member-pill__role--<?= wa_e($member['role']) ?>">
                         <?= wa_e($member['role_label']) ?>
                       </span>
                     </button>
-                  </form>
+                    <div class="role-picker__options">
+                      <?php foreach (['editor', 'viewer'] as $roleOption): ?>
+                        <?php if ((string) $member['role'] === $roleOption): ?>
+                          <span class="t-label-sm t-muted" title="Vai trò hiện tại">✓ <?= wa_e($roleLabels[$roleOption]) ?></span>
+                        <?php else: ?>
+                          <form method="post" action="<?= wa_e(wa_url('library_action.php')) ?>" style="display:inline">
+                            <?= wa_csrf_field() ?>
+                            <input type="hidden" name="action" value="member_role">
+                            <input type="hidden" name="library_id" value="<?= $libraryId ?>">
+                            <input type="hidden" name="user_id" value="<?= (int) $member['id'] ?>">
+                            <input type="hidden" name="role" value="<?= wa_e($roleOption) ?>">
+                            <button class="btn btn--outline btn--sm" type="submit"
+                                    title="Chuyển thành viên này thành <?= wa_e($roleLabels[$roleOption]) ?>">
+                              <?= wa_e($roleLabels[$roleOption]) ?>
+                            </button>
+                          </form>
+                        <?php endif; ?>
+                      <?php endforeach; ?>
+                    </div>
+                  </div>
                 <?php else: ?>
                   <span class="member-pill__role member-pill__role--<?= wa_e($member['role']) ?>">
                     <?= wa_e($member['role_label']) ?>
@@ -1193,6 +1210,43 @@ require __DIR__ . '/../templates/header_app.php';
         var orig = document.getElementById('article-actions-original');
         if (orig) { orig.setAttribute('href', d.url || '#'); }
       });
+    });
+  })();
+</script>
+
+<script>
+  /* Vai trò trong bảng thành viên: bấm vào vai trò hiện tại thì hiện các lựa
+     chọn, bấm vào một vai trò mới gửi đổi ngay (form POST như cũ). Không có
+     JS thì các lựa chọn hiện sẵn nên vẫn đổi được; bấm ra ngoài hoặc Esc để
+     đóng lại. */
+  (function () {
+    var pickers = document.querySelectorAll('.role-picker');
+    if (pickers.length === 0) { return; }
+    function closeAll(except) {
+      pickers.forEach(function (picker) {
+        if (picker === except) { return; }
+        var opts = picker.querySelector('.role-picker__options');
+        var btn = picker.querySelector('.role-picker__current');
+        if (opts) { opts.hidden = true; }
+        if (btn) { btn.setAttribute('aria-expanded', 'false'); }
+      });
+    }
+    pickers.forEach(function (picker) {
+      var btn = picker.querySelector('.role-picker__current');
+      var opts = picker.querySelector('.role-picker__options');
+      if (!btn || !opts) { return; }
+      opts.hidden = true;
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var willOpen = opts.hidden;
+        closeAll(picker);
+        opts.hidden = !willOpen;
+        btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+      });
+    });
+    document.addEventListener('click', function () { closeAll(null); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { closeAll(null); }
     });
   })();
 </script>

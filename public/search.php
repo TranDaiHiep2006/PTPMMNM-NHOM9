@@ -15,6 +15,7 @@
  *   q       — từ khoá (nhiều từ = ngữ nghĩa AND)
  *   tag     — lọc theo nhãn
  *   domain  — lọc theo tên miền nguồn
+ *   library — slug thư viện, chỉ tìm trong thư viện đó
  */
 
 declare(strict_types=1);
@@ -33,17 +34,33 @@ if ($tagFilter !== '' && !str_starts_with($tagFilter, '#')) {
 }
 $domainFilter = trim((string) ($_GET['domain'] ?? ''));
 
+// Lọc theo thư viện (khi bấm nhãn trong một thư viện): slug phải thuộc về
+// thư viện mà người dùng được xem, nếu không thì bỏ qua lọc này (tìm toàn bộ).
+$librarySlug = trim((string) ($_GET['library'] ?? ''));
+$scopeLibrary = $librarySlug !== '' ? wa_find_library($librarySlug) : null;
+
+// Link "Bỏ lọc thư viện": giữ nguyên từ khoá + các lọc khác, chỉ bỏ library.
+$unscopedParams = [];
+if ($query !== '') { $unscopedParams['q'] = $query; }
+if ($tagFilter !== '') { $unscopedParams['tag'] = $tagFilter; }
+if ($domainFilter !== '') { $unscopedParams['domain'] = $domainFilter; }
+$unscopedUrl = wa_url('search.php' . ($unscopedParams !== [] ? '?' . http_build_query($unscopedParams) : ''));
+
 // Truy vấn CHỈ trên chỉ mục đảo. Từ khoá rỗng (hoặc chỉ gõ dấu câu) thì hàm
 // trả về rỗng và trang hiện đúng gợi ý tiếng Việt bên dưới.
 $results = wa_search_snapshots([
-    'q'      => $query,
-    'tag'    => $tagFilter,
-    'domain' => $domainFilter,
+    'q'       => $query,
+    'tag'     => $tagFilter,
+    'domain'  => $domainFilter,
+    'library' => $librarySlug,
 ]);
 
-// Danh sách tên miền có trong kho (để lọc) + toàn bộ thẻ đang có.
+// Danh sách tên miền có trong kho (để lọc) + thẻ đang có. Khi đã lọc theo
+// thư viện thì hộp chọn nhãn chỉ liệt kê nhãn của thư viện đó.
 $domains = wa_snapshot_domains();
-$allTags = wa_all_tags();
+$allTags = $scopeLibrary !== null
+    ? wa_library_tags((int) $scopeLibrary['id'])
+    : wa_all_tags();
 
 // Điều kiện "đã thực sự tìm" để quyết định hiện thông báo kết quả hay gợi ý.
 $hasQuery = wa_search_query_terms($query) !== [];
@@ -107,6 +124,10 @@ require __DIR__ . '/../templates/header_app.php';
     </select>
   </div>
 
+  <?php if ($scopeLibrary !== null): ?>
+    <input type="hidden" name="library" value="<?= wa_e($scopeLibrary['slug']) ?>">
+  <?php endif; ?>
+
   <button class="btn btn--primary" type="submit">
     <span class="ms ms-18">search</span>
     <span>Tìm kiếm</span>
@@ -116,6 +137,14 @@ require __DIR__ . '/../templates/header_app.php';
     <a class="btn btn--ghost" href="<?= wa_e(wa_url('search.php')) ?>">Xoá bộ lọc</a>
   <?php endif; ?>
 </form>
+
+<?php if ($scopeLibrary !== null): ?>
+  <p class="t-body-md t-muted" style="margin-top:16px">
+    Đang tìm trong thư viện <strong class="t-primary"><?= wa_e($scopeLibrary['name']) ?></strong>.
+    <a href="<?= wa_e($unscopedUrl) ?>">Bỏ lọc thư viện</a> để tìm trong tất cả thư viện
+    · <a href="<?= wa_e(wa_url('library.php?slug=' . urlencode($scopeLibrary['slug']))) ?>">Về thư viện</a>
+  </p>
+<?php endif; ?>
 
 <?php if (!$hasQuery): ?>
   <div class="note-box">
