@@ -413,6 +413,21 @@ function wa_libraries(?array $actor = null): array
     }
     unset($starRow);
 
+    // Thư viện đã gắn sao lên đầu danh sách, giữ nguyên thứ tự cũ trong
+    // từng nhóm (chia đôi rồi ghép lại nên thứ tự cũ không bị xáo).
+    // Sidebar (header_app.php) dùng chung wa_libraries() nên cũng theo
+    // thứ tự này, đúng như chú thích "cùng thứ tự với trang libraries.php".
+    $starredFirst = [];
+    $rest = [];
+    foreach ($rows as $row) {
+        if (!empty($row['starred'])) {
+            $starredFirst[] = $row;
+        } else {
+            $rest[] = $row;
+        }
+    }
+    $rows = array_merge($starredFirst, $rest);
+
     return $rows;
 }
 

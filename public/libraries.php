@@ -160,9 +160,9 @@ require __DIR__ . '/../templates/header_app.php';
 <div class="toolbar">
   <div class="tabs" role="tablist" aria-label="Lọc thư viện">
     <button type="button" class="<?= $filter === 'all' ? 'is-active' : '' ?>" data-filter-link="all">Tất cả (<?= $stats['library_count'] ?>)</button>
-    <button type="button" class="<?= $filter === 'personal' ? 'is-active' : '' ?>" data-filter-link="personal">Thư viện cá nhân (<?= $stats['personal_libraries'] ?>)</button>
+    <button type="button" class="<?= $filter === 'personal' ? 'is-active' : '' ?>" data-filter-link="personal">Cá nhân (<?= $stats['personal_libraries'] ?>)</button>
     <button type="button" class="<?= $filter === 'shared' ? 'is-active' : '' ?>" data-filter-link="shared">Được chia sẻ (<?= $stats['shared_libraries'] ?>)</button>
-    <button type="button" class="<?= $filter === 'mine_shared' ? 'is-active' : '' ?>" data-filter-link="mine_shared">Tôi chia sẻ (<?= $stats['mine_shared_libraries'] ?>)</button>
+    <button type="button" class="<?= $filter === 'mine_shared' ? 'is-active' : '' ?>" data-filter-link="mine_shared">Chia sẻ (<?= $stats['mine_shared_libraries'] ?>)</button>
   </div>
 
   <div class="toolbar__right">
