@@ -145,7 +145,7 @@ if ($action === 'update') {
 }
 
 /* ===========================================================================
- * 3) XOÁ THƯ VIỆN — CHỈ CHỦ SỞ HỮU, có bước xác nhận riêng (confirm=1)
+ * 3) XOÁ THƯ VIỆN — CHỈ CHỦ SỞ HỮU, có bước xác nhận bằng từ DELETE
  *    Xoá cả dòng CSDL lẫn thư mục ảnh public/uploads/snapshots/<id>/.
  * ========================================================================= */
 if ($action === 'delete') {
@@ -158,13 +158,15 @@ if ($action === 'delete') {
         $backToList(['type' => 'error', 'text' => 'Không tìm thấy thư viện cần xoá.']);
     }
 
-    // BƯỚC XÁC NHẬN RÕ RÀNG: bấm nút lần đầu chỉ hiện câu hỏi xác nhận
-    // (client-side). Lần POST thứ hai phải kèm confirm=1 mới xoá thật —
-    // nên không thể vô tình xoá nhầm thư viện chỉ với một cú bấm.
-    if ((string) ($_POST['confirm'] ?? '') !== '1') {
+    // BƯỚC XÁC NHẬN RÕ RÀNG: người dùng phải gõ đúng từ DELETE vào ô xác
+    // nhận (JS đã kiểm ở client, kiểm lại ở đây vì JS có thể bị qua mặt).
+    // Không có từ này thì không xoá — tránh xoá nhầm thư viện chỉ với một
+    // cú bấm. (Trước đây backend đòi confirm=1 trong khi form gửi từ xác
+    // nhận, nên nút xoá không bao giờ xoá được — đã sửa theo từ mới.)
+    if (strtoupper(trim((string) ($_POST['confirm'] ?? ''))) !== 'DELETE') {
         $backToLibrary((string) $row['slug'], [
             'type' => 'error',
-            'text' => 'Chưa xác nhận xoá. Bấm “Xoá thư viện” một lần nữa và xác nhận để tiếp tục.',
+            'text' => 'Chưa xác nhận xoá. Vui lòng gõ đúng DELETE để xác nhận.',
         ]);
     }
 

@@ -870,7 +870,7 @@ require __DIR__ . '/../templates/header_app.php';
               <?php endforeach; ?>
             </div>
             <p class="t-label-sm t-muted" style="margin-top:6px">
-              <b>Riêng tư</b>: chỉ thành viên. <b>Dùng chung</b>: thành viên + mời được.
+              <b>Chỉ mình tôi</b>: chỉ bạn xem được. <b>Nội bộ nhóm</b>: thành viên thư viện xem được.
               <b>Công khai</b>: ai có đường dẫn cũng xem được.
             </p>
           </div>
@@ -902,9 +902,9 @@ require __DIR__ . '/../templates/header_app.php';
             </div>
 
             <div class="field">
-              <label for="settings-confirm">Bước 2/2 — gõ <code>XOA</code> để xác nhận</label>
+              <label for="settings-confirm">Bước 2/2 — gõ <code>DELETE</code> để xác nhận</label>
               <input class="input" id="settings-confirm" type="text" name="confirm" required
-                     autocomplete="off" placeholder="XOA" style="max-width:200px">
+                     autocomplete="off" placeholder="DELETE" style="max-width:200px">
             </div>
 
             <div class="row row--between">
@@ -961,11 +961,11 @@ require __DIR__ . '/../templates/header_app.php';
             <div class="row" style="gap:8px;flex-wrap:wrap">
               <label class="row" style="gap:6px;flex-wrap:nowrap;cursor:pointer">
                 <input type="radio" name="role" value="editor" checked>
-                <span style="font-size:13px">Biên tập viên — sửa nhãn, xem danh sách lưu thất bại</span>
+                <span style="font-size:13px">Biên tập viên — lưu bài mới, lấy phiên bản mới, sửa nhãn. Không quản lý thành viên hay cài đặt.</span>
               </label>
               <label class="row" style="gap:6px;flex-wrap:nowrap;cursor:pointer">
                 <input type="radio" name="role" value="viewer">
-                <span style="font-size:13px">Người xem — chỉ đọc, không sửa</span>
+                <span style="font-size:13px">Người xem — chỉ xem bài đã lưu, xuất ZIP và ghi chú. Không lưu bài hay sửa nhãn.</span>
               </label>
             </div>
           </div>
@@ -1016,14 +1016,14 @@ require __DIR__ . '/../templates/header_app.php';
 
   /* Xác nhận hai bước khi xoá thư viện:
      bước 1 — hộp thoại "chắc chứ?";
-     bước 2 — người dùng phải gõ đúng "XOA" vào ô xác nhận (bắt buộc trong HTML,
-                kiểm lại ở đây để không gửi nhầm khi gõ sai).
+     bước 2 — người dùng phải gõ đúng "DELETE" vào ô xác nhận (bắt buộc trong HTML,
+                kiểm lại ở đây và ở backend để không gửi nhầm khi gõ sai).
      Huỷ ở bất kỳ bước nào thì form KHÔNG được gửi đi. */
   function wa_confirm_delete_library(form) {
     var box = form.querySelector('input[name="confirm"]');
 
-    if ((box.value || '').trim().toUpperCase() !== 'XOA') {
-      window.alert('Bạn phải gõ đúng XOA để xác nhận xoá thư viện.');
+    if ((box.value || '').trim().toUpperCase() !== 'DELETE') {
+      window.alert('Bạn phải gõ đúng DELETE để xác nhận xoá thư viện.');
       box.focus();
       return false;
     }
