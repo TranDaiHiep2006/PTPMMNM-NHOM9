@@ -175,6 +175,25 @@ $memberBreakdownText = $memberBreakdownParts === []
     ? 'Chưa có thành viên'
     : implode(' • ', $memberBreakdownParts);
 
+// Lọc bài viết theo nhãn NGAY TRONG THƯ VIỆN (bấm nhãn ở panel nhãn hoặc
+// trên thẻ bài): không nhảy sang trang Tìm kiếm chung (trang đó tìm toàn
+// bộ thư viện). Phân trang bên dưới tính trên danh sách đã lọc.
+$activeTag = trim((string) ($_GET['tag'] ?? ''));
+if ($activeTag !== '' && !str_starts_with($activeTag, '#')) {
+    $activeTag = '#' . $activeTag;
+}
+if ($activeTag !== '') {
+    $activeTagLower = mb_strtolower($activeTag);
+    $articles = array_values(array_filter($articles, static function (array $article) use ($activeTagLower): bool {
+        foreach ($article['tags'] as $tag) {
+            if (mb_strtolower($tag) === $activeTagLower) {
+                return true;
+            }
+        }
+        return false;
+    }));
+}
+
 // Phân trang: 6 bài mỗi trang.
 $perPage = 6;
 $totalPages = max(1, (int) ceil(count($articles) / $perPage));
@@ -429,6 +448,13 @@ require __DIR__ . '/../templates/header_app.php';
 
 <div class="tab-panel" data-panel="articles">
 <!-- ===================== F. THẺ BÀI VIẾT ===================== -->
+<?php if ($activeTag !== ''): ?>
+  <p class="t-body-md t-muted" style="margin-bottom:16px">
+    Đang lọc theo nhãn <strong class="t-primary"><?= wa_e($activeTag) ?></strong>:
+    tìm thấy <?= count($articles) ?> bài trong thư viện này.
+    <a href="<?= wa_e(wa_url('library.php?slug=' . urlencode($slug))) ?>">Bỏ lọc</a>
+  </p>
+<?php endif; ?>
 <div class="article-grid">
   <?php foreach ($pagedArticles as $article): ?>
     <div class="article-card">
@@ -503,8 +529,8 @@ require __DIR__ . '/../templates/header_app.php';
               </form>
             <?php else: ?>
               <?php foreach ($article['tags_display'] as $tag): ?>
-                <a class="tag tag--btn"
-                   href="<?= wa_e(wa_url('search.php?tag=' . urlencode($tag) . '&library=' . urlencode($library['slug']))) ?>"><?= wa_e($tag) ?></a>
+                <a class="tag <?= ($activeTag !== '' && mb_strtolower($tag) === mb_strtolower($activeTag)) ? 'tag--active' : 'tag--btn' ?>"
+                   href="<?= wa_e(wa_url('library.php?slug=' . urlencode($library['slug']) . '&tag=' . urlencode($tag))) ?>"><?= wa_e($tag) ?></a>
               <?php endforeach; ?>
               <?php if ($article['tag_count'] === 0): ?>
                 <span class="t-label-sm t-muted">chưa có nhãn</span>
@@ -557,18 +583,24 @@ require __DIR__ . '/../templates/header_app.php';
 </div>
 
 <!-- ===================== PHÂN TRANG ===================== -->
+<?php $pageUrlBase = 'library.php?slug=' . urlencode($slug) . ($activeTag !== '' ? '&tag=' . urlencode($activeTag) : ''); ?>
 <div class="pagination">
   <button type="button" disabled aria-label="Trang trước"><span class="ms ms-16">chevron_left</span></button>
   <?php for ($i = 1; $i <= $totalPages; $i++): ?>
     <button type="button" class="<?= $i === $page ? 'is-active' : '' ?>"
-            onclick="window.location.href='<?= wa_e(wa_url('library.php?slug=' . urlencode($slug) . '&page=' . $i)) ?>'"><?= $i ?></button>
+            onclick="window.location.href='<?= wa_e(wa_url($pageUrlBase . '&page=' . $i)) ?>'"><?= $i ?></button>
   <?php endfor; ?>
   <button type="button" <?= $page >= $totalPages ? 'disabled' : '' ?> aria-label="Trang sau"
-          onclick="window.location.href='<?= wa_e(wa_url('library.php?slug=' . urlencode($slug) . '&page=' . ($page + 1))) ?>'">
+          onclick="window.location.href='<?= wa_e(wa_url($pageUrlBase . '&page=' . ($page + 1))) ?>'">
     <span class="ms ms-16">chevron_right</span>
   </button>
   <span class="pagination__info">
-    Trang <?= $page ?>/<?= $totalPages ?> • Hiển thị <?= count($pagedArticles) ?> trong tổng <?= $library['article_count'] ?> bài viết
+    Trang <?= $page ?>/<?= $totalPages ?> •
+    <?php if ($activeTag !== ''): ?>
+      Hiển thị <?= count($pagedArticles) ?> trong <?= count($articles) ?> bài với nhãn <?= wa_e($activeTag) ?>
+    <?php else: ?>
+      Hiển thị <?= count($pagedArticles) ?> trong tổng <?= $library['article_count'] ?> bài viết
+    <?php endif; ?>
   </span>
 </div>
 
@@ -624,13 +656,13 @@ require __DIR__ . '/../templates/header_app.php';
     </div>
     <div class="row" style="gap:6px">
       <?php foreach ($library['tags'] as $tagIndex => $tag): ?>
-        <a class="tag <?= $tagIndex === 0 ? 'tag--active' : 'tag--btn' ?>"
-           href="<?= wa_e(wa_url('search.php?tag=' . urlencode($tag) . '&library=' . urlencode($library['slug']))) ?>"
-           title="Mở Tìm kiếm lọc theo nhãn <?= wa_e($tag) ?> trong thư viện này"><?= wa_e($tag) ?></a>
+        <a class="tag <?= ($activeTag !== '' && mb_strtolower($tag) === mb_strtolower($activeTag)) || ($activeTag === '' && $tagIndex === 0) ? 'tag--active' : 'tag--btn' ?>"
+           href="<?= wa_e(wa_url('library.php?slug=' . urlencode($library['slug']) . '&tag=' . urlencode($tag))) ?>"
+           title="Lọc bài viết trong thư viện này theo nhãn <?= wa_e($tag) ?>"><?= wa_e($tag) ?></a>
       <?php endforeach; ?>
     </div>
     <p class="t-label-sm t-muted" style="margin-top:12px">
-      Bấm vào một nhãn để mở <a href="<?= wa_e(wa_url('search.php')) ?>">Tìm kiếm</a> đã lọc theo nhãn đó trong thư viện này.
+      Bấm vào một nhãn để lọc bài viết trong thư viện này theo nhãn đó.
       Sửa nhãn của từng bài viết tại ô <b>Nhãn</b> trên mỗi thẻ bài viết bên dưới.
     </p>
   </div>
