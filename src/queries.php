@@ -1178,7 +1178,10 @@ function wa_member_remove(int $libraryId, int $userId, ?array $actor = null): ar
  *
  * Người dùng chỉ cần gõ chữ (vd 'php'), dấu '#' tự thêm khi lưu — gõ sẵn '#'
  * cũng được, không bị thêm hai lần. Hàm này:
- *   - gộp khoảng trắng, bỏ ký tự phân tách ( , ; ) ở hai đầu,
+ *   - lược bỏ khoảng trắng và ký tự đặc biệt trong tên, chỉ giữ chữ (kể
+ *     cả tiếng Việt có dấu), số và dấu gạch ngang (quy tắc 29/10: "di tich"
+ *     thành "#ditich", "a.b" thành "#ab"; tên chỉ còn ký tự đặc biệt thì
+ *     không còn gì nên bỏ qua),
  *   - bỏ qua tên rỗng hoặc chỉ có một dấu '#',
  *   - thêm '#' vào đầu nếu chưa có, rồi cắt 64 ký tự (khớp VARCHAR(64)
  *     của bảng tags, tính cả dấu '#').
@@ -1209,9 +1212,14 @@ function wa_normalize_tag_names(array $names): array
             continue;
         }
 
-        if (!str_starts_with($name, '#')) {
-            $name = '#' . $name;
+        // Quy tắc nhãn (29/10): chỉ giữ chữ, số và dấu gạch ngang; khoảng
+        // trắng và ký tự đặc biệt (. , ? $ % @ & ...) bị lược bỏ. Dấu '#'
+        // ở đầu được bỏ ra trước để xử lý phần tên, rồi thêm lại một lần.
+        $body = preg_replace('/[^\p{L}\p{N}-]+/u', '', ltrim($name, '#')) ?? '';
+        if ($body === '') {
+            continue;
         }
+        $name = '#' . $body;
 
         // Cắt còn 64 ký tự (khớp VARCHAR(64) của bảng `tags`, tính cả '#').
         if (mb_strlen($name) > 64) {
