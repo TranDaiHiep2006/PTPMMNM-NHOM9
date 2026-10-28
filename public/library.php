@@ -529,10 +529,26 @@ require __DIR__ . '/../templates/header_app.php';
           <span class="ms ms-18">chrome_reader_mode</span>
           Đọc bản đã lưu
         </a>
-        <button class="btn btn--outline" type="button" title="Chi tiết bản lưu" aria-label="Chi tiết bản lưu">
+        <button class="btn btn--outline article-info-btn" type="button" title="Chi tiết bản lưu" aria-label="Chi tiết bản lưu"
+                data-modal-open="modal-article-info"
+                data-title="<?= wa_e($article['title']) ?>"
+                data-domain="<?= wa_e($article['domain']) ?>"
+                data-url="<?= wa_e($article['source_url']) ?>"
+                data-saved="<?= wa_e($article['saved_at']) ?>"
+                data-version="<?= wa_e($article['version']) ?>"
+                data-versions="<?= wa_e($article['version_label']) ?>"
+                data-images="<?= (int) $article['image_count'] ?>"
+                data-size="<?= wa_e($article['size_label']) ?>"
+                data-tags="<?= wa_e($article['tag_input']) ?>">
           <span class="ms ms-18">info</span>
         </button>
-        <button class="btn btn--outline" type="button" title="Thao tác khác" aria-label="Thao tác khác">
+        <button class="btn btn--outline article-actions-btn" type="button" title="Thao tác khác" aria-label="Thao tác khác"
+                data-modal-open="modal-article-actions"
+                data-title="<?= wa_e($article['title']) ?>"
+                data-snapshot-id="<?= (int) ($article['snapshot_id'] ?? 0) ?>"
+                data-can-refetch="<?= !empty($article['can_edit']) ? '1' : '0' ?>"
+                data-export="<?= wa_e(wa_url('export.php?id=' . (int) ($article['snapshot_id'] ?? 0))) ?>"
+                data-url="<?= wa_e($article['source_url']) ?>">
           <span class="ms ms-18">more_vert</span>
         </button>
       </div>
@@ -721,6 +737,84 @@ require __DIR__ . '/../templates/header_app.php';
         Chỉ chủ sở hữu thư viện mới thêm, đổi vai trò hoặc gỡ thành viên.
       </p>
     <?php endif; ?>
+  </div>
+</div>
+
+<!-- ===================== MODAL: CHI TIẾT BẢN LƯU =====================
+     Mở từ nút info trên thẻ bài viết; JS điền dữ liệu từ data-* của nút. -->
+<div class="modal-backdrop" id="modal-article-info" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-article-info-title">
+    <div class="modal__head">
+      <h2 class="t-headline-sm" style="font-weight:700" id="modal-article-info-title">
+        <span class="ms ms-18" style="color:var(--wa-primary)">info</span> Chi tiết bản lưu
+      </h2>
+      <button class="btn btn--ghost" type="button" data-modal-close aria-label="Đóng">
+        <span class="ms ms-18">close</span>
+      </button>
+    </div>
+
+    <div class="stack">
+      <h3 class="t-headline-sm" id="article-info-title" style="color:var(--wa-primary)"></h3>
+      <div>
+        <div class="t-label-sm t-muted">Nguồn</div>
+        <a id="article-info-url" href="#" target="_blank" rel="noopener" style="word-break:break-all"></a>
+      </div>
+      <div>
+        <div class="t-label-sm t-muted">Lưu ngày</div>
+        <div id="article-info-saved"></div>
+      </div>
+      <div>
+        <div class="t-label-sm t-muted">Phiên bản</div>
+        <div><span id="article-info-version"></span> · <span id="article-info-versions"></span></div>
+      </div>
+      <div>
+        <div class="t-label-sm t-muted">Ảnh cục bộ</div>
+        <div id="article-info-images"></div>
+      </div>
+      <div>
+        <div class="t-label-sm t-muted">Dung lượng</div>
+        <div id="article-info-size"></div>
+      </div>
+      <div>
+        <div class="t-label-sm t-muted">Nhãn</div>
+        <div id="article-info-tags" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: THAO TÁC KHÁC =====================
+     Mở từ nút more trên thẻ bài viết; JS điền dữ liệu từ data-* của nút.
+     Chỉ dùng các thao tác đã có backend: lấy phiên bản mới (refetch.php),
+     xuất ZIP (export.php), mở trang gốc. App chưa có chức năng xoá bài
+     nên menu này không có mục xoá. -->
+<div class="modal-backdrop" id="modal-article-actions" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-article-actions-title">
+    <div class="modal__head">
+      <h2 class="t-headline-sm" style="font-weight:700" id="modal-article-actions-title">
+        <span class="ms ms-18" style="color:var(--wa-primary)">more_vert</span> Thao tác khác
+      </h2>
+      <button class="btn btn--ghost" type="button" data-modal-close aria-label="Đóng">
+        <span class="ms ms-18">close</span>
+      </button>
+    </div>
+
+    <div class="stack">
+      <p class="t-body-sm t-muted" id="article-actions-title"></p>
+      <form id="article-actions-refetch" method="post" action="<?= wa_e(wa_url('refetch.php')) ?>">
+        <?= wa_csrf_field() ?>
+        <input type="hidden" name="snapshot_id" id="article-actions-snapshot" value="">
+        <button class="btn btn--dark btn--block" type="submit">
+          <span class="ms ms-18">refresh</span> Lấy phiên bản mới
+        </button>
+      </form>
+      <a class="btn btn--outline btn--block" id="article-actions-export" href="#">
+        <span class="ms ms-18">download</span> Xuất ZIP
+      </a>
+      <a class="btn btn--outline btn--block" id="article-actions-original" href="#" target="_blank" rel="noopener">
+        <span class="ms ms-18">open_in_new</span> Mở trang gốc
+      </a>
+    </div>
   </div>
 </div>
 
@@ -1040,6 +1134,66 @@ require __DIR__ . '/../templates/header_app.php';
       });
     });
     apply('articles');
+  })();
+</script>
+
+<script>
+  /* Nút info / more trên thẻ bài: điền dữ liệu từ data-* của nút vào modal
+     dùng chung, còn việc mở/đóng modal vẫn dùng cơ chế chung (data-modal-open
+     / data-modal-close / bấm ra ngoài). */
+  (function () {
+    function setText(id, text) {
+      var el = document.getElementById(id);
+      if (el) { el.textContent = text; }
+    }
+    document.querySelectorAll('.article-info-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var d = btn.dataset;
+        setText('article-info-title', d.title || '');
+        var url = document.getElementById('article-info-url');
+        if (url) {
+          url.textContent = d.url || '';
+          url.setAttribute('href', d.url || '#');
+        }
+        setText('article-info-saved', d.saved || '');
+        setText('article-info-version', d.version || '');
+        setText('article-info-versions', d.versions || '');
+        setText('article-info-images', (d.images || '0') + ' ảnh');
+        setText('article-info-size', d.size || '');
+        var tagsBox = document.getElementById('article-info-tags');
+        if (tagsBox) {
+          tagsBox.textContent = '';
+          var tags = (d.tags || '').split(',').map(function (t) { return t.trim(); }).filter(function (t) { return t !== ''; });
+          if (tags.length === 0) {
+            var none = document.createElement('span');
+            none.className = 't-label-sm t-muted';
+            none.textContent = 'chưa có nhãn';
+            tagsBox.appendChild(none);
+          } else {
+            tags.forEach(function (t) {
+              var chip = document.createElement('span');
+              chip.className = 'tag';
+              chip.textContent = t;
+              tagsBox.appendChild(chip);
+            });
+          }
+        }
+      });
+    });
+    document.querySelectorAll('.article-actions-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var d = btn.dataset;
+        setText('article-actions-title', d.title || '');
+        var snap = document.getElementById('article-actions-snapshot');
+        if (snap) { snap.value = d.snapshotId || ''; }
+        var refetch = document.getElementById('article-actions-refetch');
+        if (refetch) { refetch.hidden = d.canRefetch !== '1'; }
+        var exp = document.getElementById('article-actions-export');
+        if (exp) { exp.setAttribute('href', d.export || '#'); }
+        var orig = document.getElementById('article-actions-original');
+        if (orig) { orig.setAttribute('href', d.url || '#'); }
+      });
+    });
   })();
 </script>
 
