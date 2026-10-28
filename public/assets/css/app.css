@@ -526,6 +526,9 @@
   }
   .tabs button:hover { color: var(--wa-text); }
   .tabs button.is-active { background: var(--wa-white); color: var(--wa-primary); box-shadow: var(--wa-shadow-1); }
+  /* Tab-panel trong thư viện: panel nào không active thì JS ẩn bằng [hidden];
+     ô lọc + nút chuyển chỉ thuộc về tab bài viết nên cũng ẩn theo. */
+  .tab-panel[hidden], .toolbar__right[hidden] { display: none; }
   
   .toolbar {
     display: flex; flex-direction: column; gap: var(--wa-space-md);
