@@ -544,6 +544,17 @@
   .combo__option { display: block; width: 100%; text-align: left; background: none; border: 0; cursor: pointer; padding: 8px 10px; border-radius: var(--wa-radius-md); font-size: 13px; color: var(--wa-text); }
   .combo__option:hover, .combo__option--active { background: var(--wa-surface-low); }
   .combo__empty { padding: 8px 10px; }
+  /* Chi tiết / thao tác hiện khi di chuột vào nút: nội dung thẻ đẩy lên trên,
+     thông tin hiện ngay chỗ cũ trong thân thẻ (thay cho panel mở rộng dưới
+     chân thẻ). */
+  .article-card__body { position: relative; }
+  /* Chi tiết / thao tác: thân thẻ đổi thành panel thông tin/thao tác ngay
+     tại chỗ (thumbnail giữ nguyên, không đẩy nội dung lên trên). */
+  .article-card__main { display: flex; flex-direction: column; transition: opacity .25s ease; }
+  .article-card__body.is-swapped .article-card__main { opacity: 0; pointer-events: none; }
+  .article-card__panel { position: absolute; z-index: 3; inset: 0; overflow-y: auto; background: var(--wa-white); padding: var(--wa-space-md); display: flex; flex-direction: column; gap: 10px; opacity: 0; visibility: hidden; transform: translateY(12px); transition: transform .25s ease, opacity .25s ease, visibility 0s linear .25s; }
+  .article-card__panel.is-open { opacity: 1; visibility: visible; transform: none; transition: transform .25s ease, opacity .25s ease; }
+  .article-card__foot .btn.is-active { background: var(--wa-surface-low); }
   
   .toolbar {
     display: flex; flex-direction: column; gap: var(--wa-space-md);
@@ -1103,8 +1114,9 @@
   .article-card__excerpt { font-size: 13px; line-height: 18px; color: var(--wa-text-soft); margin-bottom: var(--wa-space-sm); }
   .article-card__tags { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: var(--wa-space-sm); }
   .article-card__status { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 4px 10px; border-radius: var(--wa-radius-md); background: var(--wa-surface-low); color: var(--wa-success); font-size: 11px; line-height: 14px; font-weight: 600; }
-  .article-card__foot { display: flex; align-items: center; gap: 8px; padding: 0 var(--wa-space-md) var(--wa-space-md); }
-  .article-card__foot .btn { flex: 1; }
+  .article-card__foot { display: flex; align-items: stretch; gap: 8px; padding: 0 var(--wa-space-md) var(--wa-space-md); }
+  .article-card__foot .btn--dark { flex: 4 1 0%; white-space: nowrap; }
+  .article-card__foot .article-info-btn, .article-card__foot .article-actions-btn { flex: 1 1 0%; }
   
   /* Dạng danh sách cho thẻ bài viết (chuyển bằng nút cạnh ô lọc trong thư viện). */
   .article-grid.article-grid--list { grid-template-columns: 1fr; }
