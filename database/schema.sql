@@ -48,6 +48,24 @@ CREATE TABLE `libraries` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- -----------------------------------------------------------------------------
+-- library_stars — thư viện được người dùng đánh dấu yêu thích (nút sao)
+-- -----------------------------------------------------------------------------
+DROP TABLE IF EXISTS `library_stars`;
+CREATE TABLE `library_stars` (
+    `user_id`    INT UNSIGNED NOT NULL,
+    `library_id` INT UNSIGNED NOT NULL,
+    `created_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`user_id`, `library_id`),
+    KEY `ix_library_stars_library` (`library_id`),
+    CONSTRAINT `fk_library_stars_user`
+        FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT `fk_library_stars_library`
+        FOREIGN KEY (`library_id`) REFERENCES `libraries` (`id`)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
 -- library_members — thành viên & phân quyền trong thư viện
 -- -----------------------------------------------------------------------------
 DROP TABLE IF EXISTS `library_members`;

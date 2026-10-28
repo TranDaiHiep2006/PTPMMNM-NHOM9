@@ -138,6 +138,14 @@ if ($action === 'update') {
     // Sau khi đổi tên, slug có thể đã đổi theo -> dùng slug MỚI trả về.
     $targetSlug = (string) ($result['slug'] ?? $slug);
 
+    // Sửa từ trang danh sách (modal trên libraries.php) thì ở lại danh sách.
+    if ((string) ($_POST['return_to'] ?? '') === 'list') {
+        $backToList([
+            'type' => $result['ok'] === true ? 'success' : 'error',
+            'text' => (string) $result['message'],
+        ]);
+    }
+
     $backToLibrary($targetSlug !== '' ? $targetSlug : $slug, [
         'type' => $result['ok'] === true ? 'success' : 'error',
         'text' => (string) $result['message'],
@@ -164,6 +172,12 @@ if ($action === 'delete') {
     // cú bấm. (Trước đây backend đòi confirm=1 trong khi form gửi từ xác
     // nhận, nên nút xoá không bao giờ xoá được — đã sửa theo từ mới.)
     if (strtoupper(trim((string) ($_POST['confirm'] ?? ''))) !== 'DELETE') {
+        if ((string) ($_POST['return_to'] ?? '') === 'list') {
+            $backToList([
+                'type' => 'error',
+                'text' => 'Chưa xác nhận xoá. Vui lòng gõ đúng DELETE để xác nhận.',
+            ]);
+        }
         $backToLibrary((string) $row['slug'], [
             'type' => 'error',
             'text' => 'Chưa xác nhận xoá. Vui lòng gõ đúng DELETE để xác nhận.',
@@ -261,6 +275,44 @@ if ($action === 'tags') {
         'type' => $result['ok'] === true ? 'success' : 'error',
         'text' => (string) $result['message'],
     ]);
+}
+
+/* ===========================================================================
+ * ĐÁNH DẤU / BỎ ĐÁNH DẤU YÊU THÍCH — libraries.php (mọi người đọc được)
+ * Đảo trạng thái dòng (user_id, library_id) trong bảng library_stars rồi về
+ * lại đúng tab lọc đang xem. Bảng chưa migrate thì báo rõ thay vì lỗi trắng.
+ * ========================================================================= */
+if ($action === 'star') {
+    $libraryId = (int) ($_POST['library_id'] ?? 0);
+
+    if (!wa_can_read_library($libraryId)) {
+        $backToList(['type' => 'error', 'text' => 'Không tìm thấy thư viện cần đánh dấu.']);
+    }
+
+    $filter = (string) ($_POST['filter'] ?? 'all');
+    if (!in_array($filter, ['all', 'personal', 'shared', 'mine_shared'], true)) {
+        $filter = 'all';
+    }
+    $backToFilteredList = static function (array $flash) use ($filter): never {
+        $_SESSION['wa_flash'] = $flash;
+        header('Location: ' . wa_url('libraries.php' . ($filter === 'all' ? '' : '?filter=' . urlencode($filter))));
+        exit;
+    };
+
+    try {
+        $exists = db()->prepare('SELECT 1 FROM library_stars WHERE user_id = ? AND library_id = ? LIMIT 1');
+        $exists->execute([$userId, $libraryId]);
+        if ($exists->fetchColumn() !== false) {
+            $del = db()->prepare('DELETE FROM library_stars WHERE user_id = ? AND library_id = ?');
+            $del->execute([$userId, $libraryId]);
+            $backToFilteredList(['type' => 'success', 'text' => 'Đã bỏ đánh dấu yêu thích.']);
+        }
+        $ins = db()->prepare('INSERT INTO library_stars (user_id, library_id) VALUES (?, ?)');
+        $ins->execute([$userId, $libraryId]);
+        $backToFilteredList(['type' => 'success', 'text' => 'Đã đánh dấu yêu thích.']);
+    } catch (Throwable) {
+        $backToFilteredList(['type' => 'error', 'text' => 'Chưa chạy migrate bảng library_stars. Hãy chạy php scripts/migrate_library_stars.php rồi thử lại.']);
+    }
 }
 
 /* ---------------------------------------------------------------------------

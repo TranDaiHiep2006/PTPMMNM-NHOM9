@@ -45,6 +45,7 @@ $stats = [
     //   THỐNG (wa_admin_stats), lệch phạm vi với trang "của tôi".
     'personal_libraries' => count(array_filter($libraries, static fn (array $l): bool => $l['category'] === 'personal')),
     'shared_libraries'   => count(array_filter($libraries, static fn (array $l): bool => $l['category'] === 'shared')),
+    'mine_shared_libraries' => count(array_filter($libraries, static fn (array $l): bool => $l['category'] === 'mine_shared')),
 ];
 
 $libMetrics = wa_metrics_for_libraries(array_column($libraries, 'id'));
@@ -61,7 +62,7 @@ $stats['integrity_label']  = $libMetrics['image_total'] === 0
 
 // Lọc theo tab được chọn.
 $filter = (string) ($_GET['filter'] ?? 'all');
-if (!in_array($filter, ['all', 'personal', 'shared'], true)) {
+if (!in_array($filter, ['all', 'personal', 'shared', 'mine_shared'], true)) {
     $filter = 'all';
 }
 
@@ -161,6 +162,7 @@ require __DIR__ . '/../templates/header_app.php';
     <button type="button" class="<?= $filter === 'all' ? 'is-active' : '' ?>" data-filter-link="all">Tất cả (<?= $stats['library_count'] ?>)</button>
     <button type="button" class="<?= $filter === 'personal' ? 'is-active' : '' ?>" data-filter-link="personal">Thư viện cá nhân (<?= $stats['personal_libraries'] ?>)</button>
     <button type="button" class="<?= $filter === 'shared' ? 'is-active' : '' ?>" data-filter-link="shared">Được chia sẻ (<?= $stats['shared_libraries'] ?>)</button>
+    <button type="button" class="<?= $filter === 'mine_shared' ? 'is-active' : '' ?>" data-filter-link="mine_shared">Tôi chia sẻ (<?= $stats['mine_shared_libraries'] ?>)</button>
   </div>
 
   <div class="toolbar__right">
@@ -222,18 +224,48 @@ require __DIR__ . '/../templates/header_app.php';
           </div>
 
           <div class="row" style="gap:2px">
-            <?php if ($lib['starred']): ?>
-              <button class="btn btn--ghost" type="button" title="Bỏ đánh dấu yêu thích" aria-label="Bỏ đánh dấu yêu thích">
-                <span class="ms ms-18 ms-fill" style="color:var(--wa-primary)">star</span>
+            <form method="post" action="<?= wa_e(wa_url('library_action.php')) ?>" style="margin:0">
+              <?= wa_csrf_field() ?>
+              <input type="hidden" name="action" value="star">
+              <input type="hidden" name="library_id" value="<?= (int) $lib['id'] ?>">
+              <input type="hidden" name="filter" value="<?= wa_e($filter) ?>">
+              <button class="btn btn--ghost" type="submit"
+                      title="<?= $lib['starred'] ? 'Bỏ đánh dấu yêu thích' : 'Đánh dấu yêu thích' ?>"
+                      aria-label="<?= $lib['starred'] ? 'Bỏ đánh dấu yêu thích' : 'Đánh dấu yêu thích' ?>">
+                <?php if ($lib['starred']): ?>
+                  <span class="ms ms-18 ms-fill" style="color:var(--wa-primary)">star</span>
+                <?php else: ?>
+                  <span class="ms ms-18">star</span>
+                <?php endif; ?>
               </button>
-            <?php else: ?>
-              <button class="btn btn--ghost" type="button" title="Đánh dấu yêu thích" aria-label="Đánh dấu yêu thích">
-                <span class="ms ms-18">star</span>
+            </form>
+            <div class="lib-menu">
+              <button class="btn btn--ghost lib-menu__btn" type="button" title="Thao tác khác" aria-label="Thao tác khác" aria-expanded="false">
+                <span class="ms ms-18">more_vert</span>
               </button>
-            <?php endif; ?>
-            <button class="btn btn--ghost" type="button" title="Thao tác khác" aria-label="Thao tác khác">
-              <span class="ms ms-18">more_vert</span>
-            </button>
+              <div class="lib-menu__list" hidden>
+                <a class="lib-menu__item" href="<?= wa_e(wa_url('library.php?slug=' . urlencode($lib['slug']))) ?>">
+                  <span class="ms ms-18">open_in_new</span> Mở thư viện
+                </a>
+                <button class="lib-menu__item" type="button" data-copy-url="<?= wa_e(wa_url('library.php?slug=' . urlencode($lib['slug']))) ?>">
+                  <span class="ms ms-18">link</span> Sao chép liên kết
+                </button>
+                <?php if (!empty($lib['can_manage'])): ?>
+                  <button class="lib-menu__item" type="button" data-modal-open="modal-rename"
+                          data-library-id="<?= (int) $lib['id'] ?>"
+                          data-library-name="<?= wa_e($lib['name']) ?>"
+                          data-library-description="<?= wa_e((string) ($lib['description'] ?? '')) ?>"
+                          data-library-visibility="<?= wa_e($lib['visibility']) ?>">
+                    <span class="ms ms-18">edit</span> Sửa thư viện
+                  </button>
+                  <button class="lib-menu__item" type="button" data-modal-open="modal-delete"
+                          data-library-id="<?= (int) $lib['id'] ?>"
+                          data-library-name="<?= wa_e($lib['name']) ?>">
+                    <span class="ms ms-18">delete</span> Xoá thư viện
+                  </button>
+                <?php endif; ?>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -402,6 +434,95 @@ require __DIR__ . '/../templates/header_app.php';
   </div>
 </div>
 
+<!-- ===================== MODAL: SỬA THƯ VIỆN =====================
+     Mở từ menu more trên thẻ thư viện (chủ sở hữu / quản trị viên); JS
+     điền dữ liệu từ data-* của nút menu. Gửi đủ tên + mô tả + mức hiển thị
+     vì library_action update ghi đè cả ba trường. -->
+<div class="modal-backdrop" id="modal-rename" hidden>
+  <div class="modal">
+    <div class="modal__head">
+      <div class="row" style="gap:8px">
+        <span class="ms ms-24" style="color:var(--wa-primary)">edit</span>
+        <h2 class="t-headline-sm" style="font-weight:700">Sửa thư viện</h2>
+      </div>
+      <button class="btn btn--ghost" type="button" data-modal-close aria-label="Đóng">
+        <span class="ms ms-18">close</span>
+      </button>
+    </div>
+
+    <form class="stack" method="post" action="<?= wa_e(wa_url('library_action.php')) ?>">
+      <?= wa_csrf_field() ?>
+      <input type="hidden" name="action" value="update">
+      <input type="hidden" name="library_id" id="rename-library-id" value="">
+      <input type="hidden" name="return_to" value="list">
+
+      <div class="field">
+        <label for="rename-name">Tên thư viện <span class="t-error">*</span></label>
+        <input class="input" id="rename-name" name="name" type="text" required maxlength="150">
+      </div>
+
+      <div class="field">
+        <label for="rename-desc">Mô tả chuyên đề</label>
+        <textarea class="input" id="rename-desc" name="description" rows="3"></textarea>
+      </div>
+
+      <div class="field">
+        <label for="rename-visibility">Ai có thể xem thư viện này?</label>
+        <select class="select" id="rename-visibility" name="visibility">
+          <?php foreach ($visibilityOptions as $option): ?>
+            <option value="<?= wa_e($option['key']) ?>"><?= wa_e($option['label']) ?></option>
+          <?php endforeach; ?>
+        </select>
+      </div>
+
+      <div class="row" style="justify-content:flex-end;gap:8px;padding-top:8px">
+        <button class="btn btn--outline" type="button" data-modal-close>Hủy</button>
+        <button class="btn btn--dark" type="submit">
+          <span class="ms ms-18">save</span> Lưu thay đổi
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== MODAL: XOÁ THƯ VIỆN =====================
+     Mở từ menu more trên thẻ thư viện (chủ sở hữu / quản trị viên); xác
+     nhận bằng từ DELETE giống trang chi tiết, rồi gửi về library_action
+     delete (thành công về lại danh sách). -->
+<div class="modal-backdrop" id="modal-delete" hidden>
+  <div class="modal">
+    <div class="modal__head">
+      <div class="row" style="gap:8px">
+        <span class="ms ms-24" style="color:var(--wa-primary)">delete</span>
+        <h2 class="t-headline-sm" style="font-weight:700">Xoá thư viện</h2>
+      </div>
+      <button class="btn btn--ghost" type="button" data-modal-close aria-label="Đóng">
+        <span class="ms ms-18">close</span>
+      </button>
+    </div>
+
+    <form class="stack" method="post" action="<?= wa_e(wa_url('library_action.php')) ?>" id="delete-form">
+      <?= wa_csrf_field() ?>
+      <input type="hidden" name="action" value="delete">
+      <input type="hidden" name="library_id" id="delete-library-id" value="">
+      <input type="hidden" name="return_to" value="list">
+      <p class="t-body-md">Thư viện <strong id="delete-library-name"></strong> và toàn bộ bài viết, nhãn cùng thư mục ảnh của nó sẽ bị xoá vĩnh viễn.</p>
+
+      <div class="field">
+        <label for="delete-confirm">Gõ <b>DELETE</b> để xác nhận</label>
+        <input class="input" id="delete-confirm" name="confirm" type="text" placeholder="DELETE" autocomplete="off">
+      </div>
+
+      <div class="row" style="justify-content:flex-end;gap:8px;padding-top:8px">
+        <button class="btn btn--outline" type="button" data-modal-close>Hủy</button>
+        <button class="btn btn--dark" type="submit">
+          <span class="ms ms-18">delete</span> Xoá thư viện
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
   // Tab lọc: chuyển trang bằng tham số filter
   document.querySelectorAll('[data-filter-link]').forEach(function (tab) {
@@ -421,16 +542,24 @@ require __DIR__ . '/../templates/header_app.php';
     });
   }
 
-  // Hộp thoại tạo thư viện — mở lại hộp thoại khi gửi lỗi (flash type = error)
-  var modal = document.getElementById('modal-create');
+  // Hộp thoại chung: nút [data-modal-open="<id>"] mở #<id>, nút
+  // [data-modal-close] đóng hộp thoại chứa nó, bấm ra ngoài backdrop cũng đóng.
   document.querySelectorAll('[data-modal-open]').forEach(function (btn) {
-    btn.addEventListener('click', function () { modal.removeAttribute('hidden'); });
+    btn.addEventListener('click', function () {
+      var target = document.getElementById(btn.getAttribute('data-modal-open'));
+      if (target) { target.removeAttribute('hidden'); }
+    });
   });
   document.querySelectorAll('[data-modal-close]').forEach(function (btn) {
-    btn.addEventListener('click', function () { modal.setAttribute('hidden', ''); });
+    btn.addEventListener('click', function () {
+      var backdrop = btn.closest('.modal-backdrop');
+      if (backdrop) { backdrop.setAttribute('hidden', ''); }
+    });
   });
-  modal.addEventListener('click', function (e) {
-    if (e.target === modal) { modal.setAttribute('hidden', ''); }
+  document.querySelectorAll('.modal-backdrop').forEach(function (backdrop) {
+    backdrop.addEventListener('click', function (e) {
+      if (e.target === backdrop) { backdrop.setAttribute('hidden', ''); }
+    });
   });
 
   // Bộ chọn màu / biểu tượng khi tạo thư viện: ô màu gợi ý ghi key vào
@@ -553,6 +682,104 @@ require __DIR__ . '/../templates/header_app.php';
     var saved = null;
     try { saved = localStorage.getItem('wa-lib-view'); } catch (e) {}
     if (saved === 'list' || saved === 'grid') { apply(saved); }
+  })();
+</script>
+
+<script>
+  // Menu thao tác trên thẻ thư viện: bấm nút more thì mở menu, bấm vào mục
+  // hay ra ngoài hay Esc thì đóng, chỉ mở một menu tại một thời điểm.
+  (function () {
+    function closeAllMenus() {
+      document.querySelectorAll('.lib-menu__list').forEach(function (list) { list.hidden = true; });
+      document.querySelectorAll('.lib-menu__btn').forEach(function (btn) { btn.setAttribute('aria-expanded', 'false'); });
+    }
+    document.querySelectorAll('.lib-menu__btn').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var list = btn.closest('.lib-menu').querySelector('.lib-menu__list');
+        var wasHidden = list.hidden;
+        closeAllMenus();
+        if (wasHidden) {
+          list.hidden = false;
+          btn.setAttribute('aria-expanded', 'true');
+        }
+      });
+    });
+    document.addEventListener('click', function (e) {
+      if (e.target.closest('.lib-menu__btn')) { return; }
+      closeAllMenus();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { closeAllMenus(); }
+    });
+  })();
+
+  // Sao chép liên kết thư viện từ menu thao tác.
+  (function () {
+    document.querySelectorAll('[data-copy-url]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var raw = btn.getAttribute('data-copy-url') || '';
+        var url = raw;
+        try { url = new URL(raw, window.location.href).href; } catch (e) {}
+        var done = function () {
+          var original = btn.innerHTML;
+          btn.innerHTML = '<span class="ms ms-18">check</span> Đã sao chép';
+          setTimeout(function () { btn.innerHTML = original; }, 2000);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(done, function () {});
+        } else {
+          var tmp = document.createElement('textarea');
+          tmp.value = url;
+          document.body.appendChild(tmp);
+          tmp.select();
+          try { document.execCommand('copy'); done(); } catch (err) {}
+          document.body.removeChild(tmp);
+        }
+      });
+    });
+  })();
+
+  // Điền modal sửa / xoá thư viện từ nút menu của thẻ.
+  (function () {
+    function setValue(id, value) {
+      var el = document.getElementById(id);
+      if (el) { el.value = value; }
+    }
+    document.querySelectorAll('[data-modal-open="modal-rename"]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var d = btn.dataset;
+        setValue('rename-library-id', d.libraryId || '');
+        setValue('rename-name', d.libraryName || '');
+        setValue('rename-desc', d.libraryDescription || '');
+        setValue('rename-visibility', d.libraryVisibility || 'private');
+      });
+    });
+    document.querySelectorAll('[data-modal-open="modal-delete"]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var d = btn.dataset;
+        setValue('delete-library-id', d.libraryId || '');
+        var name = document.getElementById('delete-library-name');
+        if (name) { name.textContent = d.libraryName || ''; }
+        setValue('delete-confirm', '');
+      });
+    });
+    // Xoá thư viện: kiểm tra từ DELETE rồi hỏi xác nhận lần nữa mới gửi.
+    var deleteForm = document.getElementById('delete-form');
+    if (deleteForm) {
+      deleteForm.addEventListener('submit', function (e) {
+        var confirmInput = document.getElementById('delete-confirm');
+        var word = confirmInput ? confirmInput.value.toUpperCase().trim() : '';
+        if (word !== 'DELETE') {
+          e.preventDefault();
+          alert('Chưa xác nhận xoá. Vui lòng gõ đúng DELETE để xác nhận.');
+          return;
+        }
+        if (!window.confirm('Xoá vĩnh viễn thư viện này cùng toàn bộ nội dung của nó?')) {
+          e.preventDefault();
+        }
+      });
+    }
   })();
 </script>
 

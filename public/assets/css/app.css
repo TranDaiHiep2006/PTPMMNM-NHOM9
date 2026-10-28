@@ -555,6 +555,12 @@
   .article-card__panel { position: absolute; z-index: 3; inset: 0; overflow-y: auto; background: var(--wa-white); padding: var(--wa-space-md); display: flex; flex-direction: column; gap: 10px; opacity: 0; visibility: hidden; transform: translateY(12px); transition: transform .25s ease, opacity .25s ease, visibility 0s linear .25s; }
   .article-card__panel.is-open { opacity: 1; visibility: visible; transform: none; transition: transform .25s ease, opacity .25s ease; }
   .article-card__foot .btn.is-active { background: var(--wa-surface-low); }
+  /* Menu thao tác trên thẻ thư viện (nút more_vert): xổ xuống ngay dưới nút. */
+  .lib-menu { position: relative; }
+  .lib-menu__list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; min-width: 200px; background: var(--wa-white); border: 1px solid var(--wa-border); border-radius: var(--wa-radius-md); box-shadow: var(--wa-shadow-1); padding: 4px; display: flex; flex-direction: column; }
+  .lib-menu__list[hidden] { display: none; }
+  .lib-menu__item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0; cursor: pointer; padding: 8px 10px; border-radius: var(--wa-radius-md); font-size: 13px; color: var(--wa-text); text-decoration: none; }
+  .lib-menu__item:hover { background: var(--wa-surface-low); }
   
   .toolbar {
     display: flex; flex-direction: column; gap: var(--wa-space-md);

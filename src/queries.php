@@ -366,6 +366,8 @@ function wa_libraries(?array $actor = null): array
         if (!isset($roleLabels[$row['role']])) {
             $row['role'] = 'viewer';
         }
+        $row['can_manage'] = (int) $row['owner_id'] === ($actor['id'] ?? -1)
+            || (($actor['role'] ?? '') === 'admin');
         $row['role_label'] = $roleLabels[$row['role']];
 
         $row['visibility_label'] = $visLabels[(string) $row['visibility']] ?? $row['visibility'];
@@ -376,16 +378,40 @@ function wa_libraries(?array $actor = null): array
             ? (string) $row['color'] : '';
         $row['color_ink'] = $row['color_hex'] !== '' && wa_hex_is_light($row['color_hex'])
             ? '#1F2937' : '#FFFFFF';
-        $row['category'] = $row['visibility'] === 'private' ? 'personal' : 'shared';
+        // Phân loại theo quan hệ thành viên, KHÔNG theo mức hiển thị (mức
+        // hiển thị chỉ là nhãn): cá nhân = mình làm chủ và chỉ có một mình;
+        // tôi chia sẻ = mình làm chủ và đã thêm người khác; được chia sẻ =
+        // người khác thêm mình vào thư viện của họ.
+        if ($row['role'] === 'owner' && $row['member_count'] <= 1) {
+            $row['category'] = 'personal';
+        } elseif ($row['role'] === 'owner') {
+            $row['category'] = 'mine_shared';
+        } else {
+            $row['category'] = 'shared';
+        }
         $row['storage_label'] = wa_format_mb($row['storage_bytes']);
         $row['updated']  = 'Cập nhật ' . wa_datetime((string) $row['created_at']);
         $row['tags']     = wa_library_tags($row['id']);
-        $row['starred']  = false;
         $row['broken_images'] = 0;
         $row['integrity'] = '100% nguyên vẹn';
 
         $rows[] = $row;
     }
+
+    // Đánh dấu yêu thích (bảng library_stars): tra cứu riêng để trang vẫn
+    // chạy khi bảng chưa được migrate (khi đó mọi thư viện đều chưa gắn sao).
+    $starredIds = [];
+    try {
+        $starStmt = db()->prepare('SELECT library_id FROM library_stars WHERE user_id = ?');
+        $starStmt->execute([(int) ($actor['id'] ?? 0)]);
+        $starredIds = array_map('intval', array_column($starStmt->fetchAll(), 'library_id'));
+    } catch (Throwable) {
+        $starredIds = [];
+    }
+    foreach ($rows as &$starRow) {
+        $starRow['starred'] = in_array($starRow['id'], $starredIds, true);
+    }
+    unset($starRow);
 
     return $rows;
 }
