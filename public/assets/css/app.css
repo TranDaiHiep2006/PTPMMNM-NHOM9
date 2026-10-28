@@ -535,6 +535,15 @@
   .role-picker { display: inline-block; }
   .role-picker__options { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
   .role-picker__options[hidden] { display: none; }
+  /* Combo tìm kiếm (lọc thẻ / tên miền ở trang Tìm kiếm): ô nhập + danh sách
+     xổ xuống lọc trực tiếp khi gõ, thay cho <select> thuần (quá dài khi nhiều
+     thẻ / nhiều tên miền). */
+  .combo { position: relative; }
+  .combo__list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30; max-height: 240px; overflow-y: auto; background: var(--wa-white); border: 1px solid var(--wa-border); border-radius: var(--wa-radius-md); box-shadow: var(--wa-shadow-1); padding: 4px; }
+  .combo__list[hidden] { display: none; }
+  .combo__option { display: block; width: 100%; text-align: left; background: none; border: 0; cursor: pointer; padding: 8px 10px; border-radius: var(--wa-radius-md); font-size: 13px; color: var(--wa-text); }
+  .combo__option:hover, .combo__option--active { background: var(--wa-surface-low); }
+  .combo__empty { padding: 8px 10px; }
   
   .toolbar {
     display: flex; flex-direction: column; gap: var(--wa-space-md);

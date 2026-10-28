@@ -105,23 +105,37 @@ require __DIR__ . '/../templates/header_app.php';
   </div>
 
   <div class="field">
-    <label for="tag">Lọc theo thẻ</label>
-    <select class="select" id="tag" name="tag">
-      <option value="">Tất cả thẻ</option>
-      <?php foreach ($allTags as $tag): ?>
-        <option value="<?= wa_e($tag) ?>" <?= $tagFilter === $tag ? 'selected' : '' ?>><?= wa_e($tag) ?></option>
-      <?php endforeach; ?>
-    </select>
+    <label for="tag-input">Lọc theo thẻ</label>
+    <div class="combo">
+      <input class="input combo__input" type="text" id="tag-input" name="tag"
+             value="<?= wa_e($tagFilter) ?>" placeholder="Tất cả thẻ"
+             autocomplete="off" role="combobox" aria-expanded="false" aria-controls="tag-list"
+             aria-label="Lọc theo thẻ, gõ để tìm">
+      <div class="combo__list" id="tag-list" role="listbox" hidden>
+        <button type="button" class="combo__option combo__option--all" data-value="">Tất cả thẻ</button>
+        <?php foreach ($allTags as $tag): ?>
+          <button type="button" class="combo__option" data-value="<?= wa_e($tag) ?>"><?= wa_e($tag) ?></button>
+        <?php endforeach; ?>
+        <div class="combo__empty t-label-sm t-muted" hidden>Không có thẻ nào khớp.</div>
+      </div>
+    </div>
   </div>
 
   <div class="field">
-    <label for="domain">Lọc theo tên miền nguồn</label>
-    <select class="select" id="domain" name="domain">
-      <option value="">Tất cả tên miền</option>
-      <?php foreach ($domains as $domain): ?>
-        <option value="<?= wa_e($domain) ?>" <?= $domainFilter === $domain ? 'selected' : '' ?>><?= wa_e($domain) ?></option>
-      <?php endforeach; ?>
-    </select>
+    <label for="domain-input">Lọc theo tên miền nguồn</label>
+    <div class="combo">
+      <input class="input combo__input" type="text" id="domain-input" name="domain"
+             value="<?= wa_e($domainFilter) ?>" placeholder="Tất cả tên miền"
+             autocomplete="off" role="combobox" aria-expanded="false" aria-controls="domain-list"
+             aria-label="Lọc theo tên miền nguồn, gõ để tìm">
+      <div class="combo__list" id="domain-list" role="listbox" hidden>
+        <button type="button" class="combo__option combo__option--all" data-value="">Tất cả tên miền</button>
+        <?php foreach ($domains as $domain): ?>
+          <button type="button" class="combo__option" data-value="<?= wa_e($domain) ?>"><?= wa_e($domain) ?></button>
+        <?php endforeach; ?>
+        <div class="combo__empty t-label-sm t-muted" hidden>Không có tên miền nào khớp.</div>
+      </div>
+    </div>
   </div>
 
   <?php if ($scopeLibrary !== null): ?>
@@ -244,5 +258,99 @@ require __DIR__ . '/../templates/header_app.php';
     </div>
   <?php endif; ?>
 </div>
+
+<script>
+  /* Ô lọc thẻ / tên miền ở trang Tìm kiếm: ô nhập + danh sách xổ xuống lọc
+     trực tiếp khi gõ (thay cho <select> thuần, quá dài khi nhiều thẻ / nhiều
+     tên miền). Bấm vào một lựa chọn thì ô nhận đúng giá trị đó; "Tất cả..."
+     thì xoá lọc. Không có JS thì ô nhập vẫn gửi đúng giá trị gõ tay. */
+  function wa_fold(text) {
+    return text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+  }
+  function wa_match(haystack, needle) {
+    if (haystack.indexOf(needle) !== -1) { return true; }
+    var j = 0;
+    for (var i = 0; i < haystack.length && j < needle.length; i++) {
+      if (haystack[i] === needle[j]) { j++; }
+    }
+    return j === needle.length;
+  }
+  function wa_init_combo(inputId, listId) {
+    var input = document.getElementById(inputId);
+    var list = document.getElementById(listId);
+    if (!input || !list) { return; }
+    var options = Array.prototype.slice.call(list.querySelectorAll('.combo__option'));
+    var empty = list.querySelector('.combo__empty');
+    var highlighted = -1;
+    function visibleOptions() {
+      return options.filter(function (opt) { return !opt.hidden; });
+    }
+    function setHighlight(index) {
+      var vis = visibleOptions();
+      options.forEach(function (opt) { opt.classList.remove('combo__option--active'); });
+      highlighted = index;
+      if (vis[index]) { vis[index].classList.add('combo__option--active'); }
+    }
+    function open() {
+      list.hidden = false;
+      input.setAttribute('aria-expanded', 'true');
+    }
+    function close() {
+      list.hidden = true;
+      input.setAttribute('aria-expanded', 'false');
+      setHighlight(-1);
+    }
+    function filter() {
+      var needle = wa_fold(input.value.trim());
+      var any = false;
+      options.forEach(function (opt) {
+        if (opt.classList.contains('combo__option--all')) { return; }
+        var match = needle === '' || wa_match(wa_fold(opt.getAttribute('data-value') || ''), needle);
+        opt.hidden = !match;
+        if (match) { any = true; }
+      });
+      if (empty) { empty.hidden = any; }
+      setHighlight(-1);
+    }
+    options.forEach(function (opt) {
+      opt.addEventListener('click', function () {
+        input.value = opt.getAttribute('data-value') || '';
+        filter();
+        close();
+        input.focus();
+      });
+    });
+    input.addEventListener('focus', function () { filter(); open(); });
+    input.addEventListener('click', function () { filter(); open(); });
+    input.addEventListener('input', function () { filter(); open(); });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { close(); return; }
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        open();
+        var vis = visibleOptions();
+        if (vis.length === 0) { return; }
+        var next = e.key === 'ArrowDown'
+          ? (highlighted + 1) % vis.length
+          : (highlighted - 1 + vis.length) % vis.length;
+        setHighlight(next);
+        return;
+      }
+      if (e.key === 'Enter') {
+        var vis = visibleOptions();
+        if (!list.hidden && vis[highlighted]) {
+          e.preventDefault();
+          vis[highlighted].click();
+        }
+      }
+    });
+    document.addEventListener('click', function (e) {
+      var combo = e.target.closest('.combo');
+      if (!combo || !combo.contains(input)) { close(); }
+    });
+  }
+  wa_init_combo('tag-input', 'tag-list');
+  wa_init_combo('domain-input', 'domain-list');
+</script>
 
 <?php require __DIR__ . '/../templates/footer_app.php'; ?>
