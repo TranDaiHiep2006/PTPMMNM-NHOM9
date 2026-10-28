@@ -127,7 +127,7 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
 <link rel="stylesheet" href="<?= wa_e(wa_asset('css/app.css')) ?>">
 <style>
     /* ---- Bố cục P-READ: đầu nguồn gốc, chuyển phiên bản, bảng ghi chú ---- */
-    .reader__col { max-width: 780px; }
+    .reader__col { max-width: 960px; }
 
     .wa-prov { border:1px solid var(--wa-border); border-radius:12px; background:#fff; overflow:hidden; margin-bottom:20px; }
     .wa-prov__head { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between;

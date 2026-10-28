@@ -314,9 +314,13 @@ function wa_search_snapshots(array $filters, ?array $actor = null): array
     }
 
     if ($tag !== '') {
-        $where[]             = 'EXISTS (SELECT 1 FROM `page_tags` pt JOIN `tags` t ON t.id = pt.tag_id
-                             WHERE pt.page_id = sp.id AND t.name = :tag_filter)';
-        $bind[':tag_filter'] = $tag;
+        // Khớp cả hai hình thức '#php' và 'php' để nhãn cũ lưu chưa có '#'
+        // vẫn lọc được khi giao diện hiển thị '#php' (và ngược lại).
+        $tagAlt = str_starts_with($tag, '#') ? substr($tag, 1) : ('#' . $tag);
+        $where[] = 'EXISTS (SELECT 1 FROM `page_tags` pt JOIN `tags` t ON t.id = pt.tag_id
+                             WHERE pt.page_id = sp.id AND t.name IN (:tag_filter, :tag_filter_alt))';
+        $bind[':tag_filter']     = $tag;
+        $bind[':tag_filter_alt'] = $tagAlt;
     }
 
     if ($domain !== '') {

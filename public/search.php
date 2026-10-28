@@ -25,6 +25,12 @@ require_login();
 
 $query        = trim((string) ($_GET['q'] ?? ''));
 $tagFilter    = trim((string) ($_GET['tag'] ?? ''));
+
+// Hiển thị và so khớp lựa chọn luôn ở dạng '#...' (gõ tay 'php' trên URL
+// vẫn chọn đúng mục '#php' trong danh sách lọc).
+if ($tagFilter !== '' && !str_starts_with($tagFilter, '#')) {
+    $tagFilter = '#' . $tagFilter;
+}
 $domainFilter = trim((string) ($_GET['domain'] ?? ''));
 
 // Truy vấn CHỈ trên chỉ mục đảo. Từ khoá rỗng (hoặc chỉ gõ dấu câu) thì hàm

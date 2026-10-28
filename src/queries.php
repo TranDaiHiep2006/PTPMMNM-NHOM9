@@ -370,6 +370,12 @@ function wa_libraries(?array $actor = null): array
 
         $row['visibility_label'] = $visLabels[(string) $row['visibility']] ?? $row['visibility'];
         $row['strip']    = (string) $row['color'];
+        // Màu tự chọn (hex): không có class strip, template dùng style
+        // inline; màu chữ trên nền hex tính theo độ sáng.
+        $row['color_hex'] = preg_match('/^#[0-9a-fA-F]{6}$/', (string) $row['color']) === 1
+            ? (string) $row['color'] : '';
+        $row['color_ink'] = $row['color_hex'] !== '' && wa_hex_is_light($row['color_hex'])
+            ? '#1F2937' : '#FFFFFF';
         $row['category'] = $row['visibility'] === 'private' ? 'personal' : 'shared';
         $row['storage_label'] = wa_format_mb($row['storage_bytes']);
         $row['updated']  = 'Cập nhật ' . wa_datetime((string) $row['created_at']);
@@ -406,7 +412,7 @@ function wa_library_tags(int $libraryId): array
     );
     $stmt->execute([$libraryId]);
 
-    return array_map(static fn (array $r): string => (string) $r['name'], $stmt->fetchAll());
+    return wa_display_tag_names(array_map(static fn (array $r): string => (string) $r['name'], $stmt->fetchAll()));
 }
 
 /**
@@ -542,13 +548,32 @@ function wa_library_visibility_options(): array
     ];
 }
 
+/**
+ * Hex #rrggbb có phải màu SÁNG không (để chọn màu chữ đặt lên trên nền đó).
+ * Công thức độ sáng tương đối đơn giản, đủ cho việc chọn chữ trắng/đen.
+ */
+function wa_hex_is_light(string $hex): bool
+{
+    $r = hexdec(substr($hex, 1, 2));
+    $g = hexdec(substr($hex, 3, 2));
+    $b = hexdec(substr($hex, 5, 2));
+
+    return (0.299 * $r + 0.587 * $g + 0.114 * $b) > 150;
+}
+
 /** @return array<int, array{key:string, label:string, color:string}> */
 function wa_library_color_options(): array
 {
+    // a/b/c giữ nguyên để thư viện cũ không đổi màu. Bộ chọn màu ở hộp
+    // thoại tạo thư viện chỉ gợi ý a/d/e/f + ô tự chọn; b/c vẫn hợp lệ
+    // khi dữ liệu cũ gửi lên.
     return [
         ['key' => 'a', 'label' => 'Xanh dương', 'color' => 'a'],
         ['key' => 'b', 'label' => 'Xanh ngọc',  'color' => 'b'],
         ['key' => 'c', 'label' => 'Xanh bạc hà', 'color' => 'c'],
+        ['key' => 'd', 'label' => 'Xanh lá',    'color' => 'd'],
+        ['key' => 'e', 'label' => 'Vàng',       'color' => 'e'],
+        ['key' => 'f', 'label' => 'Đỏ',         'color' => 'f'],
     ];
 }
 
@@ -563,6 +588,47 @@ function wa_library_icon_options(): array
         ['key' => 'science',        'label' => 'Khoa học'],
         ['key' => 'library_books',  'label' => 'Giáo sách'],
         ['key' => 'public',         'label' => 'Công khai'],
+        ['key' => 'menu_book',      'label' => 'Sách mở'],
+        ['key' => 'article',        'label' => 'Bài viết'],
+        ['key' => 'newspaper',      'label' => 'Báo chí'],
+        ['key' => 'code',           'label' => 'Lập trình'],
+        ['key' => 'history',        'label' => 'Lịch sử'],
+        ['key' => 'lightbulb',      'label' => 'Ý tưởng'],
+        ['key' => 'star',           'label' => 'Yêu thích'],
+        ['key' => 'palette',        'label' => 'Mỹ thuật'],
+        ['key' => 'music_note',     'label' => 'Âm nhạc'],
+        ['key' => 'movie',          'label' => 'Điện ảnh'],
+        ['key' => 'flight',         'label' => 'Du lịch'],
+        ['key' => 'book',           'label' => 'Sách'],
+        ['key' => 'bookmark',       'label' => 'Đánh dấu'],
+        ['key' => 'favorite',       'label' => 'Tim'],
+        ['key' => 'home',           'label' => 'Trang chủ'],
+        ['key' => 'work',           'label' => 'Công việc'],
+        ['key' => 'biotech',        'label' => 'Công nghệ sinh học'],
+        ['key' => 'psychology',     'label' => 'Tâm lý'],
+        ['key' => 'language',       'label' => 'Ngôn ngữ'],
+        ['key' => 'sports_esports', 'label' => 'Trò chơi'],
+        ['key' => 'restaurant',     'label' => 'Ẩm thực'],
+        ['key' => 'auto_stories',   'label' => 'Truyện'],
+        ['key' => 'description',    'label' => 'Tài liệu'],
+        ['key' => 'calendar_month', 'label' => 'Lịch'],
+        ['key' => 'build',          'label' => 'Công cụ'],
+        ['key' => 'eco',            'label' => 'Môi trường'],
+        ['key' => 'sports_soccer',  'label' => 'Bóng đá'],
+        ['key' => 'camera_alt',     'label' => 'Nhiếp ảnh'],
+        ['key' => 'brush',          'label' => 'Hội họa'],
+        ['key' => 'computer',       'label' => 'Máy tính'],
+        ['key' => 'smartphone',     'label' => 'Di động'],
+        ['key' => 'health_and_safety', 'label' => 'Sức khỏe'],
+        ['key' => 'business_center', 'label' => 'Kinh doanh'],
+        ['key' => 'gavel',          'label' => 'Pháp luật'],
+        ['key' => 'landscape',      'label' => 'Phong cảnh'],
+        ['key' => 'rocket_launch',  'label' => 'Vũ trụ'],
+        ['key' => 'anchor',         'label' => 'Hàng hải'],
+        ['key' => 'pets',           'label' => 'Thú cưng'],
+        ['key' => 'cake',           'label' => 'Bánh ngọt'],
+        ['key' => 'fitness_center', 'label' => 'Thể hình'],
+        ['key' => 'theater_comedy', 'label' => 'Sân khấu'],
     ];
 }
 
@@ -625,7 +691,9 @@ function wa_library_create(
     $visibility = in_array($visibility, ['private', 'shared', 'public'], true) ? $visibility : 'private';
     $colors     = array_column(wa_library_color_options(), 'key');
     $icons      = array_column(wa_library_icon_options(), 'key');
-    $color      = in_array($color, $colors, true) ? $color : 'a';
+    // Màu hợp lệ: 1 trong các key gợi ý, HOẶC hex #rrggbb từ ô tự chọn.
+    $color      = (in_array($color, $colors, true) || preg_match('/^#[0-9a-fA-F]{6}$/', $color) === 1)
+        ? $color : 'a';
     $icon       = in_array($icon, $icons, true) ? $icon : 'folder_special';
 
     $description = trim($description);
@@ -1065,20 +1133,22 @@ function wa_member_remove(int $libraryId, int $userId, ?array $actor = null): ar
     ============================================================================= */
 
 /**
- * Chuẩn hoá tên nhãn theo quy ước '#' của dữ liệu sẵn có.
+ * Chuẩn hoá tên nhãn: mọi nhãn đều mang tiền tố '#'.
  *
- * Dữ liệu mẫu dùng tiền tố '#' cho thẻ hệ thống ('#PHP', '#MySQL'...) và
- * cả nhãn nhập tự do ('kiem thu', 'snapshot'). Hàm này:
- *   - gộp khoảng trắng, cắt 64 ký tự (khớp VARCHAR(64) của bảng tags),
- *   - bỏ ký tự phân tách ( , ; ) ở hai đầu,
- *   - GIỮ NGUYÊN tiền tố '#' nếu người dùng gõ có (đúng quy ước của seed).
+ * Người dùng chỉ cần gõ chữ (vd 'php'), dấu '#' tự thêm khi lưu — gõ sẵn '#'
+ * cũng được, không bị thêm hai lần. Hàm này:
+ *   - gộp khoảng trắng, bỏ ký tự phân tách ( , ; ) ở hai đầu,
+ *   - bỏ qua tên rỗng hoặc chỉ có một dấu '#',
+ *   - thêm '#' vào đầu nếu chưa có, rồi cắt 64 ký tự (khớp VARCHAR(64)
+ *     của bảng tags, tính cả dấu '#').
  *
- * Quy ước: tiền tố '#' là DẤU HIỆU, không phải ký tự trang trí — nên tên đã có
- * '#' và tên không có '#' là HAI nhãn khác nhau. Người dùng muốn gộp thì gõ
- * đúng một hình thức. Ô nhập của giao diện luôn hiển thị đúng tên đang lưu
- * trong CSDL nên không bao giờ gây nhầm lẫn.
+ * Quy ước (đổi từ 27/10, thay quy ước cũ coi '#php' và 'php' là hai nhãn
+ * khác nhau): mọi nhãn lưu và hiển thị đều bắt đầu bằng '#', nên không còn
+ * tình trạng cái có '#' cái không. Nhãn cũ lưu chưa có '#' vẫn hiển thị
+ * kèm '#' nhờ wa_display_tag_names(), và sẽ thành '#...' thật trong CSDL
+ * ở lần lưu nhãn tiếp theo của trang đó.
  *
- * @return array<string,string> tên đã chuẩn hoá => tên gốc đã chuẩn hoá (loại trùng)
+ * @return array<string,string> khoá đã gộp => tên nhãn đã chuẩn hoá (loại trùng)
  */
 function wa_normalize_tag_names(array $names): array
 {
@@ -1092,7 +1162,17 @@ function wa_normalize_tag_names(array $names): array
             continue;
         }
 
-        // Cắt còn 64 ký tự (khớp VARCHAR(64) của bảng `tags`).
+        // Dấu '#' tự thêm: gõ 'php' thành '#php'; gõ sẵn '#' thì giữ nguyên.
+        // Tên chỉ có một dấu '#' thì không phải nhãn thật nên bỏ qua.
+        if ($name === '#') {
+            continue;
+        }
+
+        if (!str_starts_with($name, '#')) {
+            $name = '#' . $name;
+        }
+
+        // Cắt còn 64 ký tự (khớp VARCHAR(64) của bảng `tags`, tính cả '#').
         if (mb_strlen($name) > 64) {
             $name = rtrim(mb_substr($name, 0, 64, 'UTF-8'));
         }
@@ -1111,6 +1191,43 @@ function wa_normalize_tag_names(array $names): array
     }
 
     return $result;
+}
+
+/**
+ * Tên nhãn để HIỂN THỊ: bảo đảm mọi nhãn đều có tiền tố '#'.
+ *
+ * Các hàm đọc (wa_page_tags, wa_library_tags, wa_all_tags) dùng hàm này để
+ * nhãn cũ lưu chưa có '#' vẫn hiển thị đồng bộ '#...' với nhãn mới, không
+ * cần chạy migration trên CSDL. Loại trùng theo tên đã bỏ dấu '#' và gộp
+ * dấu/hoa-thường, để một trang vừa có 'php' vừa có '#php' không hiện
+ * '#php' hai lần.
+ *
+ * @param string[] $names
+ * @return string[]
+ */
+function wa_display_tag_names(array $names): array
+{
+    $result = [];
+
+    foreach ($names as $name) {
+        $name = trim((string) $name);
+
+        if ($name === '' || $name === '#') {
+            continue;
+        }
+
+        if (!str_starts_with($name, '#')) {
+            $name = '#' . $name;
+        }
+
+        $key = wa_search_fold(ltrim($name, '#'));
+
+        if (!isset($result[$key])) {
+            $result[$key] = $name;
+        }
+    }
+
+    return array_values($result);
 }
 
 /**
@@ -1376,6 +1493,9 @@ function wa_thumb_preview(string $domain, int $versionNo): array
 /**
  * Nhãn của một trang đã lưu.
  *
+ * Tên trả về luôn kèm tiền tố '#' (xem wa_display_tag_names) nên nhãn cũ
+ * lưu chưa có '#' vẫn hiển thị đồng bộ với nhãn mới.
+ *
  * @return array<int, string>
  */
 function wa_page_tags(int $pageId): array
@@ -1389,7 +1509,7 @@ function wa_page_tags(int $pageId): array
     );
     $stmt->execute([$pageId]);
 
-    return array_map(static fn (array $r): string => (string) $r['name'], $stmt->fetchAll());
+    return wa_display_tag_names(array_map(static fn (array $r): string => (string) $r['name'], $stmt->fetchAll()));
 }
 
 /**
@@ -1524,7 +1644,7 @@ function wa_all_tags(): array
 {
     $stmt = db()->query('SELECT name FROM `tags` ORDER BY id');
 
-    return array_map(static fn (array $r): string => (string) $r['name'], $stmt->fetchAll());
+    return wa_display_tag_names(array_map(static fn (array $r): string => (string) $r['name'], $stmt->fetchAll()));
 }
 
 /* =============================================================================
@@ -1600,6 +1720,10 @@ function wa_all_libraries(): array
         $row['visibility_label'] = $visLabels[(string) $row['visibility']] ?? $row['visibility'];
         $row['visibility_code']  = (string) $row['visibility'];
         $row['strip']  = (string) $row['color'];
+        $row['color_hex'] = preg_match('/^#[0-9a-fA-F]{6}$/', (string) $row['color']) === 1
+            ? (string) $row['color'] : '';
+        $row['color_ink'] = $row['color_hex'] !== '' && wa_hex_is_light($row['color_hex'])
+            ? '#1F2937' : '#FFFFFF';
         $row['storage_label'] = wa_format_mb($row['storage_bytes']);
         $rows[] = $row;
     }
@@ -2009,17 +2133,14 @@ function wa_insert_assets(int $snapshotId, array $images): void
 /**
  * Gắn nhãn cho một trang đã lưu (tạo nhãn nếu chưa có).
  *
+ * Tên nhãn đi qua chuẩn hoá chung (wa_normalize_tag_names) nên luôn kèm
+ * tiền tố '#' — nhãn lưu từ form 'Lưu trang' đồng bộ với nhãn sửa trên thẻ.
+ *
  * @param string[] $tagNames
  */
 function wa_apply_page_tags(int $pageId, array $tagNames): void
 {
-    $names = [];
-    foreach ($tagNames as $name) {
-        $name = trim(preg_replace('/\s+/u', ' ', (string) $name) ?? '');
-        if ($name !== '' && mb_strlen($name) <= 64) {
-            $names[$name] = $name;
-        }
-    }
+    $names = wa_normalize_tag_names($tagNames);
 
     if ($names === []) {
         return;

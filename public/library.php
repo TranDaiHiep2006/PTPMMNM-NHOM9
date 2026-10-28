@@ -69,10 +69,11 @@ $members  = wa_library_members($libraryId);
  * P-LIB / Deliverable 3 — chuẩn bị dữ liệu cho ô SỬA NHÃN trên từng thẻ bài viết.
  * Mỗi bài mang theo:
  *   can_edit     — người xem hiện tại có quyền sửa nhãn bài này không (SQL tự ép).
- *   tag_input    — chuỗi nhãn sẵn để nhét vào ô nhập, phân tách bằng dấu phẩy,
- *                  GIỮ NGUYÊN quy ước '#' của hệ thống (tức #tên-nhãn).
+ *   tag_input    — chuỗi nhãn sẵn để nhét vào ô nhập, phân tách bằng dấu phẩy.
  *   tags_display — danh sách nhãn để hiển thị read-only cho người xem.
- * `wa_page_tags()` đã trả về tên kèm dấu '#' sẵn (xem hàm đó).
+ * Quy ước nhãn (đổi từ 27/10): người dùng chỉ cần gõ chữ, dấu '#' tự thêm
+ * khi lưu và khi hiển thị (`wa_page_tags()` trả tên kèm '#' kể cả nhãn cũ
+ * lưu chưa có '#'), nên không còn tình trạng cái có '#' cái không.
  * ------------------------------------------------------------------------- */
 foreach ($articles as &$article) {
     $pageId = (int) $article['id'];
@@ -531,9 +532,12 @@ require __DIR__ . '/../templates/header_app.php';
       <span class="ms">search</span>
       <input class="input input--flush input--sm" type="search" placeholder="Lọc trong thư viện này..." aria-label="Lọc trong thư viện này">
     </div>
-    <button class="btn btn--outline" type="button" title="Sắp xếp" aria-label="Sắp xếp">
-      <span class="ms ms-18">sort</span>
-    </button>
+    <div class="view-toggle" role="group" aria-label="Kiểu hiển thị">
+      <button type="button" data-view="grid" class="is-active" aria-label="Hiển thị dạng lưới"><span class="ms ms-16">grid_view</span></button>
+      <button type="button" data-view="list" aria-label="Hiển thị dạng danh sách"><span class="ms ms-16">format_list_bulleted</span></button>
+    </div>
+    <!-- FIX sort-thua: nút Sắp xếp thừa đã gỡ (chưa từng gắn chức năng),
+         chỉ còn ô lọc + nút chuyển lưới/danh sách. -->
   </div>
 </div>
 
@@ -567,8 +571,9 @@ require __DIR__ . '/../templates/header_app.php';
 
           <!-- ===== P-LIB / Deliverable 3: SỬA NHÃN TẠI CHỖ =====
                Người có quyền sửa (chủ sở hữu / biên tập viên / quản trị viên) thấy
-               ô nhập nhãn phân tách bằng dấu phẩy; người xem chỉ xem nhãn ở dạng
-               liên kết tới Tìm kiếm đã lọc. Cả hai đều lấy dữ liệu từ CSDL. -->
+               hàng chip nhãn; bấm vào hàng chip để mở ô nhập (bấm Hủy hoặc Esc
+               để đóng). Người xem chỉ xem nhãn ở dạng liên kết tới Tìm kiếm
+               đã lọc. Cả hai đều lấy dữ liệu từ CSDL. -->
           <div class="article-card__tags">
             <?php if ($article['can_edit']): ?>
               <form method="post" action="<?= wa_e(wa_url('library_action.php')) ?>" class="article-tags-form">
@@ -576,26 +581,38 @@ require __DIR__ . '/../templates/header_app.php';
                 <input type="hidden" name="action" value="tags">
                 <input type="hidden" name="library_id" value="<?= $libraryId ?>">
                 <input type="hidden" name="page_id" value="<?= (int) $article['id'] ?>">
-                <label class="article-tags-form__label" for="tags-<?= (int) $article['id'] ?>">
-                  <span class="ms ms-14">sell</span> Nhãn
-                  <span class="t-muted" style="font-weight:400">— cách nhau bằng dấu phẩy</span>
-                </label>
-                <div class="article-tags-form__row">
-                  <input class="input input--sm" id="tags-<?= (int) $article['id'] ?>" type="text" name="tags"
-                         value="<?= wa_e($article['tag_input']) ?>" maxlength="500"
-                         placeholder="#nhãn-1, #nhãn-2, ..."
-                         style="flex:1;min-width:0">
-                  <button class="btn btn--primary btn--sm" type="submit">
-                    <span class="ms ms-14">save</span> Lưu nhãn
-                  </button>
-                </div>
-                <?php if ($article['tag_count'] > 0): ?>
-                  <div class="article-tags-form__chips">
+                <!-- Click-to-edit: bình thường chỉ hiện MỘT hàng chip như khi xem;
+                     bấm vào hàng chip để mở ô nhập, bấm Hủy hoặc Esc để đóng. -->
+                <button type="button" class="article-tags-form__chips article-tags-display"
+                        title="Bấm để sửa nhãn">
+                  <?php if ($article['tag_count'] > 0): ?>
                     <?php foreach ($article['tags_display'] as $tag): ?>
                       <span class="tag tag--btn"><?= wa_e($tag) ?></span>
                     <?php endforeach; ?>
+                    <span class="ms ms-14 t-muted">edit</span>
+                  <?php else: ?>
+                    <span class="ms ms-14 t-muted">add</span>
+                    <span class="t-label-sm t-muted">Thêm nhãn</span>
+                  <?php endif; ?>
+                </button>
+                <div class="article-tags-editor">
+                  <label class="article-tags-form__label" for="tags-<?= (int) $article['id'] ?>">
+                    <span class="ms ms-14">sell</span> Nhãn
+                    <span class="t-muted" style="font-weight:400">— cách nhau bằng dấu phẩy, dấu # tự thêm</span>
+                  </label>
+                  <div class="article-tags-form__row">
+                    <input class="input input--sm" id="tags-<?= (int) $article['id'] ?>" type="text" name="tags"
+                           value="<?= wa_e($article['tag_input']) ?>" maxlength="500"
+                           placeholder="nhãn-1, nhãn-2, ..."
+                           style="flex:1;min-width:0">
+                    <button class="btn btn--primary btn--sm" type="submit">
+                      <span class="ms ms-14">save</span> Lưu nhãn
+                    </button>
+                    <button class="btn btn--outline btn--sm article-tags-cancel" type="button">
+                      <span class="ms ms-14">close</span> Hủy
+                    </button>
                   </div>
-                <?php endif; ?>
+                </div>
               </form>
             <?php else: ?>
               <?php foreach ($article['tags_display'] as $tag): ?>
@@ -906,6 +923,81 @@ require __DIR__ . '/../templates/header_app.php';
       'Mọi bài đã lưu, nhãn và thư mục ảnh trên đĩa sẽ bị xoá vĩnh viễn.'
     );
   }
+</script>
+
+<script>
+  /* Nhãn click-to-edit (P-LIB): bình thường chỉ hiện hàng chip; bấm vào
+     hàng chip để mở ô nhập, bấm Hủy hoặc Esc để đóng lại (Hủy trả ô nhập
+     về đúng nội dung ban đầu). Không có JS thì ô nhập vẫn hiện như cũ nên
+     vẫn sửa được nhãn. */
+  (function () {
+    document.querySelectorAll('.article-tags-form').forEach(function (form) {
+      var display = form.querySelector('.article-tags-display');
+      var editor = form.querySelector('.article-tags-editor');
+      var cancel = form.querySelector('.article-tags-cancel');
+      var input = form.querySelector('input[name="tags"]');
+
+      if (!display || !editor || !input) {
+        return;
+      }
+
+      var original = input.value;
+      editor.hidden = true;
+
+      display.addEventListener('click', function () {
+        display.hidden = true;
+        editor.hidden = false;
+        input.focus();
+        try {
+          input.setSelectionRange(input.value.length, input.value.length);
+        } catch (e) {
+          /* Bỏ qua: ô nhập vẫn dùng được bình thường. */
+        }
+      });
+
+      function closeEditor() {
+        input.value = original;
+        editor.hidden = true;
+        display.hidden = false;
+        display.focus();
+      }
+
+      if (cancel) {
+        cancel.addEventListener('click', closeEditor);
+      }
+
+      input.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+          closeEditor();
+        }
+      });
+    });
+  })();
+</script>
+
+<script>
+  // Chuyển đổi kiểu hiển thị lưới / danh sách cho thẻ bài viết, nhớ lựa chọn đã chọn.
+  (function () {
+    var grid = document.querySelector('.article-grid');
+    var buttons = document.querySelectorAll('.view-toggle button[data-view]');
+    if (!grid || buttons.length === 0) { return; }
+    function apply(view) {
+      var list = view === 'list';
+      grid.classList.toggle('article-grid--list', list);
+      buttons.forEach(function (btn) {
+        btn.classList.toggle('is-active', btn.getAttribute('data-view') === view);
+      });
+      try { localStorage.setItem('wa-article-view', view); } catch (e) {}
+    }
+    buttons.forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        apply(btn.getAttribute('data-view'));
+      });
+    });
+    var saved = null;
+    try { saved = localStorage.getItem('wa-article-view'); } catch (e) {}
+    if (saved === 'list' || saved === 'grid') { apply(saved); }
+  })();
 </script>
 
 <?php require __DIR__ . '/../templates/footer_app.php'; ?>
