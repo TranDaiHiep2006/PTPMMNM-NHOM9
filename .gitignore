@@ -30,3 +30,8 @@ desktop.ini
 .idea/
 .vscode/
 *.swp
+
+# Tài liệu làm việc nội bộ của agent/developer (prompt & context) — KHÔNG commit,
+# chỉ dùng cục bộ.
+/prompt.md
+/PROJECT_CONTEXT.md
