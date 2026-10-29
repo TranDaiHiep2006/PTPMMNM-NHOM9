@@ -17,6 +17,9 @@ không Composer, không bước build.
 | **Tìm kiếm tự xây** | chỉ mục đảo do dự án tự dựng — **không** `LIKE`, **không** FULLTEXT; ngữ nghĩa AND, bỏ dấu tiếng Việt |
 | **Thư viện & thành viên** | tạo/đổi tên/xoá thư viện, thêm–đổi vai trò–gỡ thành viên, nhãn theo từng bài |
 | **Xuất bản lưu** | tải về một tệp HTML **độc lập** (ảnh nhúng base64), mở được ngoại tuyến |
+| **Gắn sao thư viện** | mỗi người dùng gắn sao thư viện hay dùng; thư viện đã sao hiện trước trong danh sách |
+| **Xoá bài / phiên bản** | xoá cả bài, xoá từng phiên bản, đổi tên phiên bản (tên lưu ở cột `snapshots.label`) |
+| **Quản trị chi tiết** | sửa/khoá tài khoản, xem chi tiết người dùng, sửa/xoá thư viện, sửa/xoá tên miền, duyệt/từ chối yêu cầu duyệt tên miền |
 | **Phân quyền** | khách → login; đã đăng nhập nhưng ngoài thư viện → **403 tiếng Việt**; không có quyền sửa → bị từ chối ngay trong SQL |
 
 Dữ liệu nằm trong **MySQL** (database `webarchive`). Mọi thao tác ghi đi qua **một**
@@ -46,7 +49,7 @@ php scripts/run_tests.php     # 6 bài kiểm thử bắt buộc, tự bật má
 ### 0.1 Tên đề tài
 
 > **WebArchive — Lưu trang Web & đọc lại ngoại tuyến**
-> Đề tài số **16** của môn **Lập trình** — Hệ thống lưu trữ nội dung trang web
+> Đề tài số **16** của môn **Phát triển phần mềm mã nguồn mở** — Hệ thống lưu trữ nội dung trang web
 > theo thư viện, có phiên bản, tìm kiếm và phân quyền thành viên.
 
 Tên đề tài trong `README.md` này và trong mã nguồn là **"WebArchive — Lưu trang Web &
@@ -60,11 +63,11 @@ Năm chức năng nghiệp vụ của đề tài số 16 và **chỗ cài đặt
 
 | # | Chức năng của đề tài | Mã nguồn cài đặt (tệp → hàm / route) |
 |---|----------------------|------------------------------------------|
-| 1 | **Thư viện, nhãn, phân quyền**; chỉ URL thuộc allowlist mới được lưu | `src/queries.php` → `wa_library_create()` (dòng 607), `wa_library_update()` (698), `wa_library_delete()` (807), `wa_member_add()` (936), `wa_member_update_role()` (1002), `wa_member_remove()` (1040); `public/library_action.php` (bộ điều khiển POST: `create`/`update`/`delete`/`member_add`/`member_role`/`member_remove`/`tags`); `src/capture.php` → `wa_capture_is_allowlisted()` (dòng 225 — kiểm tra allowlist **trước mọi** request); `public/admin/allowlist.php` (bảng `allowlist_domains`) |
-| 2 | **Tải HTML + bóc tách tiêu đề/nội dung, phân biệt lỗi** | `src/capture.php` → `capture_url()` (dòng 987), `wa_capture_http_get()` (dòng 273, tự đi tối đa 5 redirect và **kiểm tra lại allowlist ở từng đích**), `wa_capture_extract_title()` (587), `wa_capture_find_content_node()` (656); mã lỗi `error_404` / `error_timeout` / `error_blocked` / `error_no_content` / `error_http` / `error_invalid_url`; `src/queries.php` → `wa_store_page_capture()` (dòng 2103) ghi bản ghi lỗi với `fetch_status <> 'success'` |
-| 3 | **Bản đọc lại sạch, ảnh lưu cục bộ** | `src/capture.php` → `wa_capture_sanitize()` (dòng 779, whitelist thẻ/thuộc tính), `wa_capture_localize_images()` (1277 — tải về `public/uploads/snapshots/<id>/<sha256>.<ext>`, đổi `src` thành đường dẫn cục bộ), `wa_capture_assert_clean()` (945); `src/queries.php` → `wa_insert_assets()` (dòng 1987); `public/reader.php` (trình đọc nền giấy ngà) |
-| 4 | **Tìm kiếm tự xây trên nội dung đã lưu**, trả đoạn trích, gắn đúng phiên bản | `src/search.php` → `wa_search_index_snapshot()` (dòng 164), `wa_search_snapshots()` (dòng 258, ngữ nghĩa AND, `score = 3×count_title + count_body`, lọc theo **thẻ** và **tên miền nguồn**); `public/search.php` (route GET `q`/`tag`/`domain`); bảng `search_terms` (`database/schema.sql` dòng 164) |
-| 5 | **Tải lại (refetch) + ghi chú + xuất kho có phân quyền** | `public/refetch.php` (POST, gọi CHUNG `wa_store_page_capture()`); `public/note.php` (POST, ghi chú theo từng phiên bản); `public/export.php` (GET `id`, `wa_export_build_document()` — `src/queries.php` dòng 2935 — nhúng ảnh base64 data URI); `src/queries.php` → `wa_page_versions()` (dòng 2247, chỉ lấy `fetch_status = 'success'`) |
+| 1 | **Thư viện, nhãn, phân quyền**; chỉ URL thuộc allowlist mới được lưu | `src/queries.php` → `wa_library_create()` (dòng 714), `wa_library_update()` (807), `wa_library_delete()` (916), `wa_member_add()` (1058), `wa_member_update_role()` (1124), `wa_member_remove()` (1162); `public/library_action.php` (bộ điều khiển POST: `create`/`update`/`delete`/`member_add`/`member_role`/`member_remove`/`tags`/`star`/`page_delete`/`version_delete`/`version_rename`); `src/capture.php` → `wa_capture_is_allowlisted()` (dòng 225 — kiểm tra allowlist **trước mọi** request); `public/admin/allowlist.php` (bảng `allowlist_domains`); quản trị xoá thư viện qua `public/admin/admin_action.php` (đường `asAdmin` của `wa_library_delete()`) |
+| 2 | **Tải HTML + bóc tách tiêu đề/nội dung, phân biệt lỗi** | `src/capture.php` → `capture_url()` (dòng 987), `wa_capture_http_get()` (dòng 273, tự đi tối đa 5 redirect và **kiểm tra lại allowlist ở từng đích**), `wa_capture_extract_title()` (587), `wa_capture_find_content_node()` (656); mã lỗi `error_404` / `error_timeout` / `error_blocked` / `error_no_content` / `error_http` / `error_invalid_url`; `src/queries.php` → `wa_store_page_capture()` (dòng 2478) ghi bản ghi lỗi với `fetch_status <> 'success'` |
+| 3 | **Bản đọc lại sạch, ảnh lưu cục bộ** | `src/capture.php` → `wa_capture_sanitize()` (dòng 779, whitelist thẻ/thuộc tính), `wa_capture_localize_images()` (1277 — tải về `public/uploads/snapshots/<id>/<sha256>.<ext>`, đổi `src` thành đường dẫn cục bộ), `wa_capture_assert_clean()` (945); `src/queries.php` → `wa_insert_assets()` (dòng 2365); `public/reader.php` (trình đọc nền giấy ngà) |
+| 4 | **Tìm kiếm tự xây trên nội dung đã lưu**, trả đoạn trích, gắn đúng phiên bản | `src/search.php` → `wa_search_index_snapshot()` (dòng 164), `wa_search_snapshots()` (dòng 258, ngữ nghĩa AND, `score = 3×count_title + count_body`, lọc theo **thẻ** và **tên miền nguồn**); `public/search.php` (route GET `q`/`tag`/`domain`); bảng `search_terms` (`database/schema.sql` dòng 183) |
+| 5 | **Tải lại (refetch) + ghi chú + xuất kho có phân quyền** | `public/refetch.php` (POST, gọi CHUNG `wa_store_page_capture()`); `public/note.php` (POST, ghi chú theo từng phiên bản); `public/export.php` (GET `id`, `wa_export_build_document()` — `src/queries.php` dòng 2935 — nhúng ảnh base64 data URI); `src/queries.php` → `wa_page_versions()` (dòng 2622, chỉ lấy `fetch_status = 'success'`) |
 
 **Hai yêu cầu kỹ thuật cốt lõi:**
 
@@ -96,10 +99,10 @@ Năm chức năng nghiệp vụ của đề tài số 16 và **chỗ cài đặt
 | Sanitizer HTML whitelist (loại `script`/`iframe`/`onclick`/style inline) | `src/capture.php` → `wa_capture_sanitize()` (779), `wa_capture_assert_clean()` (945) |
 | Bản đọc lại sạch + nối đường dẫn ảnh cục bộ | `src/capture.php` → `wa_capture_localize_images()` (1277) |
 | Chỉ mục đảo tìm kiếm (tokenizer, bỏ dấu tiếng Việt, AND, xếp hạng, đoạn trích `<mark>`) | `src/search.php` — **không** `LIKE`, **không** FULLTEXT |
-| Quản lý phiên bản (mỗi lần lưu là một `version_no` riêng) | `src/queries.php` → `wa_store_page_capture()`, `wa_snapshot_versions()` |
+| Quản lý phiên bản (mỗi lần lưu là một `version_no` riêng) | `src/queries.php` → `wa_store_page_capture()` (dòng 2478), `wa_page_versions()` (dòng 2622) |
 | Ghi chú theo từng phiên bản (ép quyền sở hữu bằng `user_id` trong SQL) | `public/note.php`, `src/queries.php` |
-| Phân quyền nhiều vai trò (owner / editor / viewer / admin) | `src/queries.php` → `wa_can_read_library()` (2533), `wa_can_write_library()` (1833), `wa_can_manage_library()` (575), `wa_library_access_sql()` (140) |
-| Quản lý thư viện / thành viên / nhãn | `src/queries.php` (`wa_library_create/update/delete`, `wa_member_add/update_role/remove`, `wa_page_tags_replace()` dòng 1130), `public/library_action.php` |
+| Phân quyền nhiều vai trò (owner / editor / viewer / admin) | `src/queries.php` → `wa_can_read_library()` (2986), `wa_can_write_library()` (2211), `wa_can_manage_library()` (682), `wa_library_access_sql()` (140) |
+| Quản lý thư viện / thành viên / nhãn | `src/queries.php` (`wa_library_create/update/delete`, `wa_member_add/update_role/remove`, `wa_page_tags_replace()` dòng 1309), `public/library_action.php` |
 | Xuất bản lưu HTML độc lập (nhúng base64, kiểm tra bằng DOMXPath) | `src/queries.php` → `wa_export_build_document()`, `wa_export_inline_images()`, `wa_export_html_is_standalone()` |
 | Chống giả mạo: CSRF (`random_bytes()` + `hash_equals()`), escape output | `src/bootstrap.php`, `src/auth.php` |
 | Bộ kiểm thử tự động T1–T6 (tự bật hai máy chủ riêng, HTTP thật) | `scripts/run_tests.php` |
@@ -143,7 +146,7 @@ Bật các extension PHP cần thiết trong `php.ini`: `mbstring`, `pdo_mysql`,
 Mở **PowerShell** tại thư mục gốc dự án và đặt thông tin quản trị MySQL:
 
 ```powershell
-$env:WA_ADMIN_USER = '<tai khoan MySQL quan tri>'
+$env:WA_ADMIN_USER = 'root'
 $env:WA_ADMIN_PASS = '<mat khau MySQL cua ban>'
 php scripts/setup_db.php
 ```
@@ -209,10 +212,11 @@ khoá, `linh.pham@demo.vn`) dùng để minh hoạ màn hình quản trị.
 | Đăng xuất | `/logout.php` | Đã đăng nhập |
 | Thư viện của tôi | `/libraries.php` | Đăng nhập |
 | Chi tiết thư viện | `/library.php?slug=cntt-lap-trinh` | Đăng nhập |
-| Quản lý thư viện (POST) | `/library_action.php` | Chủ sở hữu / biên tập viên / quản trị (chỉ POST) |
-| Lưu trang Web | `/save.php` | Chủ sở hữu / biên tập viên |
+| Quản lý thư viện (POST) | `/library_action.php` | Đăng nhập (chỉ POST; phần lớn thao tác yêu cầu quyền quản lý) |
+| Lưu trang Web | `/save.php` | Đăng nhập + quyền ghi thư viện (chủ sở hữu / biên tập viên / quản trị) |
 | Tải lại phiên bản | `/refetch.php` | Chủ sở hữu / biên tập viên (chỉ POST) |
 | Ghi chú theo phiên bản | `/note.php` | Đăng nhập (chỉ POST) |
+| Gửi yêu cầu duyệt tên miền | `/domain_request.php` | Đăng nhập (chỉ POST) |
 | Trình đọc ngoại tuyến | `/reader.php?id=8943` | Đăng nhập + thành viên thư viện |
 | **Xuất bản lưu (HTML độc lập)** | `/export.php?id=8943` | Đăng nhập + thành viên thư viện |
 | Tìm kiếm nội dung | `/search.php?q=snapshot` | Đăng nhập |
@@ -220,6 +224,7 @@ khoá, `linh.pham@demo.vn`) dùng để minh hoạ màn hình quản trị.
 | Người dùng | `/admin/users.php` | **Quản trị** |
 | Tên miền được duyệt | `/admin/allowlist.php` | **Quản trị** |
 | Tất cả thư viện | `/admin/libraries.php` | **Quản trị** |
+| Chi tiết người dùng | `/admin/user_detail.php` | **Quản trị** |
 
 ---
 
@@ -228,7 +233,7 @@ khoá, `linh.pham@demo.vn`) dùng để minh hoạ màn hình quản trị.
 ```
 prompt.md                      Đặc tả giai đoạn này
 PROJECT_CONTEXT.md             Tóm tắt đặc tả, bản đồ trang, cách các phase sau cắm vào
-database/schema.sql            Lược đồ MySQL (11 bảng, InnoDB, utf8mb4, khoá ngoại)
+database/schema.sql            Lược đồ MySQL (13 bảng, InnoDB, utf8mb4, khoá ngoại)
 database/seed.sql              Dữ liệu mẫu (INSERT) — chạy lại được nhiều lần
 scripts/setup_db.php           Cài đặt CSDL + tài khoản riêng + nạp seed + tạo tệp tài nguyên cục bộ (CLI, idempotent)
 scripts/migrate_search.php     Tạo bảng chỉ mục `search_terms` (CLI, idempotent, tài khoản ứng dụng)
@@ -236,25 +241,33 @@ scripts/reindex_search.php     Lập lại toàn bộ chỉ mục tìm kiếm (C
 scripts/make_sample_images.php Sinh 5 tệp PNG nhỏ hợp lệ cho bộ trang mẫu (không cần GD)
 scripts/seed_samples.php       Nạp 15 trang mẫu vào "Kho dữ liệu mẫu" qua engine thật (idempotent)
 scripts/run_tests.php          Sáu bài kiểm thử bắt buộc T1–T6 (tự bật máy chủ riêng)
+scripts/migrate_library_stars.php  Tạo bảng `library_stars` cho tính năng gắn sao (CLI, idempotent)
+scripts/migrate_snapshot_labels.php Thêm cột `snapshots.label` cho đổi tên phiên bản (CLI, idempotent)
+scripts/migrate_domain_requests.php Tạo bảng `domain_requests` cho yêu cầu duyệt tên miền (CLI, idempotent)
+scripts/cleanup_tags.php       Chuẩn hoá nhãn cũ theo quy ước `#` + bộ ký tự cho phép (CLI, chạy lại được)
 config/db.php                  Nạp cấu hình CSDL, dựng DSN (KHÔNG chứa mật khẩu)
 config/db.local.php            Thông tin kết nối thật — .gitignore, KHÔNG commit
 src/db.php                     PDO singleton + trang lỗi tiếng Việt khi CSDL lỗi
 src/auth.php                   Session + require_login() / require_admin() / current_user()
 src/bootstrap.php              Đường dẫn, nạp src, hàm trợ giúp, polyfill mbstring
-src/queries.php                Toàn bộ truy vấn CSDL (thay thế src/sample_data.php)
+src/queries.php                Toàn bộ truy vấn CSDL
 src/search.php                 Chỉ mục đảo tìm kiếm tự xây: tokenizer, bỏ dấu, lập chỉ mục, truy vấn AND, đoạn trích <mark>
 src/capture.php                Engine lưu trang THẬT (cURL + DOMDocument + sanitizer + tải ảnh)
-templates/                     2 layout dùng chung + trang lỗi 403 + trang lỗi CSDL
+templates/                     2 layout dùng chung (khách / đã đăng nhập) + trang lỗi 403 + trang lỗi CSDL + trợ giúp metrics
 public/                        WEB ROOT
   assets/css/app.css           Toàn bộ design token + component (không framework)
   assets/img/                  Logo & ảnh minh hoạ cục bộ (SVG)
   uploads/snapshots/<id>/      Ảnh đã tải của từng snapshot (.gitignore, chỉ giữ .gitkeep)
 public/library_action.php      Bộ điều khiển POST cho quản lý thư viện / thành viên / nhãn (CSRF + phân quyền)
+public/domain_request.php      Nhận yêu cầu duyệt tên miền từ người dùng (POST, CSRF)
+public/admin/admin_action.php  Bộ điều khiển POST cho mọi thao tác quản trị (CSRF + require_admin)
+public/admin/user_detail.php   Trang xem chi tiết người dùng (thống kê + 2 bảng thư viện)
 public/export.php              Xuất bản lưu: tải về một tệp HTML độc lập (ảnh nhúng base64)
 tests/fixtures/                Trang thử (article.html, pic.png, redir-*.php, slow.php, notice.html)
 tests/samples/                 15 trang mẫu tiếng Việt + 5 ảnh PNG + README.md làm bảng kê
 docs/DEMO.md                   Hai kịch bản trình diễn chính thức, click-by-click
 docs/SEARCH_QUERIES.md         10 câu hỏi tìm kiếm: kỳ vọng trước, thực tế sau
+docs/RELEASE_NOTES.md          Ghi chú phát hành v1.0.0 (lịch sử)
 docs/design-reference/         Nguồn thiết kế: DESIGN.md + 4 màn hình tham chiếu
 LICENSE                        Giấy phép MIT
 CONTRIBUTING.md                Quy ước dự án và cách đóng góp
@@ -396,7 +409,7 @@ Tất cả bốn mục dưới đây **ghi thật vào MySQL** (trước đây c
 - Chủ sở hữu được thêm vào `library_members` với `role = 'owner'` ngay khi tạo.
 - **Đổi tên / đổi hiển thị** (chủ sở hữu hoặc quản trị): dùng lại đúng quy tắc slug ở trên, nhưng
   **giữ nguyên slug cũ nếu tên không đổi**.
-- **Xoá thư viện** — **chỉ chủ sở hữu**, có bước xác nhận riêng (phải gõ lại mã xác nhận):
+- **Xoá thư viện** — **chủ sở hữu** (từ giao diện thư viện) hoặc **quản trị viên** (từ trang quản trị), có bước xác nhận riêng (phải gõ đúng chữ `DELETE`):
   xoá các dòng CSDL qua khoá ngoại `ON DELETE CASCADE` (`library_members`, `saved_pages`,
   `snapshots`, `assets`, `page_tags`) **và** xoá thư mục ảnh trên đĩa
   `public/uploads/snapshots/<snapshot_id>/` của **mọi** snapshot thuộc thư viện.
@@ -422,11 +435,14 @@ tham gia).
 
 ### 5.2.3 Sửa nhãn của một bài trong thư viện
 
-Mỗi thẻ bài viết trong `library.php` có một ô sửa nhãn cho người có quyền sửa
-(`owner` / `editor` / `admin`), giá trị là các nhãn hiện tại **phân tách bằng dấu phẩy**. Gửi đi sẽ
+Mỗi thẻ bài viết trong `library.php` có một ô sửa nhãn cho người có quyền quản lý
+(`owner` / `admin`), giá trị là các nhãn hiện tại **phân tách bằng dấu phẩy**. Gửi đi sẽ
 **thay thế** toàn bộ tập `page_tags` của trang đó: nhãn mới được tạo trong bảng `tags` nếu chưa có,
-liên kết không còn được liệt kê thì bị xoá. Quy ước `#` của dữ liệu mẫu được **giữ nguyên** —
-nhãn nhập vào mà không có `#` vẫn được giữ đúng cách viết của dữ liệu sẵn có.
+liên kết không còn được liệt kê thì bị xoá. Quy ước `#`: người dùng chỉ gõ chữ, dấu `#`
+**tự thêm khi lưu và khi hiển thị**; nhãn cũ lưu chưa có `#` vẫn hiện kèm `#` và sẽ thành `#...`
+thật trong CSDL ở lần lưu nhãn tiếp theo của trang đó. Bộ ký tự cho phép: **chữ cái Unicode
+(kể cả dấu tiếng Việt), chữ số và gạch ngang** — khoảng trắng và ký tự đặc biệt khác bị lược
+khi lưu, nhãn rỗng sau khi lược thì bị bỏ.
 Người xem (`viewer`) chỉ thấy nhãn ở chế độ **chỉ đọc**, không có ô sửa.
 
 ### 5.2.4 Xuất bản lưu — HTML độc lập (`public/export.php`)
@@ -523,9 +539,9 @@ Tên thư viện và tài khoản rác có hậu tố ngẫu nhiên nên **chạ
 Mọi tính năng của đề tài đã **hoàn thành**. Danh sách dưới đây là phần tính
 năng đầy đủ, không phải phạm vi của một giai đoạn.
 
-- **CSDL thật:** MySQL qua PDO; **11 bảng** InnoDB utf8mb4 có khoá ngoại và UNIQUE
-  (`users`, `libraries`, `library_members`, `tags`, `saved_pages`, `page_tags`, `snapshots`,
-  `search_terms`, `assets`, `notes`, `allowlist_domains`).
+- **CSDL thật:** MySQL qua PDO; **13 bảng** InnoDB utf8mb4 có khoá ngoại và UNIQUE
+  (`users`, `libraries`, `library_stars`, `library_members`, `tags`, `saved_pages`, `page_tags`, `snapshots`,
+  `search_terms`, `assets`, `notes`, `allowlist_domains`, `domain_requests`).
   Mọi truy vấn có tham số đều là **prepared statement**.
 - **Tài khoản:** đăng nhập/đăng ký/đăng xuất đối chiếu bảng `users`; đăng ký **ghi thật**
   vào CSDL, mật khẩu băm bằng `password_hash()`.
@@ -542,13 +558,16 @@ năng đầy đủ, không phải phạm vi của một giai đoạn.
   **không** FULLTEXT. Ngữ nghĩa **AND**, `score = 3 × count_title + count_body`,
   bỏ dấu tiếng Việt, đoạn trích bọc `<mark>`, lọc thẻ/tên miền, **lọc quyền ngay trong SQL**.
 - **Quản lý thư viện** (mục 5.2): tạo/đổi tên/đổi hiển thị/xoá thư viện; thêm–đổi vai trò–gỡ
-  thành viên; sửa nhãn của từng bài; **xuất bản lưu** ra tệp HTML độc lập.
+  thành viên; sửa nhãn của từng bài; **xuất bản lưu** ra tệp HTML độc lập; gắn sao thư viện;
+  xoá bài / xoá phiên bản / đổi tên phiên bản.
 - **Phân quyền:** khách → chuyển hướng `login.php`; đã đăng nhập nhưng không thuộc thư viện
   → **403 tiếng Việt**; snapshot lỗi / không tồn tại → **404**; quản trị thấy tất cả.
 - **Chống giả mạo:** mọi form POST có token CSRF sinh bằng `random_bytes()` trong session,
   kiểm tra bằng `hash_equals()`, và **kiểm tra trước khi** đọc/ghi CSDL.
-- **Quản trị:** tổng quan hệ thống, quản lý người dùng, **tên miền được duyệt** (ghi thật),
-  danh sách toàn bộ thư viện.
+- **Quản trị:** tổng quan hệ thống, quản lý người dùng (sửa/khoá tài khoản, nút khoá của acc bị khoá
+  hiển thị màu đỏ, **xem chi tiết người dùng** với 4 số liệu và 2 bảng thư viện), **tên miền được duyệt**
+  (sửa/xoá ghi thật, duyệt/từ chối **yêu cầu duyệt tên miền** của người dùng), danh sách toàn bộ thư viện
+  (sửa/xoá ghi thật, mở thư viện).
 - **Bộ 15 trang mẫu tiếng Việt** trong `tests/samples/`, nạp vào kho bằng
   `scripts/seed_samples.php` (idempotent).
 - **Bộ kiểm thử tự động** `scripts/run_tests.php` chạy sáu bài kiểm thử bắt buộc
@@ -567,6 +586,11 @@ năng đầy đủ, không phải phạm vi của một giai đoạn.
 > Mọi con số dưới đây lấy từ **CSDL MySQL thật** sau khi chạy lại toàn bộ pipeline
 > (`reindex_search.php` → `seed_samples.php` → lưu trang thật → `run_tests.php`).
 > Không có con số nào ở đây là số bịa đặt.
+
+> **Lưu ý:** số liệu trên đo ở **P-FINAL-2 Stage C**. Sau Stage C, CSDL thêm 2 bảng
+> (`library_stars`, `domain_requests`) và 1 cột (`snapshots.label`), và script
+> `cleanup_tags.php` đã gộp một số nhãn trùng — nên số liệu hiện tại trên CSDL đang chạy
+> có thể khác bảng trên. Trước khi nộp, đo lại số liệu trên CSDL đang chạy rồi cập nhật bảng này.
 
 ### Số dòng từng bảng
 
@@ -751,7 +775,7 @@ Các bước (người dùng tự làm trên website):
    git push origin main
    ```
 2. Trên website GitHub → vào kho → tab **Releases** → **Draft a new release**.
-3. **Choose a tag**: chọn tag `v1.0.1` (đã tạo sẵn ở bước 9.2). Tên tag khác theo
+3. **Choose a tag**: chọn tag `v1.0.1` (tạo ở bước 9.2). Tên tag khác theo
    hướng dẫn đề tài cũng được, ví dụ `btl-nop-cuoi-ky`.
 4. **Target**: `main` (bắt buộc — commit cuối cùng của nhóm).
 5. **Release title**: ví dụ `WebArchive — Đề tài 16 (Nhóm 9) — v1.0.1`.
@@ -762,7 +786,7 @@ Các bước (người dùng tự làm trên website):
 ### 9.2 Tạo tag `v1.0.1` (KHÔNG dời tag `v1.0.0` cũ)
 
 > Tag `v1.0.0` đang trỏ tới commit cũ `6795727` — **giữ nguyên**, không dời.
-> Tag mới `v1.0.1` đặt ở commit cuối cùng sau khi hoàn tất Stage C.
+> Tag mới `v1.0.1` đặt ở commit cuối cùng sau khi hoàn tất mọi sửa chữa và điền mục 0.2.
 
 ```powershell
 git tag -a v1.0.1 -m "WebArchive — Đề tài 16 — bản nộp BTL"
