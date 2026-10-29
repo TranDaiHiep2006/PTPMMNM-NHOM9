@@ -6,7 +6,6 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../src/bootstrap.php';
-// P-FIX-UI (6): số liệu thật từ CSDL thay cho các con số bịa đặt trong mock.
 require_once __DIR__ . '/../../templates/wa_metrics.php';
 
 require_admin();
@@ -14,10 +13,30 @@ require_admin();
 // Toàn bộ thư viện trên hệ thống; tên chủ sở hữu đã được JOIN sẵn trong truy vấn.
 $libraries = wa_all_libraries();
 
+$filter = (string) ($_GET['filter'] ?? 'all');
+
+if (!in_array($filter, ['all', 'private', 'shared'], true)) {
+    $filter = 'all';
+}
+
+$visible = array_values(array_filter($libraries, static function (array $l) use ($filter): bool {
+    return match ($filter) {
+        'private' => $l['visibility_code'] === 'private',
+        'shared'  => $l['visibility_code'] !== 'private',
+        default   => true,
+    };
+}));
+
 $allMetrics = wa_metrics_for_libraries(array_column($libraries, 'id'));
 
 $personalCount = count(array_filter($libraries, static fn (array $l): bool => $l['visibility_code'] === 'private'));
 $sharedCount   = count($libraries) - $personalCount;
+
+$flash = null;
+if (isset($_SESSION['wa_flash']) && is_array($_SESSION['wa_flash'])) {
+    $flash = $_SESSION['wa_flash'];
+    unset($_SESSION['wa_flash']);
+}
 
 $pageTitle = 'Tất cả thư viện';
 require __DIR__ . '/../../templates/header_app.php';
@@ -41,6 +60,13 @@ require __DIR__ . '/../../templates/header_app.php';
     </div>
   </div>
 </div>
+
+<?php if ($flash !== null): ?>
+  <div class="form-alert <?= ($flash['type'] ?? '') === 'success' ? 'form-alert--ok' : '' ?>" style="margin-bottom:16px" role="status">
+    <span class="ms ms-18"><?= ($flash['type'] ?? '') === 'success' ? 'check_circle' : 'error_outline' ?></span>
+    <span><?= wa_e((string) ($flash['text'] ?? '')) ?></span>
+  </div>
+<?php endif; ?>
 
 <div class="stats-row" style="margin-top:0">
   <div class="stats-grid">
@@ -77,15 +103,15 @@ require __DIR__ . '/../../templates/header_app.php';
 
 <div class="toolbar" style="margin-top:24px">
   <div class="tabs" role="tablist" aria-label="Lọc thư viện">
-    <button type="button" class="is-active">Tất cả (<?= count($libraries) ?>)</button>
-    <button type="button">Cá nhân (<?= $personalCount ?>)</button>
-    <button type="button">Được chia sẻ (<?= $sharedCount ?>)</button>
+    <button type="button" data-filter="all" class="<?= $filter === 'all' ? 'is-active' : '' ?>">Tất cả (<?= count($libraries) ?>)</button>
+    <button type="button" data-filter="private" class="<?= $filter === 'private' ? 'is-active' : '' ?>">Cá nhân (<?= $personalCount ?>)</button>
+    <button type="button" data-filter="shared" class="<?= $filter === 'shared' ? 'is-active' : '' ?>">Được chia sẻ (<?= $sharedCount ?>)</button>
   </div>
 
   <div class="toolbar__right">
     <div class="searchbox">
       <span class="ms">search</span>
-      <input class="input input--flush input--sm" type="search" placeholder="Tìm thư viện..." aria-label="Tìm thư viện">
+      <input class="input input--flush input--sm" id="lib-search" type="search" placeholder="Tìm thư viện..." aria-label="Tìm thư viện">
     </div>
   </div>
 </div>
@@ -105,8 +131,8 @@ require __DIR__ . '/../../templates/header_app.php';
       </tr>
     </thead>
     <tbody>
-      <?php foreach ($libraries as $lib): ?>
-        <tr>
+      <?php foreach ($visible as $lib): ?>
+        <tr data-search="<?= wa_e($lib['name'] . ' ' . $lib['owner_name']) ?>">
           <td>
             <span class="row" style="gap:8px">
               <span class="lib-card__icon lib-card__icon--<?= wa_e($lib['strip']) ?>" style="width:32px;height:32px;flex:0 0 32px;border-radius:8px">
@@ -130,15 +156,19 @@ require __DIR__ . '/../../templates/header_app.php';
           <td><?= $lib['member_count'] ?></td>
           <td>
             <div class="table__actions">
-              <a class="btn btn--outline btn--sm" href="<?= wa_e(wa_url('library.php?slug=' . urlencode($lib['slug']))) ?>"
-                 title="Mở thư viện" aria-label="Mở thư viện">
-                <span class="ms ms-16">open_in_new</span>
-              </a>
-              <button class="btn btn--outline btn--sm" type="button" title="Sửa" aria-label="Sửa thư viện">
+              <button class="btn btn--outline btn--sm" type="button" title="Sửa thư viện" aria-label="Sửa thư viện"
+                      data-modal-open="modal-edit-lib"
+                      data-lib-id="<?= (int) $lib['id'] ?>"
+                      data-lib-name="<?= wa_e($lib['name']) ?>"
+                      data-lib-desc="<?= wa_e((string) ($lib['description'] ?? '')) ?>"
+                      data-lib-vis="<?= wa_e($lib['visibility_code']) ?>">
                 <span class="ms ms-16">edit</span>
               </button>
-              <button class="btn btn--outline btn--sm" type="button" title="Thao tác khác" aria-label="Thao tác khác">
-                <span class="ms ms-16">more_vert</span>
+              <button class="btn btn--outline btn--sm" type="button" title="Xoá thư viện" aria-label="Xoá thư viện"
+                      data-modal-open="modal-delete-lib"
+                      data-lib-id="<?= (int) $lib['id'] ?>"
+                      data-lib-name="<?= wa_e($lib['name']) ?>">
+                <span class="ms ms-16">delete</span>
               </button>
             </div>
           </td>
@@ -147,5 +177,136 @@ require __DIR__ . '/../../templates/header_app.php';
     </tbody>
   </table>
 </div>
+
+<!-- ===================== HỘP THOẠI SỬA THƯ VIỆN ===================== -->
+<div class="modal-backdrop" id="modal-edit-lib" hidden>
+  <div class="modal">
+    <div class="modal__head">
+      <div class="row" style="gap:8px">
+        <span class="ms ms-24" style="color:var(--wa-primary)">edit</span>
+        <h2 class="t-headline-sm" style="font-weight:700">Sửa thư viện</h2>
+      </div>
+      <button class="btn btn--ghost" type="button" data-modal-close aria-label="Đóng">
+        <span class="ms ms-18">close</span>
+      </button>
+    </div>
+
+    <form class="stack" method="post" action="<?= wa_e(wa_url('admin/admin_action.php')) ?>">
+      <?= wa_csrf_field() ?>
+      <input type="hidden" name="action" value="library_update">
+      <input type="hidden" name="library_id" id="edit-lib-id" value="">
+      <div class="field">
+        <label for="edit-lib-name">Tên thư viện <span class="t-error">*</span></label>
+        <input class="input" id="edit-lib-name" name="name" type="text" required>
+      </div>
+      <div class="field">
+        <label for="edit-lib-desc">Mô tả</label>
+        <textarea class="input" id="edit-lib-desc" name="description" rows="3"></textarea>
+      </div>
+      <div class="field">
+        <label for="edit-lib-vis">Mức hiển thị</label>
+        <select class="select" id="edit-lib-vis" name="visibility">
+          <option value="private">Chỉ mình tôi</option>
+          <option value="shared">Nội bộ nhóm</option>
+          <option value="public">Công khai</option>
+        </select>
+      </div>
+      <div class="row" style="justify-content:flex-end;gap:8px;padding-top:8px">
+        <button class="btn btn--outline" type="button" data-modal-close>Hủy</button>
+        <button class="btn btn--dark" type="submit">Lưu thay đổi</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== HỘP THOẠI XOÁ THƯ VIỆN ===================== -->
+<div class="modal-backdrop" id="modal-delete-lib" hidden>
+  <div class="modal">
+    <div class="modal__head">
+      <div class="row" style="gap:8px">
+        <span class="ms ms-24" style="color:var(--wa-primary)">delete</span>
+        <h2 class="t-headline-sm" style="font-weight:700">Xoá thư viện</h2>
+      </div>
+      <button class="btn btn--ghost" type="button" data-modal-close aria-label="Đóng">
+        <span class="ms ms-18">close</span>
+      </button>
+    </div>
+
+    <form class="stack" method="post" action="<?= wa_e(wa_url('admin/admin_action.php')) ?>" id="delete-lib-form">
+      <?= wa_csrf_field() ?>
+      <input type="hidden" name="action" value="library_delete">
+      <input type="hidden" name="library_id" id="delete-lib-id" value="">
+      <p class="t-body-md">Thư viện <strong id="delete-lib-name"></strong> và toàn bộ bài viết, nhãn cùng thư mục ảnh của nó sẽ bị xoá vĩnh viễn.</p>
+
+      <div class="field">
+        <label for="delete-lib-confirm">Gõ <b>DELETE</b> để xác nhận</label>
+        <input class="input" id="delete-lib-confirm" name="confirm" type="text" placeholder="DELETE" autocomplete="off">
+      </div>
+
+      <div class="row" style="justify-content:flex-end;gap:8px;padding-top:8px">
+        <button class="btn btn--outline" type="button" data-modal-close>Hủy</button>
+        <button class="btn btn--dark" type="submit">
+          <span class="ms ms-18">delete</span> Xoá thư viện
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  function waFold(s) {
+    return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+  }
+
+  document.querySelectorAll('[data-modal-open]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var modal = document.getElementById(btn.getAttribute('data-modal-open'));
+      if (!modal) { return; }
+      if (btn.hasAttribute('data-lib-name') && modal.id === 'modal-edit-lib') {
+        document.getElementById('edit-lib-id').value = btn.getAttribute('data-lib-id');
+        document.getElementById('edit-lib-name').value = btn.getAttribute('data-lib-name');
+        document.getElementById('edit-lib-desc').value = btn.getAttribute('data-lib-desc');
+        document.getElementById('edit-lib-vis').value = btn.getAttribute('data-lib-vis');
+      }
+      if (btn.hasAttribute('data-lib-name') && modal.id === 'modal-delete-lib') {
+        document.getElementById('delete-lib-id').value = btn.getAttribute('data-lib-id');
+        document.getElementById('delete-lib-name').textContent = btn.getAttribute('data-lib-name');
+        document.getElementById('delete-lib-confirm').value = '';
+      }
+      modal.removeAttribute('hidden');
+    });
+  });
+  document.querySelectorAll('[data-modal-close]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      btn.closest('.modal-backdrop').setAttribute('hidden', '');
+    });
+  });
+  document.querySelectorAll('.modal-backdrop').forEach(function (modal) {
+    modal.addEventListener('click', function (e) {
+      if (e.target === modal) { modal.setAttribute('hidden', ''); }
+    });
+  });
+
+  document.getElementById('delete-lib-form').addEventListener('submit', function (e) {
+    if (document.getElementById('delete-lib-confirm').value.trim().toUpperCase() !== 'DELETE') {
+      e.preventDefault();
+      alert('Chưa xác nhận xoá. Vui lòng gõ đúng DELETE để xác nhận.');
+    }
+  });
+
+  document.querySelectorAll('[data-filter]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      window.location.href = '<?= wa_e(wa_url('admin/libraries.php')) ?>?filter=' + btn.getAttribute('data-filter');
+    });
+  });
+
+  var search = document.getElementById('lib-search');
+  search.addEventListener('input', function () {
+    var q = waFold(search.value.trim());
+    document.querySelectorAll('tbody tr[data-search]').forEach(function (row) {
+      row.hidden = q !== '' && waFold(row.getAttribute('data-search')).indexOf(q) === -1;
+    });
+  });
+</script>
 
 <?php require __DIR__ . '/../../templates/footer_app.php'; ?>

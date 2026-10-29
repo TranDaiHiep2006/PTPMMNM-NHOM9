@@ -913,7 +913,7 @@ function wa_library_by_id(int $libraryId): ?array
  *
  * @return array{ok:bool, message:string, pages:int, snapshots:int, dirs:int, files:int}
  */
-function wa_library_delete(int $libraryId, ?array $actor = null): array
+function wa_library_delete(int $libraryId, ?array $actor = null, bool $asAdmin = false): array
 {
     $actor = $actor ?? wa_actor();
 
@@ -924,8 +924,9 @@ function wa_library_delete(int $libraryId, ?array $actor = null): array
         ];
     }
 
-    // Quyền xoá là của CHỦ SỞ HỮU — quản trị viên KHÔNG xoá được từ đây (đặc tả:
-    // "Delete library: owner only"), nên kiểm tra bằng owner_id thật.
+    // Đường thường: quyền xoá là của CHỦ SỞ HỮU (đặc tả "Delete library:
+    // owner only"), kiểm tra bằng owner_id thật. Đường quản trị ($asAdmin,
+    // chỉ admin_action gọi) thay kiểm tra đó bằng kiểm tra vai trò admin.
     $stmt = db()->prepare('SELECT `name`, `slug`, `owner_id` FROM `libraries` WHERE `id` = ? LIMIT 1');
     $stmt->execute([$libraryId]);
     $library = $stmt->fetch();
@@ -937,7 +938,14 @@ function wa_library_delete(int $libraryId, ?array $actor = null): array
         ];
     }
 
-    if ((int) $library['owner_id'] !== (int) $actor['id']) {
+    if ($asAdmin) {
+        if (($actor['role'] ?? '') !== 'admin') {
+            return [
+                'ok' => false, 'message' => 'Chỉ quản trị viên mới xoá được thư viện từ trang quản trị.',
+                'pages' => 0, 'snapshots' => 0, 'dirs' => 0, 'files' => 0,
+            ];
+        }
+    } elseif ((int) $library['owner_id'] !== (int) $actor['id']) {
         return [
             'ok' => false, 'message' => 'Chỉ chủ sở hữu thư viện mới có thể xoá thư viện này.',
             'pages' => 0, 'snapshots' => 0, 'dirs' => 0, 'files' => 0,
@@ -971,8 +979,13 @@ function wa_library_delete(int $libraryId, ?array $actor = null): array
     $snapshotIds = array_map('intval', array_column($idsStmt->fetchAll(), 'id'));
 
     // --- Xoá dòng CSDL (CASCADE lo phần còn lại) ---
-    $delete = db()->prepare('DELETE FROM `libraries` WHERE `id` = ? AND `owner_id` = ?');
-    $delete->execute([$libraryId, (int) $actor['id']]);
+    if ($asAdmin) {
+        $delete = db()->prepare('DELETE FROM `libraries` WHERE `id` = ?');
+        $delete->execute([$libraryId]);
+    } else {
+        $delete = db()->prepare('DELETE FROM `libraries` WHERE `id` = ? AND `owner_id` = ?');
+        $delete->execute([$libraryId, (int) $actor['id']]);
+    }
 
     if ($delete->rowCount() === 0) {
         return [
@@ -1066,6 +1079,11 @@ function wa_member_add(int $libraryId, string $email, string $role, ?array $acto
 
     if ($user === null) {
         return ['ok' => false, 'message' => 'Không tìm thấy tài khoản với email này.'];
+    }
+
+    // Tài khoản quản trị chỉ dùng để quản trị, không tham gia thư viện.
+    if (($user['role'] ?? '') === 'admin') {
+        return ['ok' => false, 'message' => 'Không thể mời quản trị viên vào thư viện. Tài khoản quản trị chỉ dùng để quản trị.'];
     }
 
     $userId = (int) $user['id'];
@@ -1740,7 +1758,7 @@ function wa_users(): array
 function wa_all_libraries(): array
 {
     $stmt = db()->query(
-        "SELECT l.id, l.name, l.slug, l.visibility, l.color, l.icon,
+        "SELECT l.id, l.name, l.slug, l.description, l.visibility, l.color, l.icon,
                 u.full_name AS owner_name,
                 (SELECT COUNT(*) FROM `saved_pages` sp WHERE sp.library_id = l.id) AS article_count,
                 (SELECT COUNT(*) FROM `assets` a
@@ -1853,6 +1871,138 @@ function wa_allowlist_add(string $domain, string $note, int $addedBy): array
         'ok'      => true,
         'message' => 'Đã thêm tên miền "' . $domain . '" vào danh sách được duyệt.',
     ];
+}
+
+/**
+ * Đổi họ tên và vai trò của một tài khoản (chỉ admin_action gọi).
+ */
+function wa_user_update_admin(int $userId, string $name, string $role): bool
+{
+    $stmt = db()->prepare('UPDATE `users` SET `full_name` = ?, `role` = ? WHERE `id` = ?');
+    $stmt->execute([trim($name), $role, $userId]);
+
+    return $stmt->rowCount() > 0;
+}
+
+/**
+ * Đổi trạng thái của một tài khoản giữa 'active' và 'locked' (chỉ admin_action gọi).
+ */
+function wa_user_set_status(int $userId, string $status): bool
+{
+    $stmt = db()->prepare('UPDATE `users` SET `status` = ? WHERE `id` = ?');
+    $stmt->execute([$status, $userId]);
+
+    return $stmt->rowCount() > 0;
+}
+
+/**
+ * Người dùng gửi yêu cầu duyệt một tên miền (hàng chờ cho quản trị viên).
+ *
+ * Tên miền được chuẩn hoá giống wa_allowlist_add. Một tên miền chỉ có tối đa
+ * một yêu cầu đang chờ; tên miền đã được duyệt thì không cần yêu cầu nữa.
+ *
+ * @return array{ok:bool, message:string}
+ */
+function wa_domain_request_add(string $domain, int $userId): array
+{
+    $domain = strtolower(rtrim(trim($domain), '.'));
+
+    $valid = (bool) preg_match(
+        '/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i',
+        $domain
+    );
+
+    if (!$valid) {
+        return [
+            'ok'      => false,
+            'message' => 'Tên miền không hợp lệ. Vui lòng nhập một tên miền dạng "tenmien.vn" hoặc "localhost".',
+        ];
+    }
+
+    $inAllowlist = db()->prepare('SELECT 1 FROM `allowlist_domains` WHERE `domain` = ? LIMIT 1');
+    $inAllowlist->execute([$domain]);
+
+    if ($inAllowlist->fetchColumn() !== false) {
+        return [
+            'ok'      => false,
+            'message' => 'Tên miền "' . $domain . '" đã được duyệt, bạn có thể lưu trang.',
+        ];
+    }
+
+    try {
+        $stmt = db()->prepare(
+            'INSERT INTO `domain_requests` (`domain`, `requested_by`) VALUES (?, ?)'
+        );
+        $stmt->execute([$domain, $userId]);
+    } catch (PDOException $e) {
+        if ($e->getCode() === '23000') {
+            return [
+                'ok'      => false,
+                'message' => 'Đã có yêu cầu đang chờ duyệt cho tên miền "' . $domain . '".',
+            ];
+        }
+
+        throw $e;
+    }
+
+    return [
+        'ok'      => true,
+        'message' => 'Đã gửi yêu cầu duyệt tên miền "' . $domain . '" cho quản trị viên.',
+    ];
+}
+
+/**
+ * Toàn bộ yêu cầu duyệt tên miền đang chờ (quản trị).
+ *
+ * @return array<int, array<string, mixed>>
+ */
+function wa_domain_requests_pending(): array
+{
+    $stmt = db()->query(
+        "SELECT dr.id, dr.domain, dr.note, dr.created_at, u.full_name AS requester
+           FROM `domain_requests` dr
+           JOIN `users` u ON u.id = dr.requested_by
+          ORDER BY dr.id"
+    );
+
+    $rows = [];
+
+    foreach ($stmt->fetchAll() as $row) {
+        $row['id']   = (int) $row['id'];
+        $row['date'] = wa_date((string) $row['created_at']);
+        $rows[] = $row;
+    }
+
+    return $rows;
+}
+
+/**
+ * Một yêu cầu duyệt tên miền theo id, hoặc null khi không có.
+ */
+function wa_domain_request_get(int $requestId): ?array
+{
+    $stmt = db()->prepare('SELECT `id`, `domain`, `note` FROM `domain_requests` WHERE `id` = ? LIMIT 1');
+    $stmt->execute([$requestId]);
+    $row = $stmt->fetch();
+
+    if ($row === false) {
+        return null;
+    }
+
+    $row['id'] = (int) $row['id'];
+
+    return $row;
+}
+
+/**
+ * Xoá một yêu cầu duyệt tên miền (đã duyệt hoặc đã từ chối thì không còn chờ).
+ */
+function wa_domain_request_delete(int $requestId): bool
+{
+    $stmt = db()->prepare('DELETE FROM `domain_requests` WHERE `id` = ?');
+    $stmt->execute([$requestId]);
+
+    return $stmt->rowCount() > 0;
 }
 
 /**

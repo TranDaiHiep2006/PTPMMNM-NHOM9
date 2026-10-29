@@ -111,12 +111,14 @@ require __DIR__ . '/../templates/header_app.php';
       <p class="ribbon__sub">Quản lý và sắp xếp những nội dung Web đã lưu theo chuyên đề nghiên cứu.</p>
     </div>
 
+    <?php if (!wa_is_admin()): ?>
     <div class="row" style="flex-shrink:0">
       <button class="btn btn--dark" type="button" data-modal-open="modal-create">
         <span class="ms ms-18">add</span>
         <span>Tạo thư viện mới</span>
       </button>
     </div>
+    <?php endif; ?>
   </div>
 
   <!-- ===================== SỐ LIỆU ===================== -->
@@ -311,7 +313,7 @@ require __DIR__ . '/../templates/header_app.php';
     <span class="ms ms-32">folder_off</span>
     <h3><?= $libraries === [] ? 'Bạn chưa có thư viện nào' : 'Không có thư viện nào khớp bộ lọc' ?></h3>
     <p><?= $libraries === []
-        ? 'Bấm “Tạo thư viện mới” để tạo thư viện đầu tiên của bạn.'
+        ? (wa_is_admin() ? 'Tài khoản quản trị chỉ dùng để quản trị, không tạo thư viện cá nhân.' : 'Bấm “Tạo thư viện mới” để tạo thư viện đầu tiên của bạn.')
         : 'Hãy chuyển sang tab khác, xoá từ khoá tìm kiếm, hoặc tạo một thư viện mới.' ?></p>
   </div>
 <?php endif; ?>

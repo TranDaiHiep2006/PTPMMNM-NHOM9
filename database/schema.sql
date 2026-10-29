@@ -253,4 +253,22 @@ CREATE TABLE `allowlist_domains` (
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- -----------------------------------------------------------------------------
+-- domain_requests — hàng chờ yêu cầu duyệt tên miền (người dùng gửi, quản trị
+-- viên duyệt hoặc từ chối; yêu cầu đã xử lý thì bị xoá khỏi hàng chờ)
+-- -----------------------------------------------------------------------------
+CREATE TABLE `domain_requests` (
+    `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `domain`       VARCHAR(255)  NOT NULL,
+    `note`         VARCHAR(255)  NULL,
+    `requested_by` INT UNSIGNED NOT NULL,
+    `created_at`   DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_domain_requests_domain` (`domain`),
+    KEY `ix_domain_requests_requested_by` (`requested_by`),
+    CONSTRAINT `fk_domain_requests_requested_by`
+        FOREIGN KEY (`requested_by`) REFERENCES `users` (`id`)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;

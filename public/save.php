@@ -195,11 +195,11 @@ require __DIR__ . '/../templates/header_app.php';
   </div>
 
   <?php if ($flash !== null): ?>
-    <div class="state state--success">
+    <div class="state <?= ($flash['type'] ?? 'success') === 'success' ? 'state--success' : 'state--error' ?>">
       <div class="state__body">
-        <span class="state__icon"><span class="ms ms-18 ms-fill">check_circle</span></span>
+        <span class="state__icon"><span class="ms ms-18 ms-fill"><?= ($flash['type'] ?? 'success') === 'success' ? 'check_circle' : 'error_outline' ?></span></span>
         <div>
-          <span class="state__title">Lưu thành công:</span>
+          <span class="state__title"><?= ($flash['type'] ?? 'success') === 'success' ? 'Lưu thành công:' : 'Thông báo:' ?></span>
           <p class="state__text"><?= wa_e((string) $flash['text']) ?></p>
         </div>
       </div>
@@ -219,7 +219,25 @@ require __DIR__ . '/../templates/header_app.php';
         </div>
       </div>
       <div class="state__actions">
-        <a class="btn btn--outline" href="<?= wa_e(wa_url('admin/allowlist.php')) ?>">Xem danh sách được duyệt</a>
+        <?php if (wa_is_admin()): ?>
+          <a class="btn btn--outline" href="<?= wa_e(wa_url('admin/allowlist.php')) ?>">Xem danh sách được duyệt</a>
+        <?php endif; ?>
+        <?php
+          // Lỗi bị chặn do allowlist: người dùng thường gửi yêu cầu duyệt
+          // đúng tên miền vừa bị chặn; quản trị viên tự thêm thẳng từ trang
+          // allowlist nên không cần nút này.
+          $blockedHost = '';
+          if ((($notice['code'] ?? '') === 'error_blocked') && isset($form['url']) && !wa_is_admin()) {
+              $blockedHost = (string) (parse_url((string) $form['url'], PHP_URL_HOST) ?? '');
+          }
+        ?>
+        <?php if ($blockedHost !== ''): ?>
+          <form method="post" action="<?= wa_e(wa_url('domain_request.php')) ?>">
+            <?= wa_csrf_field() ?>
+            <input type="hidden" name="domain" value="<?= wa_e($blockedHost) ?>">
+            <button class="btn btn--dark" type="submit">Yêu cầu duyệt tên miền <?= wa_e($blockedHost) ?></button>
+          </form>
+        <?php endif; ?>
       </div>
     </div>
   <?php endif; ?>

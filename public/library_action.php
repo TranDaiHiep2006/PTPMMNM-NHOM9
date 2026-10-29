@@ -104,6 +104,11 @@ $userId = (int) ($user['id'] ?? 0);
  * 1) TẠO THƯ VIỆN — libraries.php
  * ========================================================================= */
 if ($action === 'create') {
+    // Tài khoản quản trị chỉ dùng để quản trị, không tạo thư viện cá nhân.
+    if (($user['role'] ?? '') === 'admin') {
+        $backToList(['type' => 'error', 'text' => 'Tài khoản quản trị chỉ dùng để quản trị, không tạo thư viện cá nhân.']);
+    }
+
     $result = wa_library_create(
         trim((string) ($_POST['name'] ?? '')),
         trim((string) ($_POST['description'] ?? '')),
