@@ -109,6 +109,9 @@ $currentUserId = (int) ($currentUser['id'] ?? 0);
 $isAdmin      = wa_is_admin();
 $roleLabels   = wa_member_role_labels();
 $role         = (string) $context['role'];
+// Xoá / đổi tên phiên bản: chỉ chủ sở hữu hoặc quản trị viên (giống mọi
+// hành động khác của library_action.php ngoài tạo thư viện).
+$canManageReader = $role === 'owner' || $isAdmin;
 
 // A9: số tài nguyên cục bộ CÒN trên đĩa của bản lưu đang mở (đo thật).
 $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
@@ -145,12 +148,26 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
     .wa-ver__chip { display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:999px;
                     background:var(--wa-teal-soft,#E3F4F1); color:var(--wa-teal-deep); font-weight:600; font-size:12px; }
 
-    .wa-ver__list { list-style:none; margin:12px 0 0; padding:0; border:1px solid var(--wa-border); border-radius:10px; overflow:hidden; }
+    /* Danh sách phiên bản: bỏ overflow:hidden để menu 3 chấm của dòng cuối
+       không bị cắt; bo góc lại bằng chính dòng đầu/cuối. */
+    .wa-ver__list { list-style:none; margin:12px 0 0; padding:0; border:1px solid var(--wa-border); border-radius:10px; }
+    .wa-ver__item { display:flex; align-items:stretch; }
     .wa-ver__item + .wa-ver__item { border-top:1px solid var(--wa-border); }
-    .wa-ver__link { display:flex; gap:10px; align-items:center; justify-content:space-between; padding:9px 12px;
+    .wa-ver__link { flex:1; min-width:0; display:flex; gap:10px; align-items:center; justify-content:space-between; padding:9px 12px;
                     font-size:13px; color:var(--wa-text); text-decoration:none; background:#fff; }
     .wa-ver__link:hover { background:#F5F7F9; }
     .wa-ver__link.is-current { background:#EAF0F8; font-weight:600; box-shadow:inset 3px 0 0 var(--wa-action); }
+    .wa-ver__item:first-child .wa-ver__link { border-top-left-radius:10px; border-top-right-radius:10px; }
+    .wa-ver__item:last-child .wa-ver__link { border-bottom-left-radius:10px; border-bottom-right-radius:10px; }
+    /* Menu 3 chấm trên từng dòng phiên bản (xoá / đổi tên phiên bản). */
+    .wa-ver__menu { position:relative; display:flex; align-items:center; padding-right:8px; }
+    .wa-ver__menu-list { position:absolute; right:8px; top:calc(100% + 4px); z-index:30; min-width:200px; background:#fff;
+                         border:1px solid var(--wa-border); border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,.12);
+                         padding:4px; display:flex; flex-direction:column; }
+    .wa-ver__menu-list[hidden] { display:none; }
+    .wa-ver__menu-item { display:flex; align-items:center; gap:8px; width:100%; text-align:left; background:none; border:0;
+                         cursor:pointer; padding:8px 10px; border-radius:8px; font-size:13px; color:var(--wa-text); text-decoration:none; }
+    .wa-ver__menu-item:hover { background:#F1F5F9; }
     .wa-ver__num  { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; color:var(--wa-action); }
     .wa-ver__meta { color:#74777E; font-size:12px; }
     .wa-ver__nav  { display:flex; gap:8px; margin-top:10px; }
@@ -381,6 +398,9 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
                  <?= $version['is_current'] ? 'aria-current="true"' : '' ?>>
                 <span>
                   <span class="wa-ver__num">Phiên bản <?= (int) $version['version_no'] ?></span>
+                  <?php if (!empty($version['label'])): ?>
+                    <span class="wa-ver__meta"> · <?= wa_e((string) $version['label']) ?></span>
+                  <?php endif; ?>
                   <?php if ($version['is_current']): ?>
                     <span class="chip chip--plain" style="margin-left:6px">đang xem</span>
                   <?php endif; ?>
@@ -390,6 +410,31 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
                   <?= wa_e($version['fetched_label']) ?> · HTTP <?= (int) $version['http_status'] ?>
                 </span>
               </a>
+              <?php if ($canManageReader): ?>
+                <div class="wa-ver__menu">
+                  <button class="btn btn--ghost wa-ver__menu-btn" type="button" title="Thao tác phiên bản" aria-label="Thao tác phiên bản" aria-expanded="false">
+                    <span class="ms ms-18">more_vert</span>
+                  </button>
+                  <div class="wa-ver__menu-list" hidden>
+                    <button class="wa-ver__menu-item" type="button" data-modal-open="modal-rename-version"
+                            data-snapshot-id="<?= (int) $version['id'] ?>"
+                            data-version-no="<?= (int) $version['version_no'] ?>"
+                            data-version-label="<?= wa_e((string) ($version['label'] ?? '')) ?>">
+                      <span class="ms ms-18">edit</span> Đổi tên phiên bản
+                    </button>
+                    <form method="post" action="<?= wa_e(wa_url('library_action.php')) ?>"
+                          onsubmit="return confirm('Xoá vĩnh viễn phiên bản này?');" style="margin:0">
+                      <?= wa_csrf_field() ?>
+                      <input type="hidden" name="action" value="version_delete">
+                      <input type="hidden" name="snapshot_id" value="<?= (int) $version['id'] ?>">
+                      <input type="hidden" name="current_id" value="<?= (int) $article['id'] ?>">
+                      <button class="wa-ver__menu-item" type="submit">
+                        <span class="ms ms-18">delete</span> Xoá phiên bản này
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              <?php endif; ?>
             </li>
           <?php endforeach; ?>
         </ul>
@@ -625,6 +670,95 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
       btn.setAttribute('disabled', 'disabled');
       var label = btn.querySelector('span:last-child');
       if (label) { label.textContent = 'Đang tải lại…'; }
+    });
+  })();
+</script>
+
+<!-- ===================== MODAL: ĐỔI TÊN PHIÊN BẢN =====================
+     Mở từ menu 3 chấm trên dòng lịch sử phiên bản (chủ / quản trị viên);
+     JS điền số phiên bản và tên hiện tại từ data-* của nút. Để trống để gỡ tên. -->
+<div class="modal-backdrop" id="modal-rename-version" hidden>
+  <div class="modal">
+    <div class="modal__head">
+      <div class="row" style="gap:8px">
+        <span class="ms ms-24" style="color:var(--wa-primary)">edit</span>
+        <h2 class="t-headline-sm" style="font-weight:700">Đổi tên phiên bản</h2>
+      </div>
+      <button class="btn btn--ghost" type="button" data-modal-close aria-label="Đóng">
+        <span class="ms ms-18">close</span>
+      </button>
+    </div>
+
+    <form class="stack" method="post" action="<?= wa_e(wa_url('library_action.php')) ?>">
+      <?= wa_csrf_field() ?>
+      <input type="hidden" name="action" value="version_rename">
+      <input type="hidden" name="snapshot_id" id="rename-version-id" value="">
+      <p class="t-body-md">Phiên bản <strong id="rename-version-no"></strong> sẽ hiển thị kèm tên này trong lịch sử phiên bản. Để trống để gỡ tên.</p>
+
+      <div class="field">
+        <label for="rename-version-label">Tên phiên bản</label>
+        <input class="input" id="rename-version-label" name="label" type="text" maxlength="100">
+      </div>
+
+      <div class="row" style="justify-content:flex-end;gap:8px;padding-top:8px">
+        <button class="btn btn--outline" type="button" data-modal-close>Hủy</button>
+        <button class="btn btn--dark" type="submit">
+          <span class="ms ms-18">save</span> Lưu tên
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  // Menu 3 chấm trên từng dòng lịch sử phiên bản + modal đổi tên phiên bản.
+  (function () {
+    function closeAllMenus() {
+      document.querySelectorAll('.wa-ver__menu-list').forEach(function (list) { list.hidden = true; });
+      document.querySelectorAll('.wa-ver__menu-btn').forEach(function (btn) { btn.setAttribute('aria-expanded', 'false'); });
+    }
+    document.querySelectorAll('.wa-ver__menu-btn').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var list = btn.closest('.wa-ver__menu').querySelector('.wa-ver__menu-list');
+        var wasHidden = list.hidden;
+        closeAllMenus();
+        if (wasHidden) {
+          list.hidden = false;
+          btn.setAttribute('aria-expanded', 'true');
+        }
+      });
+    });
+    document.addEventListener('click', function (e) {
+      if (e.target.closest('.wa-ver__menu-btn')) { return; }
+      closeAllMenus();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') { closeAllMenus(); }
+    });
+    // Modal đổi tên: mở/đóng kiểu chung của dự án, điền dữ liệu từ nút menu.
+    document.querySelectorAll('[data-modal-open]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var target = document.getElementById(btn.getAttribute('data-modal-open'));
+        if (target) { target.removeAttribute('hidden'); }
+        if (btn.getAttribute('data-modal-open') === 'modal-rename-version') {
+          var d = btn.dataset;
+          document.getElementById('rename-version-id').value = d.snapshotId || '';
+          document.getElementById('rename-version-no').textContent = d.versionNo || '';
+          document.getElementById('rename-version-label').value = d.versionLabel || '';
+        }
+      });
+    });
+    document.querySelectorAll('[data-modal-close]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var box = btn.closest('.modal-backdrop');
+        if (box) { box.setAttribute('hidden', ''); }
+      });
+    });
+    document.querySelectorAll('.modal-backdrop').forEach(function (box) {
+      box.addEventListener('click', function (e) {
+        if (e.target === box) { box.setAttribute('hidden', ''); }
+      });
     });
   })();
 </script>

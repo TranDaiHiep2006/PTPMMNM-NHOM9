@@ -561,6 +561,9 @@
   .lib-menu__list[hidden] { display: none; }
   .lib-menu__item { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: none; border: 0; cursor: pointer; padding: 8px 10px; border-radius: var(--wa-radius-md); font-size: 13px; color: var(--wa-text); text-decoration: none; }
   .lib-menu__item:hover { background: var(--wa-surface-low); }
+  /* Danh sách tích chọn phiên bản trong modal xoá bài viết: nhiều phiên bản
+     thì lướt dọc thay vì kéo dài modal. */
+  .delete-version-list { max-height: 240px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
   
   .toolbar {
     display: flex; flex-direction: column; gap: var(--wa-space-md);

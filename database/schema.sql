@@ -145,6 +145,7 @@ CREATE TABLE `snapshots` (
     `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
     `page_id`       INT UNSIGNED NOT NULL,
     `version_no`    INT UNSIGNED NOT NULL DEFAULT 1,
+    `label`         VARCHAR(255)  NULL DEFAULT NULL,
     `title`         VARCHAR(500)  NOT NULL,
     `content_html`  MEDIUMTEXT    NULL,
     `content_text`  MEDIUMTEXT    NULL,

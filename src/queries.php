@@ -2438,10 +2438,88 @@ function wa_page_versions(int $pageId, int $currentSnapshotId = 0): array
             'http_status'   => (int) $row['http_status'],
             'title'         => (string) $row['title'],
             'is_current'    => $id === $currentSnapshotId,
+            'label'         => '',
         ];
     }
 
+    // Tên phiên bản do người dùng đặt (cột snapshots.label, thêm 29/10):
+    // tra cứu riêng để trang vẫn chạy khi cột chưa được migrate.
+    try {
+        $labelStmt = db()->prepare('SELECT id, label FROM `snapshots` WHERE page_id = ?');
+        $labelStmt->execute([$pageId]);
+        $labels = [];
+        foreach ($labelStmt->fetchAll() as $labelRow) {
+            $labels[(int) $labelRow['id']] = (string) ($labelRow['label'] ?? '');
+        }
+        foreach ($rows as &$row) {
+            $row['label'] = $labels[$row['id']] ?? '';
+        }
+        unset($row);
+    } catch (Throwable) {
+        // Cột label chưa có: mọi phiên bản coi như chưa đặt tên.
+    }
+
     return $rows;
+}
+
+/**
+ * XOÁ PHIÊN BẢN (snapshot) kèm dữ liệu liên quan.
+ *
+ * Dọn theo đúng quan hệ khoá ngoại của schema: xoá dòng snapshots thì các
+ * dòng search_terms, assets và notes của nó tự biến mất (ON DELETE CASCADE).
+ * Riêng FILE ẢNH cục bộ không nằm trong CSDL nên phải xoá tay: chỉ xoá file
+ * nào nằm thật trong public/uploads (kiểm tra realpath), thư mục snapshot
+ * rỗng thì dọn luôn (lỗi thì bỏ qua, không chặn việc xoá).
+ *
+ * @param int[] $snapshotIds
+ */
+function wa_delete_snapshots(array $snapshotIds): void
+{
+    $ids = array_values(array_unique(array_map('intval', $snapshotIds)));
+    if ($ids === []) {
+        return;
+    }
+
+    // Lấy đường dẫn file TRƯỚC khi xoá dòng (xoá xong thì bảng assets trống).
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $stmt = db()->prepare("SELECT local_path FROM `assets` WHERE snapshot_id IN ({$placeholders})");
+    $stmt->execute($ids);
+    $paths = array_column($stmt->fetchAll(), 'local_path');
+
+    $del = db()->prepare("DELETE FROM `snapshots` WHERE id IN ({$placeholders})");
+    $del->execute($ids);
+
+    $base = realpath(WA_PUBLIC . '/uploads');
+    foreach ($paths as $localPath) {
+        if (!is_string($localPath) || $localPath === '') {
+            continue;
+        }
+        // local_path lưu dạng '/uploads/snapshots/<id>/<file>'.
+        $real = realpath(WA_PUBLIC . $localPath);
+        if ($real === false || $base === false || !str_starts_with($real, $base)) {
+            continue;
+        }
+        @unlink($real);
+    }
+    foreach ($ids as $snapshotId) {
+        @rmdir(WA_PUBLIC . '/uploads/snapshots/' . $snapshotId);
+    }
+}
+
+/**
+ * XOÁ TOÀN BỘ BÀI VIẾT (saved_pages) cùng mọi phiên bản của nó.
+ *
+ * Xoá snapshot trước để dọn file ảnh, rồi xoá dòng saved_pages (liên kết
+ * page_tags tự biến mất nhờ ON DELETE CASCADE).
+ */
+function wa_delete_page(int $pageId): void
+{
+    $stmt = db()->prepare('SELECT id FROM `snapshots` WHERE page_id = ?');
+    $stmt->execute([$pageId]);
+    wa_delete_snapshots(array_column($stmt->fetchAll(), 'id'));
+
+    $del = db()->prepare('DELETE FROM `saved_pages` WHERE id = ?');
+    $del->execute([$pageId]);
 }
 
 /**

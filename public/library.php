@@ -601,6 +601,15 @@ require __DIR__ . '/../templates/header_app.php';
               <a class="btn btn--outline btn--block" href="<?= wa_e($article['source_url']) ?>" target="_blank" rel="noopener">
                 <span class="ms ms-18">open_in_new</span> Mở trang gốc
               </a>
+              <?php if ($canManage): ?>
+                <?php $deleteVersions = wa_page_versions((int) $article['id']); ?>
+                <button class="btn btn--outline btn--block" type="button" data-modal-open="modal-delete-page"
+                        data-page-id="<?= (int) $article['id'] ?>"
+                        data-page-title="<?= wa_e((string) $article['title']) ?>"
+                        data-page-versions="<?= wa_e(json_encode($deleteVersions, JSON_UNESCAPED_UNICODE)) ?>">
+                  <span class="ms ms-18">delete</span> Xoá bài viết
+                </button>
+              <?php endif; ?>
             </div>
           </div>
         </div>
@@ -994,6 +1003,115 @@ require __DIR__ . '/../templates/header_app.php';
     </div>
   </div>
 <?php endif; ?>
+
+<!-- ===================== MODAL: XOÁ BÀI VIẾT =====================
+     Mở từ panel thao tác trên thẻ bài (chủ sở hữu / quản trị viên); JS điền
+     tiêu đề và danh sách phiên bản từ data-* của nút. Chọn xoá tất cả phiên
+     bản, hoặc chỉ xoá các phiên bản đã tích; xác nhận bằng từ DELETE. -->
+<div class="modal-backdrop" id="modal-delete-page" hidden>
+  <div class="modal">
+    <div class="modal__head">
+      <div class="row" style="gap:8px">
+        <span class="ms ms-24" style="color:var(--wa-primary)">delete</span>
+        <h2 class="t-headline-sm" style="font-weight:700">Xoá bài viết</h2>
+      </div>
+      <button class="btn btn--ghost" type="button" data-modal-close aria-label="Đóng">
+        <span class="ms ms-18">close</span>
+      </button>
+    </div>
+
+    <form class="stack" method="post" action="<?= wa_e(wa_url('library_action.php')) ?>" id="delete-page-form">
+      <?= wa_csrf_field() ?>
+      <input type="hidden" name="action" value="page_delete">
+      <input type="hidden" name="page_id" id="delete-page-id" value="">
+      <p class="t-body-md">Bài viết <strong id="delete-page-title"></strong> sẽ bị xoá vĩnh viễn cùng các phiên bản được chọn.</p>
+
+      <div class="field">
+        <label class="row" style="gap:8px">
+          <input type="radio" name="mode" value="all" checked> Xoá tất cả phiên bản
+        </label>
+        <label class="row" style="gap:8px">
+          <input type="radio" name="mode" value="selected"> Chỉ xoá các phiên bản đã chọn
+        </label>
+      </div>
+
+      <div class="field" id="delete-page-versions-field" hidden>
+        <div class="delete-version-list" id="delete-page-versions"></div>
+      </div>
+
+      <div class="field">
+        <label for="delete-page-confirm">Gõ <b>DELETE</b> để xác nhận</label>
+        <input class="input" id="delete-page-confirm" name="confirm" type="text" placeholder="DELETE" autocomplete="off">
+      </div>
+
+      <div class="row" style="justify-content:flex-end;gap:8px;padding-top:8px">
+        <button class="btn btn--outline" type="button" data-modal-close>Hủy</button>
+        <button class="btn btn--dark" type="submit">
+          <span class="ms ms-18">delete</span> Xoá bài viết
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  // Modal xoá bài viết: điền tiêu đề + danh sách phiên bản từ nút thao tác,
+  // hiện danh sách tích chọn khi chọn "chỉ xoá các phiên bản đã chọn", kiểm
+  // tra từ DELETE và ít nhất một phiên bản được tích trước khi gửi.
+  (function () {
+    var form = document.getElementById('delete-page-form');
+    if (!form) { return; }
+    var versionsBox = document.getElementById('delete-page-versions');
+    var versionsField = document.getElementById('delete-page-versions-field');
+    document.querySelectorAll('[data-modal-open="modal-delete-page"]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var d = btn.dataset;
+        document.getElementById('delete-page-id').value = d.pageId || '';
+        document.getElementById('delete-page-title').textContent = d.pageTitle || '';
+        document.getElementById('delete-page-confirm').value = '';
+        var versions = [];
+        try { versions = JSON.parse(d.pageVersions || '[]'); } catch (e) { versions = []; }
+        versionsBox.innerHTML = '';
+        versions.forEach(function (v) {
+          var label = document.createElement('label');
+          label.className = 'row';
+          label.style.gap = '8px';
+          var cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.name = 'snapshot_ids[]';
+          cb.value = v.id;
+          label.appendChild(cb);
+          var text = 'Phiên bản ' + v.version_no;
+          if (v.label) { text += ' · ' + v.label; }
+          text += ' · ' + (v.fetched_label || '') + ' · SNAP-' + v.id;
+          label.appendChild(document.createTextNode(text));
+          versionsBox.appendChild(label);
+        });
+        var allRadio = form.querySelector('input[name="mode"][value="all"]');
+        if (allRadio) { allRadio.checked = true; }
+        versionsField.hidden = true;
+      });
+    });
+    form.querySelectorAll('input[name="mode"]').forEach(function (radio) {
+      radio.addEventListener('change', function () {
+        versionsField.hidden = form.querySelector('input[name="mode"]:checked').value !== 'selected';
+      });
+    });
+    form.addEventListener('submit', function (e) {
+      var confirmInput = document.getElementById('delete-page-confirm');
+      if (confirmInput.value.toUpperCase().trim() !== 'DELETE') {
+        e.preventDefault();
+        alert('Chưa xác nhận xoá. Vui lòng gõ đúng DELETE để xác nhận.');
+        return;
+      }
+      if (form.querySelector('input[name="mode"]:checked').value === 'selected'
+          && !form.querySelector('input[name="snapshot_ids[]"]:checked')) {
+        e.preventDefault();
+        alert('Hãy tích ít nhất một phiên bản để xoá, hoặc chọn xoá tất cả phiên bản.');
+      }
+    });
+  })();
+</script>
 
 <script>
   var guidanceToggle = document.getElementById('guidance-toggle');

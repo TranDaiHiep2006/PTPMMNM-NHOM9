@@ -2,7 +2,8 @@
 /**
  * library_action.php — Điểm nhận DUY NHẤT cho mọi hành động quản lý thư viện
  * (P-LIB): tạo thư viện, đổi tên / đổi hiển thị, xoá thư viện, thêm / đổi vai
- * trò / gỡ thành viên, và sửa nhãn của một trang đã lưu.
+ * trò / gỡ thành viên, sửa nhãn của một trang đã lưu, xoá bài viết, xoá một
+ * phiên bản và đổi tên phiên bản.
  *
  * Trang này KHÔNG vẽ giao diện: nó chỉ nhận POST, kiểm tra bảo mật rồi chuyển
  * hướng lại đúng trang đã gọi, kèm thông báo flash tiếng Việt. Tách kiểu này
@@ -46,6 +47,13 @@ $backToList = static function (array $flash): never {
 $backToLibrary = static function (string $slug, array $flash): never {
     $_SESSION['wa_flash'] = $flash;
     header('Location: ' . wa_url('library.php?slug=' . urlencode($slug)));
+    exit;
+};
+
+/** Chuyển hướng về trình đọc của một phiên bản kèm thông báo flash. */
+$backToReader = static function (int $snapshotId, array $flash): never {
+    $_SESSION['wa_flash'] = $flash;
+    header('Location: ' . wa_url('reader.php?id=' . $snapshotId));
     exit;
 };
 
@@ -313,6 +321,151 @@ if ($action === 'star') {
     } catch (Throwable) {
         $backToFilteredList(['type' => 'error', 'text' => 'Chưa chạy migrate bảng library_stars. Hãy chạy php scripts/migrate_library_stars.php rồi thử lại.']);
     }
+}
+
+/* ===========================================================================
+ * XOÁ BÀI VIẾT — library.php (chủ sở hữu / quản trị viên)
+ * mode=all: xoá toàn bộ bài cùng mọi phiên bản. mode=selected: chỉ xoá các
+ * phiên bản đã tích; nếu bài không còn snapshot nào thì bài cũng biến mất.
+ * Xác nhận bằng từ DELETE giống xoá thư viện. Về lại trang thư viện.
+ * ========================================================================= */
+if ($action === 'page_delete') {
+    $pageId = (int) ($_POST['page_id'] ?? 0);
+
+    $pageRow = db()->prepare('SELECT library_id FROM saved_pages WHERE id = ? LIMIT 1');
+    $pageRow->execute([$pageId]);
+    $page = $pageRow->fetch();
+    if ($page === false) {
+        $backToList(['type' => 'error', 'text' => 'Không tìm thấy bài viết cần xoá.']);
+    }
+    $slug = $requireManager((int) $page['library_id']);
+
+    if (strtoupper(trim((string) ($_POST['confirm'] ?? ''))) !== 'DELETE') {
+        $backToLibrary($slug, [
+            'type' => 'error',
+            'text' => 'Chưa xác nhận xoá. Vui lòng gõ đúng DELETE để xác nhận.',
+        ]);
+    }
+
+    $mode = (string) ($_POST['mode'] ?? '');
+    if ($mode === 'selected') {
+        $wanted = array_values(array_unique(array_map('intval', (array) ($_POST['snapshot_ids'] ?? []))));
+        if ($wanted === []) {
+            $backToLibrary($slug, ['type' => 'error', 'text' => 'Chưa chọn phiên bản nào để xoá.']);
+        }
+        // Chỉ xoá snapshot thuộc đúng bài này (chống POST tay lệch bài).
+        $placeholders = implode(',', array_fill(0, count($wanted), '?'));
+        $own = db()->prepare("SELECT id FROM snapshots WHERE page_id = ? AND id IN ({$placeholders})");
+        $own->execute(array_merge([$pageId], $wanted));
+        $ownedIds = array_column($own->fetchAll(), 'id');
+        if ($ownedIds === []) {
+            $backToLibrary($slug, ['type' => 'error', 'text' => 'Không tìm thấy phiên bản nào thuộc bài viết này.']);
+        }
+        wa_delete_snapshots($ownedIds);
+
+        $left = db()->prepare('SELECT COUNT(*) FROM snapshots WHERE page_id = ?');
+        $left->execute([$pageId]);
+        if ((int) $left->fetchColumn() === 0) {
+            $delPage = db()->prepare('DELETE FROM saved_pages WHERE id = ?');
+            $delPage->execute([$pageId]);
+            $backToLibrary($slug, ['type' => 'success', 'text' => 'Đã xoá bài viết cùng toàn bộ phiên bản.']);
+        }
+        $backToLibrary($slug, ['type' => 'success', 'text' => 'Đã xoá ' . count($ownedIds) . ' phiên bản.']);
+    }
+
+    if ($mode !== 'all') {
+        $backToLibrary($slug, ['type' => 'error', 'text' => 'Chưa chọn cách xoá bài viết.']);
+    }
+
+    wa_delete_page($pageId);
+    $backToLibrary($slug, ['type' => 'success', 'text' => 'Đã xoá bài viết cùng toàn bộ phiên bản.']);
+}
+
+/* ===========================================================================
+ * XOÁ MỘT PHIÊN BẢN — lịch sử phiên bản trong reader.php (chủ / quản trị)
+ * Xoá xong: nếu bản đang xem vẫn còn thì về lại nó, nếu không thì về bản
+ * mới nhất còn lại; bài không còn bản đọc được thì về trang thư viện (nếu
+ * không còn snapshot nào thì bài cũng biến mất, nếu chỉ còn bản lỗi thì bài
+ * ở lại dạng lưu thất bại).
+ * ========================================================================= */
+if ($action === 'version_delete') {
+    $snapshotId = (int) ($_POST['snapshot_id'] ?? 0);
+    $currentId  = (int) ($_POST['current_id'] ?? 0);
+
+    $snapRow = db()->prepare(
+        'SELECT s.page_id, p.library_id FROM snapshots s ' .
+        'JOIN saved_pages p ON p.id = s.page_id WHERE s.id = ? LIMIT 1'
+    );
+    $snapRow->execute([$snapshotId]);
+    $snap = $snapRow->fetch();
+    if ($snap === false) {
+        $backToList(['type' => 'error', 'text' => 'Không tìm thấy phiên bản cần xoá.']);
+    }
+    $slug = $requireManager((int) $snap['library_id']);
+    $pageId = (int) $snap['page_id'];
+
+    wa_delete_snapshots([$snapshotId]);
+
+    // Bản đang xem còn nguyên thì về lại nó.
+    if ($currentId > 0 && $currentId !== $snapshotId) {
+        $still = db()->prepare("SELECT 1 FROM snapshots WHERE id = ? AND fetch_status = 'success' LIMIT 1");
+        $still->execute([$currentId]);
+        if ($still->fetchColumn() !== false) {
+            $backToReader($currentId, ['type' => 'success', 'text' => 'Đã xoá phiên bản.']);
+        }
+    }
+
+    // Không thì về bản thành công mới nhất còn lại.
+    $newest = db()->prepare(
+        "SELECT id FROM snapshots WHERE page_id = ? AND fetch_status = 'success' " .
+        'ORDER BY version_no DESC, id DESC LIMIT 1'
+    );
+    $newest->execute([$pageId]);
+    $newestId = $newest->fetchColumn();
+    if ($newestId !== false) {
+        $backToReader((int) $newestId, ['type' => 'success', 'text' => 'Đã xoá phiên bản.']);
+    }
+
+    // Hết bản đọc được: không còn snapshot nào thì xoá luôn bài.
+    $anyLeft = db()->prepare('SELECT COUNT(*) FROM snapshots WHERE page_id = ?');
+    $anyLeft->execute([$pageId]);
+    if ((int) $anyLeft->fetchColumn() === 0) {
+        $delPage = db()->prepare('DELETE FROM saved_pages WHERE id = ?');
+        $delPage->execute([$pageId]);
+    }
+    $backToLibrary($slug, ['type' => 'success', 'text' => 'Đã xoá phiên bản. Bài viết không còn bản đọc được.']);
+}
+
+/* ===========================================================================
+ * ĐỔI TÊN PHIÊN BẢN — lịch sử phiên bản trong reader.php (chủ / quản trị)
+ * Tên lưu ở cột snapshots.label (tối đa 100 ký tự); để trống thì gỡ tên.
+ * Cột chưa migrate thì báo rõ thay vì lỗi trắng. Về lại đúng phiên bản đó.
+ * ========================================================================= */
+if ($action === 'version_rename') {
+    $snapshotId = (int) ($_POST['snapshot_id'] ?? 0);
+    $label = trim((string) ($_POST['label'] ?? ''));
+    if (mb_strlen($label) > 100) {
+        $label = mb_substr($label, 0, 100, 'UTF-8');
+    }
+
+    $snapRow = db()->prepare(
+        'SELECT s.page_id, p.library_id FROM snapshots s ' .
+        'JOIN saved_pages p ON p.id = s.page_id WHERE s.id = ? LIMIT 1'
+    );
+    $snapRow->execute([$snapshotId]);
+    $snap = $snapRow->fetch();
+    if ($snap === false) {
+        $backToList(['type' => 'error', 'text' => 'Không tìm thấy phiên bản cần đổi tên.']);
+    }
+    $requireManager((int) $snap['library_id']);
+
+    try {
+        $upd = db()->prepare('UPDATE `snapshots` SET `label` = ? WHERE id = ?');
+        $upd->execute([$label === '' ? null : $label, $snapshotId]);
+    } catch (Throwable) {
+        $backToReader($snapshotId, ['type' => 'error', 'text' => 'Chưa chạy migrate cột snapshots.label. Hãy chạy php scripts/migrate_snapshot_labels.php rồi thử lại.']);
+    }
+    $backToReader($snapshotId, ['type' => 'success', 'text' => $label === '' ? 'Đã gỡ tên phiên bản.' : 'Đã đổi tên phiên bản.']);
 }
 
 /* ---------------------------------------------------------------------------
