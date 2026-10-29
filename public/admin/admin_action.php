@@ -31,6 +31,13 @@ $backToUsers = static function (array $flash): never {
     exit;
 };
 
+/** Chuyển hướng về `admin/user_detail.php` kèm thông báo flash. */
+$backToUserDetail = static function (int $userId, array $flash): never {
+    $_SESSION['wa_flash'] = $flash;
+    header('Location: ' . wa_url('admin/user_detail.php?id=' . $userId));
+    exit;
+};
+
 /** Chuyển hướng về `admin/libraries.php` kèm thông báo flash. */
 $backToLibs = static function (array $flash): never {
     $_SESSION['wa_flash'] = $flash;
@@ -87,6 +94,10 @@ if ($action === 'user_update') {
 
     wa_user_update_admin($targetId, $name, $role);
 
+    if (($_POST['return_to'] ?? '') === 'detail') {
+        $backToUserDetail($targetId, ['type' => 'success', 'text' => 'Đã cập nhật tài khoản “' . $name . '”.']);
+    }
+
     $backToUsers(['type' => 'success', 'text' => 'Đã cập nhật tài khoản “' . $name . '”.']);
 }
 
@@ -111,9 +122,15 @@ if ($action === 'user_lock') {
     $newStatus = ($target['status'] ?? 'active') === 'active' ? 'locked' : 'active';
     wa_user_set_status($targetId, $newStatus);
 
-    $backToUsers(['type' => 'success', 'text' => $newStatus === 'locked'
+    $message = $newStatus === 'locked'
         ? 'Đã khoá tài khoản “' . (string) $target['name'] . '”. Tài khoản này sẽ bị đăng xuất ngay.'
-        : 'Đã mở khoá tài khoản “' . (string) $target['name'] . '”.']);
+        : 'Đã mở khoá tài khoản “' . (string) $target['name'] . '”.';
+
+    if (($_POST['return_to'] ?? '') === 'detail') {
+        $backToUserDetail($targetId, ['type' => 'success', 'text' => $message]);
+    }
+
+    $backToUsers(['type' => 'success', 'text' => $message]);
 }
 
 /* ===========================================================================

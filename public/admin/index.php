@@ -11,6 +11,12 @@ require_once __DIR__ . '/../../templates/wa_metrics.php';
 
 require_admin();
 
+$flash = null;
+if (isset($_SESSION['wa_flash']) && is_array($_SESSION['wa_flash'])) {
+    $flash = $_SESSION['wa_flash'];
+    unset($_SESSION['wa_flash']);
+}
+
 $stats    = wa_admin_stats();
 $users    = wa_users();
 $activity = wa_recent_activity(6);
@@ -54,6 +60,13 @@ require __DIR__ . '/../../templates/header_app.php';
     </div>
   </div>
 </div>
+
+<?php if ($flash !== null): ?>
+  <div class="form-alert <?= ($flash['type'] ?? '') === 'success' ? 'form-alert--ok' : '' ?>" style="margin-bottom:16px" role="status">
+    <span class="ms ms-18"><?= ($flash['type'] ?? '') === 'success' ? 'check_circle' : 'error_outline' ?></span>
+    <span><?= wa_e((string) ($flash['text'] ?? '')) ?></span>
+  </div>
+<?php endif; ?>
 
 <!-- ===================== SỐ LIỆU ===================== -->
 <div class="stats-row" style="margin-top:0">

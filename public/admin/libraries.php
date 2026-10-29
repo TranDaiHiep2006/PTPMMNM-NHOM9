@@ -156,6 +156,10 @@ require __DIR__ . '/../../templates/header_app.php';
           <td><?= $lib['member_count'] ?></td>
           <td>
             <div class="table__actions">
+              <a class="btn btn--outline btn--sm" href="<?= wa_e(wa_url('library.php?slug=' . urlencode($lib['slug']))) ?>"
+                 title="Mở thư viện" aria-label="Mở thư viện">
+                <span class="ms ms-16">open_in_new</span>
+              </a>
               <button class="btn btn--outline btn--sm" type="button" title="Sửa thư viện" aria-label="Sửa thư viện"
                       data-modal-open="modal-edit-lib"
                       data-lib-id="<?= (int) $lib['id'] ?>"

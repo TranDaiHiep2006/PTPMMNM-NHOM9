@@ -96,7 +96,7 @@ require __DIR__ . '/../../templates/header_app.php';
               <span class="avatar avatar--<?= $user['role'] === 'admin' ? 'alt' : 'light' ?>" style="width:28px;height:28px;flex:0 0 28px;font-size:11px">
                 <?= wa_e(mb_strtoupper(mb_substr($user['name'], 0, 2))) ?>
               </span>
-              <span class="cell-main"><?= wa_e($user['name']) ?></span>
+              <a class="linkish cell-main" href="<?= wa_e(wa_url('admin/user_detail.php?id=' . (int) $user['id'])) ?>"><?= wa_e($user['name']) ?></a>
             </div>
           </td>
           <td class="t-muted"><?= wa_e($user['email']) ?></td>
@@ -115,6 +115,10 @@ require __DIR__ . '/../../templates/header_app.php';
           <td class="t-muted"><?= wa_e($user['joined']) ?></td>
           <td>
             <div class="table__actions">
+              <a class="btn btn--outline btn--sm" href="<?= wa_e(wa_url('admin/user_detail.php?id=' . (int) $user['id'])) ?>"
+                 title="Xem chi tiết" aria-label="Xem chi tiết">
+                <span class="ms ms-16">visibility</span>
+              </a>
               <button class="btn btn--outline btn--sm" type="button" title="Sửa tài khoản" aria-label="Sửa tài khoản"
                       data-modal-open="modal-edit-user"
                       data-user-id="<?= (int) $user['id'] ?>"

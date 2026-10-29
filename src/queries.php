@@ -1081,11 +1081,6 @@ function wa_member_add(int $libraryId, string $email, string $role, ?array $acto
         return ['ok' => false, 'message' => 'Không tìm thấy tài khoản với email này.'];
     }
 
-    // Tài khoản quản trị chỉ dùng để quản trị, không tham gia thư viện.
-    if (($user['role'] ?? '') === 'admin') {
-        return ['ok' => false, 'message' => 'Không thể mời quản trị viên vào thư viện. Tài khoản quản trị chỉ dùng để quản trị.'];
-    }
-
     $userId = (int) $user['id'];
 
     // Không thêm trùng (đã là thành viên rồi).
@@ -2003,6 +1998,66 @@ function wa_domain_request_delete(int $requestId): bool
     $stmt->execute([$requestId]);
 
     return $stmt->rowCount() > 0;
+}
+
+/**
+ * Thư viện của một tài khoản cho trang chi tiết quản trị: thư viện sở hữu,
+ * thư viện đang tham gia (vai trò thành viên) và số ghi chú đã viết.
+ *
+ * @return array{owned:array<int, array<string, mixed>>, memberships:array<int, array<string, mixed>>, note_count:int}
+ */
+function wa_user_libraries(int $userId): array
+{
+    $visLabels  = wa_visibility_labels();
+    $roleLabels = wa_member_role_labels();
+
+    $ownedStmt = db()->prepare(
+        "SELECT l.id, l.name, l.slug, l.visibility,
+                (SELECT COUNT(*) FROM `saved_pages` sp WHERE sp.library_id = l.id) AS article_count,
+                (SELECT COUNT(*) FROM `library_members` lm WHERE lm.library_id = l.id) AS member_count
+           FROM `libraries` l
+          WHERE l.owner_id = ?
+          ORDER BY l.id"
+    );
+    $ownedStmt->execute([$userId]);
+    $owned = [];
+
+    foreach ($ownedStmt->fetchAll() as $row) {
+        $row['id']               = (int) $row['id'];
+        $row['article_count']    = (int) $row['article_count'];
+        $row['member_count']     = (int) $row['member_count'];
+        $row['visibility_label'] = $visLabels[(string) $row['visibility']] ?? $row['visibility'];
+        $owned[] = $row;
+    }
+
+    $memberStmt = db()->prepare(
+        "SELECT l.id, l.name, l.slug, l.visibility, u.full_name AS owner_name, lm.role,
+                (SELECT COUNT(*) FROM `saved_pages` sp WHERE sp.library_id = l.id) AS article_count
+           FROM `library_members` lm
+           JOIN `libraries` l ON l.id = lm.library_id
+           JOIN `users` u ON u.id = l.owner_id
+          WHERE lm.user_id = ?
+          ORDER BY l.id"
+    );
+    $memberStmt->execute([$userId]);
+    $memberships = [];
+
+    foreach ($memberStmt->fetchAll() as $row) {
+        $row['id']               = (int) $row['id'];
+        $row['article_count']    = (int) $row['article_count'];
+        $row['role_label']       = $roleLabels[(string) $row['role']] ?? $row['role'];
+        $row['visibility_label'] = $visLabels[(string) $row['visibility']] ?? $row['visibility'];
+        $memberships[] = $row;
+    }
+
+    $noteStmt = db()->prepare('SELECT COUNT(*) FROM `notes` WHERE `user_id` = ?');
+    $noteStmt->execute([$userId]);
+
+    return [
+        'owned'       => $owned,
+        'memberships' => $memberships,
+        'note_count'  => (int) $noteStmt->fetchColumn(),
+    ];
 }
 
 /**
