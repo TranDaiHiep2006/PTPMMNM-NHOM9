@@ -1119,7 +1119,10 @@
   .article-card__thumb::after { content: ""; position: absolute; inset: 0; background: linear-gradient(120deg, rgba(255,255,255,.35), transparent 60%); pointer-events: none; }
   .article-card__thumb-top { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: var(--wa-space-sm); }
   .article-card__thumb-code { position: relative; z-index: 1; padding: 8px; border-radius: var(--wa-radius-sm); background: rgba(255, 255, 255, .9); font-family: var(--wa-font-mono); font-size: 11px; line-height: 16px; color: var(--wa-text-soft); overflow: hidden; }
-  .article-card__body { padding: var(--wa-space-md); display: flex; flex-direction: column; }
+  /* Vùng thân thẻ: cao tối thiểu đúng bằng panel thao tác 4 nút (4 nút × 34px
+     + 3 khe 10px + đệm panel 16px × 2 = 198px) để panel hiện đủ 4 nút, không bị
+     cắt nút cuối và không phải lướt; thẻ ngắn thì thân cao thêm phần trống. */
+  .article-card__body { padding: var(--wa-space-md); display: flex; flex-direction: column; min-height: 198px; }
   .article-card__meta { display: flex; align-items: center; justify-content: space-between; gap: var(--wa-space-sm); margin-bottom: 8px; font-size: 11px; line-height: 14px; color: #74777E; }
   .article-card__domain { display: inline-flex; align-items: center; gap: 4px; color: var(--wa-action); font-weight: 500; }
   .article-card h3 { font-size: 18px; line-height: 26px; font-weight: 700; color: var(--wa-primary); margin-bottom: 4px; }

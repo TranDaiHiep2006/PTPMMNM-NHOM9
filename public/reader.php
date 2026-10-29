@@ -132,9 +132,12 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
     /* ---- Bố cục P-READ: đầu nguồn gốc, chuyển phiên bản, bảng ghi chú ---- */
     .reader__col { max-width: 960px; }
 
-    .wa-prov { border:1px solid var(--wa-border); border-radius:12px; background:#fff; overflow:hidden; margin-bottom:20px; }
+    /* Khung phiên bản: KHÔNG dùng overflow:hidden (nó cắt menu 3 chấm xổ
+       xuống khỏi dòng cuối); bo góc đầu khung bằng chính phần head. */
+    .wa-prov { border:1px solid var(--wa-border); border-radius:12px; background:#fff; margin-bottom:20px; }
     .wa-prov__head { display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between;
-                     padding:10px 14px; background:linear-gradient(180deg,#F7FAFC,#EEF3F8); border-bottom:1px solid var(--wa-border); }
+                     padding:10px 14px; background:linear-gradient(180deg,#F7FAFC,#EEF3F8); border-bottom:1px solid var(--wa-border);
+                     border-radius:12px 12px 0 0; }
     .wa-prov__lib  { display:inline-flex; align-items:center; gap:6px; font-weight:600; color:var(--wa-primary); text-decoration:none; font-size:13px; }
     .wa-prov__lib:hover { text-decoration:underline; }
     .wa-prov__body { padding:14px; display:grid; gap:10px; }
