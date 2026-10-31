@@ -108,6 +108,8 @@ CREATE TABLE `saved_pages` (
     `created_by` INT UNSIGNED NOT NULL,
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `has_update` TINYINT(1) NOT NULL DEFAULT 0,
+    `checked_at` DATETIME NULL DEFAULT NULL,
     PRIMARY KEY (`id`),
     KEY `ix_saved_pages_library` (`library_id`),
     KEY `ix_saved_pages_domain` (`domain`),

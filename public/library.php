@@ -82,8 +82,31 @@ foreach ($articles as &$article) {
     $article['tags_display'] = $article['tags'];
     $article['tag_count']    = count($article['tags']);
     $article['tag_input']    = implode(', ', $article['tags']);
+    $article['has_update']   = 0;
 }
 unset($article);
+
+/* P-CHECK: gắn cờ "trang gốc có bản mới" cho từng bài bằng MỘT truy vấn.
+ * Cột chưa migrate thì try/catch giữ mặc định 0, trang vẫn chạy bình thường. */
+try {
+    if ($articles !== []) {
+        $placeholders = implode(',', array_fill(0, count($articles), '?'));
+        $flagStmt = db()->prepare(
+            "SELECT id, has_update FROM `saved_pages` WHERE id IN ($placeholders)"
+        );
+        $flagStmt->execute(array_column($articles, 'id'));
+        $flags = [];
+        foreach ($flagStmt->fetchAll() as $flagRow) {
+            $flags[(int) $flagRow['id']] = (int) $flagRow['has_update'];
+        }
+        foreach ($articles as &$article) {
+            $article['has_update'] = $flags[(int) $article['id']] ?? 0;
+        }
+        unset($article);
+    }
+} catch (Throwable) {
+    // Bỏ qua: cột has_update chưa tồn tại trước khi chạy migrate.
+}
 
 /* ---------------------------------------------------------------------------
  * Phân quyền P-LIB (quyết định cái gì hiện, cái gì cho phép gửi):
@@ -466,6 +489,13 @@ require __DIR__ . '/../templates/header_app.php';
               <span class="chip chip--teal"><span class="dot dot--teal"></span><?= $article['image_count'] ?> ảnh cục bộ</span>
             <?php else: ?>
               <span class="chip chip--plain"><span class="ms ms-14">storage</span><?= wa_e($article['size_label']) ?></span>
+            <?php endif; ?>
+            <!-- P-CHECK: badge "trang gốc có bản mới" từ lần kiểm tra trước. -->
+            <?php if (!empty($article['has_update'])): ?>
+              <a class="chip chip--warn" href="<?= wa_e(wa_url('reader.php?id=' . (int) $article['snapshot_id'])) ?>"
+                 title="Trang gốc có nội dung mới từ lần kiểm tra trước — mở trình đọc để xem trước">
+                <span class="ms ms-14">update</span>Có bản mới
+              </a>
             <?php endif; ?>
           </div>
           <div class="article-card__thumb-code"><?= wa_e($article['thumb_code']) ?></div>

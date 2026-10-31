@@ -95,6 +95,14 @@ $result = wa_store_page_capture(
 if ($result['ok'] === true) {
     $imageCount = (int) $result['image_count'];
 
+    // P-CHECK: đã có bản mới thật nên xoá cờ "có bản mới" của bài này.
+    try {
+        db()->prepare('UPDATE `saved_pages` SET `has_update` = 0 WHERE `id` = ?')
+            ->execute([(int) $article['page_id']]);
+    } catch (Throwable) {
+        // Bỏ qua: cột has_update chưa tồn tại trước khi chạy migrate.
+    }
+
     $readerRedirect((int) $result['snapshot_id'], [
         'type' => 'success',
         'text' => 'Đã lấy phiên bản ' . (int) $result['version'] . ' mới cho “'

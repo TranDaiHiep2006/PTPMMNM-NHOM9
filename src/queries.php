@@ -3081,6 +3081,24 @@ function wa_reader_context(int $snapshotId): array
     $versions = wa_page_versions($pageId, $snapshotId);
     $neighbours = wa_page_neighbour_versions($pageId, $snapshotId);
 
+    // P-CHECK: cờ "trang gốc có bản mới" + ngày kiểm tra gần nhất. Cột chưa
+    // migrate thì try/catch giữ mặc định, trình đọc vẫn chạy bình thường.
+    $hasUpdate = false;
+    $checkedAt = '';
+    try {
+        $stmt = db()->prepare(
+            'SELECT has_update, checked_at FROM `saved_pages` WHERE `id` = ? LIMIT 1'
+        );
+        $stmt->execute([$pageId]);
+        $checkRow = $stmt->fetch();
+        if ($checkRow !== false) {
+            $hasUpdate = ((int) $checkRow['has_update']) === 1;
+            $checkedAt = (string) ($checkRow['checked_at'] ?? '');
+        }
+    } catch (Throwable) {
+        // Bỏ qua: cột has_update / checked_at chưa tồn tại trước khi migrate.
+    }
+
     return [
         'status'       => 'ok',
         'article'      => $article,
@@ -3092,7 +3110,28 @@ function wa_reader_context(int $snapshotId): array
         'prev'         => $neighbours['prev'],
         'next'         => $neighbours['next'],
         'notes'        => wa_notes_for_snapshot($snapshotId),
+        'has_update'   => $hasUpdate,
+        'checked_at'   => $checkedAt,
     ];
+}
+
+/**
+ * P-CHECK: ghi kết quả kiểm tra bản mới (cờ + ngày kiểm tra) cho một bài viết.
+ * Trả false khi cột chưa migrate hoặc bài không tồn tại — trang kiểm tra vẫn
+ * hiển thị bình thường, chỉ không lưu được cờ.
+ */
+function wa_page_check_mark(int $pageId, bool $hasUpdate): bool
+{
+    try {
+        $stmt = db()->prepare(
+            'UPDATE `saved_pages` SET `has_update` = ?, `checked_at` = NOW() WHERE `id` = ?'
+        );
+        $stmt->execute([$hasUpdate ? 1 : 0, $pageId]);
+
+        return $stmt->rowCount() > 0;
+    } catch (Throwable) {
+        return false;
+    }
 }
 
 /**

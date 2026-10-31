@@ -113,6 +113,10 @@ $role         = (string) $context['role'];
 // hành động khác của library_action.php ngoài tạo thư viện).
 $canManageReader = $role === 'owner' || $isAdmin;
 
+// P-CHECK: cờ kiểm tra bản mới (thay đổi ở trang gốc, từ lần kiểm tra trước).
+$hasUpdate = (bool) ($context['has_update'] ?? false);
+$checkedAt = (string) ($context['checked_at'] ?? '');
+
 // A9: số tài nguyên cục bộ CÒN trên đĩa của bản lưu đang mở (đo thật).
 $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
 ?>
@@ -195,6 +199,10 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
                 display:flex; gap:8px; align-items:flex-start; }
     .wa-flash--ok   { background:#E7F6F3; border:1px solid #BFE5DE; color:#14655C; }
     .wa-flash--err  { background:#FDECEC; border:1px solid #F3C9C9; color:#8A2B2B; }
+    .wa-banner { border-radius:10px; padding:12px 14px; font-size:13px; margin-bottom:16px;
+                 display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
+    .wa-banner--update { background:#FEF3C7; border:1px solid #F5D67B; color:#6B4E06; }
+    .wa-banner__actions { display:flex; gap:8px; flex-wrap:wrap; }
 </style>
 </head>
 <body class="reader" id="reader-body">
@@ -277,6 +285,28 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
             — <?= wa_e($readerErrorTitles[(string) $flash['code']] ?? 'Lỗi') ?></span>
         <?php endif; ?>
       </span>
+    </div>
+  <?php endif; ?>
+
+  <!-- P-CHECK: banner "trang gốc có nội dung mới" từ lần kiểm tra trước. -->
+  <?php if ($hasUpdate): ?>
+    <div class="wa-banner wa-banner--update" role="status">
+      <span>
+        Trang gốc có nội dung mới
+        <?php if ($checkedAt !== ''): ?>
+          (kiểm tra ngày <?= wa_e(wa_datetime($checkedAt)) ?>)
+        <?php endif; ?>
+        — bấm “Kiểm tra bản mới” để xem trước thay đổi.
+      </span>
+      <?php if ($canRefetch): ?>
+        <span class="wa-banner__actions">
+          <form method="post" action="<?= wa_e(wa_url('check_update.php')) ?>">
+            <?= wa_csrf_field() ?>
+            <input type="hidden" name="page_id" value="<?= (int) $context['page_id'] ?>">
+            <button class="btn btn--dark btn--sm" type="submit">Xem trước thay đổi</button>
+          </form>
+        </span>
+      <?php endif; ?>
     </div>
   <?php endif; ?>
 
@@ -380,16 +410,27 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
           <span class="ms ms-16">history</span>
           Lịch sử phiên bản (<?= count($versions) ?> bản thành công)
         </span>
-        <?php if ($canRefetch): ?>
-          <form method="post" action="<?= wa_e(wa_url('refetch.php')) ?>">
-            <?= wa_csrf_field() ?>
-            <input type="hidden" name="snapshot_id" value="<?= (int) $article['id'] ?>">
-            <button class="btn btn--dark btn--sm" type="submit" data-wa-refetch>
-              <span class="ms ms-16">cloud_download</span>
-              <span>Lấy phiên bản mới</span>
-            </button>
-          </form>
-        <?php endif; ?>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <?php if ($canRefetch): ?>
+            <!-- P-CHECK: xem trước thay đổi ở trang gốc, chưa lưu gì. -->
+            <form method="post" action="<?= wa_e(wa_url('check_update.php')) ?>">
+              <?= wa_csrf_field() ?>
+              <input type="hidden" name="page_id" value="<?= (int) $context['page_id'] ?>">
+              <button class="btn btn--outline btn--sm" type="submit">
+                <span class="ms ms-16">update</span>
+                <span>Kiểm tra bản mới</span>
+              </button>
+            </form>
+            <form method="post" action="<?= wa_e(wa_url('refetch.php')) ?>">
+              <?= wa_csrf_field() ?>
+              <input type="hidden" name="snapshot_id" value="<?= (int) $article['id'] ?>">
+              <button class="btn btn--dark btn--sm" type="submit" data-wa-refetch>
+                <span class="ms ms-16">cloud_download</span>
+                <span>Lấy phiên bản mới</span>
+              </button>
+            </form>
+          <?php endif; ?>
+        </div>
       </div>
 
       <div class="wa-prov__body">
@@ -413,6 +454,38 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
                   <?= wa_e($version['fetched_label']) ?> · HTTP <?= (int) $version['http_status'] ?>
                 </span>
               </a>
+              <!-- P-CHECK: nút so sánh NGAY BÊN TRÁI nút thao tác (⋮) của từng
+                   dòng phiên bản. Bấm vào nút ở dòng phiên bản KHÁC để so sánh
+                   dòng đó với bản đang xem; mục thứ hai so sánh dòng đó với
+                   bản gốc đang ở trên web. Dòng đang xem thì không có mục so
+                   sánh với chính nó; người xem thì không có mục so với bản gốc
+                   (mục đó cần quyền ghi như nút "Kiểm tra bản mới"). JS đóng/mở
+                   menu dùng chung với menu ⋮ nên không cần thêm JS. -->
+              <?php if (!$version['is_current'] || $canRefetch): ?>
+                <div class="wa-ver__menu">
+                  <button class="btn btn--ghost wa-ver__menu-btn" type="button" title="So sánh phiên bản" aria-label="So sánh phiên bản" aria-expanded="false">
+                    <span class="ms ms-18">compare_arrows</span>
+                  </button>
+                  <div class="wa-ver__menu-list" hidden>
+                    <?php if (!$version['is_current']): ?>
+                      <a class="wa-ver__menu-item" style="text-decoration:none;color:inherit"
+                         href="<?= wa_e(wa_url('compare.php?page_id=' . (int) $context['page_id'] . '&from=' . min((int) $version['version_no'], $versionNo) . '&to=' . max((int) $version['version_no'], $versionNo))) ?>">
+                        <span class="ms ms-18">compare_arrows</span> So sánh với phiên bản đang xem
+                      </a>
+                    <?php endif; ?>
+                    <?php if ($canRefetch): ?>
+                      <form method="post" action="<?= wa_e(wa_url('check_update.php')) ?>" style="margin:0">
+                        <?= wa_csrf_field() ?>
+                        <input type="hidden" name="page_id" value="<?= (int) $context['page_id'] ?>">
+                        <input type="hidden" name="snapshot_id" value="<?= (int) $version['id'] ?>">
+                        <button class="wa-ver__menu-item" type="submit">
+                          <span class="ms ms-18">language</span> So sánh với bản gốc trên web
+                        </button>
+                      </form>
+                    <?php endif; ?>
+                  </div>
+                </div>
+              <?php endif; ?>
               <?php if ($canManageReader): ?>
                 <div class="wa-ver__menu">
                   <button class="btn btn--ghost wa-ver__menu-btn" type="button" title="Thao tác phiên bản" aria-label="Thao tác phiên bản" aria-expanded="false">

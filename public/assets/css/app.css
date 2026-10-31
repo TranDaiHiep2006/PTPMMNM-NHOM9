@@ -1427,3 +1427,14 @@
     .reader, .reader__col { background: #fff; }
   }
   
+  /* P-CHECK: so sánh phiên bản — khối thêm (xanh) / xoá (đỏ) / không đổi. */
+  .diff-block { padding:8px 12px; border-radius:8px; margin-bottom:8px; font-size:13px; line-height:1.6; word-break:break-word; }
+  .diff-eq { background:#F8F9FA; border:1px solid var(--wa-border); color:var(--wa-text); }
+  .diff-del { background:#FDECEC; border:1px solid #F3C9C9; color:#7A1F1F; }
+  .diff-add { background:#E7F6F3; border:1px solid #BFE5DE; color:#14532D; }
+  .diff-sign { font-weight:700; margin-right:8px; }
+  .diff-stats { display:flex; gap:16px; flex-wrap:wrap; font-size:13px; margin:12px 0; }
+  .diff-notice { background:#FEF3C7; border:1px solid #F5D67B; border-radius:8px; padding:12px 14px; font-size:13px; margin-bottom:12px; }
+  .compare-form { display:flex; gap:10px; flex-wrap:wrap; align-items:end; margin:16px 0; }
+  .compare-form .field { margin:0; }
+  
