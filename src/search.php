@@ -216,10 +216,19 @@ function wa_search_index_snapshot(int $snapshotId): int
         return 0;
     }
 
-    // (4) Ghi vào bảng.
+    // (4) Ghi vào bảng. ON DUPLICATE KEY UPDATE là lưới an toàn cuối cùng:
+    // nếu còn một cặp term nào đó vẫn đụng UNIQUE (vd ký tự Latin lạ ngoài
+    // bảng bỏ dấu), lần lưu không bao giờ fatal nữa mà gộp số lần vào dòng cũ.
+    // Dạng VALUES() cổ điển: cột trần là dòng cũ đã có trong bảng,
+    // VALUES(cột) là dòng sắp chèn — không mơ hồ nên không lỗi 1052.
+    // (Sửa 01/11: bản dùng bí danh `new` + cột trần đã làm reindex lỗi 1052
+    // vì MySQL không phân biệt được cột của dòng cũ với dòng mới.)
     $insert = db()->prepare(
         'INSERT INTO `search_terms` (`term`, `term_folded`, `snapshot_id`, `count_title`, `count_body`)
-         VALUES (?, ?, ?, ?, ?)'
+         VALUES (?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+           `count_title` = `count_title` + VALUES(`count_title`),
+           `count_body` = `count_body` + VALUES(`count_body`)'
     );
 
     $written = 0;
