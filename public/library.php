@@ -483,7 +483,7 @@ require __DIR__ . '/../templates/header_app.php';
     <div class="article-card">
       <div>
         <div class="article-card__thumb">
-          <div class="article-card__thumb-top">
+          <div class="article-card__thumb-top"<?php if ($canEditLib && !empty($article['snapshot_id'])): ?> data-check-page-id="<?= (int) $article['id'] ?>" data-check-snapshot-id="<?= (int) $article['snapshot_id'] ?>"<?php endif; ?>>
             <span class="chip"><?= wa_e($article['thumb_label']) ?></span>
             <?php if ($article['image_count'] > 0): ?>
               <span class="chip chip--teal"><span class="dot dot--teal"></span><?= $article['image_count'] ?> ảnh cục bộ</span>
@@ -1395,5 +1395,46 @@ require __DIR__ . '/../templates/header_app.php';
     });
   })();
 </script>
+
+<?php if ($canEditLib): ?>
+<script>
+  /* P-CHECK-AUTO: kiểm tra nền từng thẻ. Trang tải xong mới gọi
+     check_one.php cho từng bài đang hiển thị; bài nào trang gốc đổi thì tự
+     gắn badge "Có bản mới" (hoặc gỡ badge cũ nếu giờ không còn đổi). Lỗi
+     mạng / không tải được trang gốc thì giữ nguyên nhãn cũ, không báo gì. */
+  (function () {
+    var tops = document.querySelectorAll('[data-check-page-id]');
+    if (tops.length === 0) { return; }
+    var csrf = '<?= wa_e(wa_csrf_token()) ?>';
+    var endpoint = '<?= wa_e(wa_url('check_one.php')) ?>';
+    tops.forEach(function (top) {
+      var pageId = top.getAttribute('data-check-page-id');
+      var snapshotId = top.getAttribute('data-check-snapshot-id');
+      var body = new FormData();
+      body.append('page_id', pageId);
+      body.append('wa_csrf', csrf);
+      fetch(endpoint, { method: 'POST', body: body, credentials: 'same-origin' })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          if (!data || data.ok !== true || data.checked !== true) { return; }
+          var badge = top.querySelector('.chip--warn');
+          if (data.changed) {
+            if (!badge) {
+              var a = document.createElement('a');
+              a.className = 'chip chip--warn';
+              a.href = 'reader.php?id=' + snapshotId;
+              a.title = 'Trang gốc có nội dung mới từ lần kiểm tra trước — mở trình đọc để xem trước';
+              a.innerHTML = '<span class="ms ms-14">update</span>Có bản mới';
+              top.appendChild(a);
+            }
+          } else if (badge) {
+            badge.remove();
+          }
+        })
+        .catch(function () { /* giữ nguyên nhãn cũ */ });
+    });
+  })();
+</script>
+<?php endif; ?>
 
 <?php require __DIR__ . '/../templates/footer_app.php'; ?>

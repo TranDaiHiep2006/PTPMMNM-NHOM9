@@ -1,4 +1,4 @@
-# WebArchive — Lưu trang Web & đọc lại ngoại tuyến (Đề tài 16)
+# WebArchive — Lưu trang Web & đọc lại (Đề tài 16)
 
 Ứng dụng lưu nội dung (snapshot) của trang web để đọc lại và tìm kiếm về sau,
 tổ chức trong thư viện theo chủ đề, gắn nhãn và phân quyền thành viên.
@@ -16,7 +16,7 @@ không Composer, không bước build.
 | **Ghi chú theo từng phiên bản** | ghi chú thuộc **đúng một phiên bản**, tải lại không làm mất ghi chú cũ |
 | **Tìm kiếm tự xây** | chỉ mục đảo do dự án tự dựng — **không** `LIKE`, **không** FULLTEXT; ngữ nghĩa AND, bỏ dấu tiếng Việt |
 | **Thư viện & thành viên** | tạo/đổi tên/xoá thư viện, thêm–đổi vai trò–gỡ thành viên, nhãn theo từng bài |
-| **Xuất bản lưu** | tải về một tệp HTML **độc lập** (ảnh nhúng base64), mở được ngoại tuyến |
+| **Xuất bản lưu** | tải về một tệp HTML **độc lập** (ảnh nhúng base64), mở được |
 | **Gắn sao thư viện** | mỗi người dùng gắn sao thư viện hay dùng; thư viện đã sao hiện trước trong danh sách |
 | **Xoá bài / phiên bản** | xoá cả bài, xoá từng phiên bản, đổi tên phiên bản (tên lưu ở cột `snapshots.label`) |
 | **Quản trị chi tiết** | sửa/khoá tài khoản, xem chi tiết người dùng, sửa/xoá thư viện, sửa/xoá tên miền, duyệt/từ chối yêu cầu duyệt tên miền |
@@ -217,7 +217,7 @@ khoá, `linh.pham@demo.vn`) dùng để minh hoạ màn hình quản trị.
 | Tải lại phiên bản | `/refetch.php` | Chủ sở hữu / biên tập viên (chỉ POST) |
 | Ghi chú theo phiên bản | `/note.php` | Đăng nhập (chỉ POST) |
 | Gửi yêu cầu duyệt tên miền | `/domain_request.php` | Đăng nhập (chỉ POST) |
-| Trình đọc ngoại tuyến | `/reader.php?id=8943` | Đăng nhập + thành viên thư viện |
+| Trình đọc | `/reader.php?id=8943` | Đăng nhập + thành viên thư viện |
 | **Xuất bản lưu (HTML độc lập)** | `/export.php?id=8943` | Đăng nhập + thành viên thư viện |
 | Tìm kiếm nội dung | `/search.php?q=snapshot` | Đăng nhập |
 | Tổng quan hệ thống | `/admin/index.php` | **Quản trị** |
@@ -839,7 +839,7 @@ Gói phát hành phải **không có**: `config/db.local.php`, `.local/`, `*Zone
 | Mục | Giá trị cần điền |
 |-----|-------------------|
 | Tên nhóm | `TODO — điền tên nhóm (Nhóm 9)` |
-| Tên đề tài | `WebArchive — Lưu trang Web & đọc lại ngoại tuyến (Đề tài 16)` |
+| Tên đề tài | `WebArchive — Lưu trang Web & đọc lại (Đề tài 16)` |
 | Link Release | `TODO — dán link trang Release trên GitHub` |
 | Commit hash đầy đủ | `TODO — dán hash từ lệnh `git rev-parse HEAD` (40 ký tự)` |
 | Tệp nộp | `BTL_Nhom09.zip` |

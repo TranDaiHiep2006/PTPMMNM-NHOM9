@@ -288,6 +288,11 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
     </div>
   <?php endif; ?>
 
+  <?php if ($canRefetch): ?>
+    <!-- P-CHECK-AUTO: slot cho banner tự hiện sau khi kiểm tra nền xong. -->
+    <div id="wa-check-banner-slot"></div>
+  <?php endif; ?>
+
   <!-- P-CHECK: banner "trang gốc có nội dung mới" từ lần kiểm tra trước. -->
   <?php if ($hasUpdate): ?>
     <div class="wa-banner wa-banner--update" role="status">
@@ -838,5 +843,39 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
     });
   })();
 </script>
+
+<?php if ($canRefetch): ?>
+<script>
+  /* P-CHECK-AUTO: kiểm tra nền 1 bài. Trang tải xong mới gọi check_one.php;
+     trang gốc đổi thì tự hiện banner vàng (hoặc gỡ banner cũ nếu giờ không
+     còn đổi). Lỗi mạng / không tải được trang gốc thì giữ nguyên banner cũ. */
+  (function () {
+    var slot = document.getElementById('wa-check-banner-slot');
+    if (!slot) { return; }
+    var body = new FormData();
+    body.append('page_id', '<?= (int) $context['page_id'] ?>');
+    body.append('wa_csrf', '<?= wa_e(wa_csrf_token()) ?>');
+    fetch('<?= wa_e(wa_url('check_one.php')) ?>', { method: 'POST', body: body, credentials: 'same-origin' })
+      .then(function (res) { return res.json(); })
+      .then(function (data) {
+        if (!data || data.ok !== true || data.checked !== true) { return; }
+        var banner = document.querySelector('.wa-banner--update');
+        if (data.changed) {
+          if (!banner) {
+            var div = document.createElement('div');
+            div.className = 'wa-banner wa-banner--update';
+            div.setAttribute('role', 'status');
+            div.innerHTML = '<span>Trang gốc có nội dung mới (kiểm tra ngày ' + data.checked_at + ') — bấm “Kiểm tra bản mới” để xem trước thay đổi.</span>'
+              + '<span class="wa-banner__actions"><form method="post" action="<?= wa_e(wa_url('check_update.php')) ?>"><?= wa_csrf_field() ?><input type="hidden" name="page_id" value="<?= (int) $context['page_id'] ?>"><button class="btn btn--dark btn--sm" type="submit">Xem trước thay đổi</button></form></span>';
+            slot.appendChild(div);
+          }
+        } else if (banner) {
+          banner.remove();
+        }
+      })
+      .catch(function () { /* giữ nguyên banner cũ */ });
+  })();
+</script>
+<?php endif; ?>
 </body>
 </html>
