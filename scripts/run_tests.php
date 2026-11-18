@@ -919,7 +919,8 @@ t_http(WA_T_APP_BASE . '/library_action.php', [
     'wa_csrf'    => $csrf,
     'action'     => 'delete',
     'library_id' => (string) $ctx['library_id'],
-    'confirm'    => '1',
+    // library_action.php đòi xác nhận bằng đúng từ "DELETE".
+    'confirm'    => 'DELETE',
 ], $ownerJar);
 
 $stmt = db()->prepare('SELECT COUNT(*) FROM `libraries` WHERE id = ?');

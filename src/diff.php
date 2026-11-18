@@ -291,6 +291,178 @@ function wa_diff_changed(array $ops): bool
 }
 
 /**
+ * TÓM TẮT THAY ĐỔI — tự sinh từ danh sách thao tác diff, KHÔNG dùng AI.
+ *
+ * Trả về tối đa 3 ý tiếng Việt, mỗi ý là một dòng ngắn mô tả THAY ĐỔI THẬT:
+ *   - "Bổ sung: …"  (nội dung mới xuất hiện)
+ *   - "Sửa: …"      (nội dung cũ bị thay bằng nội dung mới)
+ *   - "Xoá: …"      (nội dung cũ biến mất)
+ *
+ * Nguyên tắc: KHÔNG suy đoán. Nếu diff không đủ dữ liệu (quá dài, không có
+ * thao tác add/del rõ ràng) thì trả về thông báo dự phòng để người dùng tự
+ * xem trang so sánh.
+ *
+ * @param array<int, array{op:string, text:string}> $ops
+ * @return array<int, string> Danh sách ý (rỗng nếu không xác định được).
+ */
+function wa_diff_summary(array $ops): array
+{
+    $MAX_ITEMS = 3;          // tối đa 3 ý
+    $MAX_LEN   = 120;        // mỗi ý cắt ở 120 ký tự
+    $TOTAL_MAX = 250;        // tổng ngân sách ký tự của cả tóm tắt
+
+    // Cờ "toolong": phần giữa chưa được so sánh -> không đủ dữ liệu để tóm tắt.
+    foreach ($ops as $op) {
+        if ($op['op'] === 'toolong') {
+            return [];
+        }
+    }
+
+    // Gom thao tác: các 'add'/'del' liền kề nhau tạo thành một cặp "sửa",
+    // 'del' đứng riêng là "xoá", 'add' đứng riêng là "bổ sung".
+    $changes = [];
+    $count   = count($ops);
+
+    for ($i = 0; $i < $count; $i++) {
+        $op = $ops[$i]['op'];
+
+        if ($op === 'del') {
+            // Gom cả chuỗi 'del' liên tiếp.
+            $deleted = [];
+            while ($i < $count && $ops[$i]['op'] === 'del') {
+                $deleted[] = $ops[$i]['text'];
+                $i++;
+            }
+            $i--;
+
+            // Nếu ngay sau là 'add' -> đây là nội dung bị SỬA.
+            if ($i + 1 < $count && $ops[$i + 1]['op'] === 'add') {
+                $added = [];
+                $j     = $i + 1;
+                while ($j < $count && $ops[$j]['op'] === 'add') {
+                    $added[] = $ops[$j]['text'];
+                    $j++;
+                }
+
+                $changes[] = [
+                    'kind' => 'edit',
+                    'old'  => trim(implode(' ', $deleted)),
+                    'new'  => trim(implode(' ', $added)),
+                ];
+
+                $i = $j - 1;
+            } else {
+                $changes[] = [
+                    'kind' => 'del',
+                    'old'  => trim(implode(' ', $deleted)),
+                    'new'  => '',
+                ];
+            }
+
+            continue;
+        }
+
+        if ($op === 'add') {
+            $added = [];
+            while ($i < $count && $ops[$i]['op'] === 'add') {
+                $added[] = $ops[$i]['text'];
+                $i++;
+            }
+            $i--;
+
+            $changes[] = [
+                'kind' => 'add',
+                'old'  => '',
+                'new'  => trim(implode(' ', $added)),
+            ];
+        }
+    }
+
+    if ($changes === []) {
+        return [];
+    }
+
+    $lines = [];
+    $total = 0;
+
+    foreach ($changes as $change) {
+        if (count($lines) >= $MAX_ITEMS) {
+            break;
+        }
+
+        if ($change['kind'] === 'edit') {
+            $old = wa_diff_summary_clip($change['old'], 60);
+            $new = wa_diff_summary_clip($change['new'], 60);
+
+            if ($old === '' && $new === '') {
+                continue;
+            }
+
+            $line = 'Sửa: ' . ($old !== '' ? $old : '—') . ' → ' . ($new !== '' ? $new : '—');
+        } elseif ($change['kind'] === 'add') {
+            $new = wa_diff_summary_clip($change['new'], 90);
+
+            if ($new === '') {
+                continue;
+            }
+
+            $line = 'Bổ sung: ' . $new;
+        } else {
+            $old = wa_diff_summary_clip($change['old'], 90);
+
+            if ($old === '') {
+                continue;
+            }
+
+            $line = 'Xoá: ' . $old;
+        }
+
+        $line = wa_diff_summary_clip($line, $MAX_LEN);
+
+        // Không vượt ngân sách tổng.
+        if ($total + mb_strlen($line) > $TOTAL_MAX) {
+            break;
+        }
+
+        $lines[] = $line;
+        $total  += mb_strlen($line);
+    }
+
+    return $lines;
+}
+
+/**
+ * Cắt gọn một đoạn văn thành một ý ngắn: bỏ khoảng trắng thừa, cắt theo
+ * ranh giới từ, thêm "…" nếu bị cắt. KHÔNG giữ ký tự điều khiển.
+ */
+function wa_diff_summary_clip(string $text, int $max): string
+{
+    $text = trim((string) preg_replace('/\s+/u', ' ', $text));
+
+    if ($text === '' || $max <= 0) {
+        return '';
+    }
+
+    // Bỏ ký tự điều khiển (trừ khoảng trắng đã gộp) để nội dung lọt ra an toàn.
+    $text = (string) preg_replace('/[\x00-\x1F\x7F]/u', '', $text);
+
+    if (mb_strlen($text) <= $max) {
+        return $text;
+    }
+
+    $cut = mb_substr($text, 0, $max);
+
+    // Cắt tại ranh giới từ gần nhất (bỏ ký tự cuối nếu là dấu cách).
+    $pos = mb_strrpos($cut, ' ');
+
+    if ($pos !== false && $pos > (int) ($max * 0.6)) {
+        $cut = mb_substr($cut, 0, $pos);
+    }
+
+    return rtrim($cut, " \t\n\r\0\x0B.,;:") . '…';
+}
+
+/**
  * Vẽ danh sách thao tác thành HTML. Khối không đổi mang class diff-eq để
  * trang có thể ẩn/hiện bằng ô "Chỉ hiện khối thay đổi".
  *

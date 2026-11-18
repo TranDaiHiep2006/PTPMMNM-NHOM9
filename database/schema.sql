@@ -110,6 +110,11 @@ CREATE TABLE `saved_pages` (
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     `has_update` TINYINT(1) NOT NULL DEFAULT 0,
     `checked_at` DATETIME NULL DEFAULT NULL,
+    -- P-AUTOVERSION: dấu vết của kiểm tra tự động (xem scripts/migrate_auto_version.php)
+    `auto_checked_at` DATETIME NULL DEFAULT NULL,
+    `auto_version_no` INT UNSIGNED NOT NULL DEFAULT 0,
+    `auto_locked_at`  DATETIME NULL DEFAULT NULL,
+    `auto_lock_token` CHAR(32) NULL DEFAULT NULL,
     PRIMARY KEY (`id`),
     KEY `ix_saved_pages_library` (`library_id`),
     KEY `ix_saved_pages_domain` (`domain`),
@@ -271,6 +276,64 @@ CREATE TABLE `domain_requests` (
     CONSTRAINT `fk_domain_requests_requested_by`
         FOREIGN KEY (`requested_by`) REFERENCES `users` (`id`)
         ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
+-- notifications — thông báo phiên bản mới (P-AUTOVERSION)
+--
+-- Mỗi dòng là MỘT thông báo cho MỘT tài khoản. `dedupe_key` là khoá chống
+-- trùng (UNIQUE): cùng một (người dùng, bài viết, số phiên bản) chỉ có tối
+-- đa một thông báo — phát lại cũng không tạo dòng trùng.
+-- -----------------------------------------------------------------------------
+DROP TABLE IF EXISTS `notifications`;
+CREATE TABLE `notifications` (
+    `id`          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id`     INT UNSIGNED NOT NULL,
+    `page_id`     INT UNSIGNED NULL DEFAULT NULL,
+    `snapshot_id` INT UNSIGNED NULL DEFAULT NULL,
+    `kind`        VARCHAR(40)  NOT NULL DEFAULT 'version_update',
+    `title`       VARCHAR(190) NOT NULL,
+    `body`        VARCHAR(500) NOT NULL DEFAULT '',
+    `dedupe_key`  VARCHAR(190) NOT NULL,
+    `is_read`     TINYINT(1)   NOT NULL DEFAULT 0,
+    `created_at`  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `read_at`     DATETIME     NULL DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `ux_notifications_dedupe` (`dedupe_key`),
+    KEY `ix_notifications_user` (`user_id`, `is_read`, `id`),
+    KEY `ix_notifications_page` (`page_id`),
+    CONSTRAINT `fk_notifications_user`
+        FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT `fk_notifications_page`
+        FOREIGN KEY (`page_id`) REFERENCES `saved_pages` (`id`)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- -----------------------------------------------------------------------------
+-- auto_version_events — nhật ký các lần TỰ ĐỘNG tạo phiên bản mới
+--
+-- Khoá UNIQUE (page_id, version_no) là chốt chặn CUỐI CÙNG chống bản trùng:
+-- ngay cả khi hai request cùng thắng khoá, chỉ một request được chèn được.
+-- -----------------------------------------------------------------------------
+DROP TABLE IF EXISTS `auto_version_events`;
+CREATE TABLE `auto_version_events` (
+    `id`              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `page_id`         INT UNSIGNED NOT NULL,
+    `base_snapshot_id` INT UNSIGNED NOT NULL,
+    `new_snapshot_id`  INT UNSIGNED NOT NULL,
+    `version_no`      INT UNSIGNED NOT NULL,
+    `actor_id`        INT UNSIGNED NULL DEFAULT NULL,
+    `created_at`      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `ux_auto_version_unique` (`page_id`, `version_no`),
+    KEY `ix_auto_version_base` (`page_id`, `base_snapshot_id`),
+    CONSTRAINT `fk_auto_version_page`
+        FOREIGN KEY (`page_id`) REFERENCES `saved_pages` (`id`)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT `fk_auto_version_actor`
+        FOREIGN KEY (`actor_id`) REFERENCES `users` (`id`)
+        ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

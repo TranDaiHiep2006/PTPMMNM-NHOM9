@@ -156,6 +156,36 @@ require __DIR__ . '/../templates/header_app.php';
   </div>
 </div>
 
+<!-- ===================== AUTO VERSION: XIN PHÉP KIỂM TRA =====================
+     P-AUTOVERSION: trước khi kết nối tới website nguồn, ứng dụng PHẢI xin
+     phép rõ ràng. Chưa đồng ý thì KHÔNG có request nào được gửi ra ngoài.
+     Sự đồng ý được ghi trong phiên nên chỉ cần đồng ý MỘT LẦN cho phiên
+     làm việc hiện tại. -->
+<div class="auto-consent" id="wa-auto-consent"
+     <?= wa_auto_consent_given() ? 'hidden' : '' ?>>
+  <div class="auto-consent__body">
+    <span class="auto-consent__icon" aria-hidden="true"><span class="ms ms-24">sync_alt</span></span>
+    <div>
+      <strong>Cho phép kiểm tra bài viết đã lưu tự động?</strong>
+      <p class="t-body-sm t-muted">
+        Khi bạn mở WebArchive, hệ thống có thể kiểm tra xem các trang gốc bạn đã
+        lưu còn thay đổi không. Nếu nội dung đổi, WebArchive tự lưu phiên bản
+        mới (V2, V3…) và báo bạn. Không có gì được gửi đi nếu bạn không đồng ý.
+      </p>
+    </div>
+  </div>
+  <div class="auto-consent__actions">
+    <button class="btn btn--dark" type="button" id="wa-auto-consent-yes">
+      <span class="ms ms-16">check</span>
+      <span>Cho phép</span>
+    </button>
+    <button class="btn btn--outline" type="button" id="wa-auto-consent-no">
+      <span class="ms ms-16">close</span>
+      <span>Không, để sau</span>
+    </button>
+  </div>
+</div>
+
 <!-- ===================== TAB LỌC + TÌM KIẾM ===================== -->
 <div class="toolbar">
   <div class="tabs" role="tablist" aria-label="Lọc thư viện">
@@ -779,6 +809,88 @@ require __DIR__ . '/../templates/header_app.php';
           e.preventDefault();
         }
       });
+    }
+  })();
+
+  // ---------------------------------------------------------------------------
+  // P-AUTOVERSION: xin phép kiểm tra tự động + chạy kiểm tra.
+  //
+  //   - Chưa đồng ý  -> KHÔNG gọi auto_check.php ở chế độ 'run' (nên không
+  //     có request nào ra website nguồn).
+  //   - Đã đồng ý    -> gọi 'run' một lần khi mở trang; nếu có phiên bản mới
+  //     thì báo bằng thông báo nổi và cập nhật badge chuông thông báo.
+  // ---------------------------------------------------------------------------
+  (function () {
+    var banner = document.getElementById('wa-auto-consent');
+    var btnYes = document.getElementById('wa-auto-consent-yes');
+    var btnNo  = document.getElementById('wa-auto-consent-no');
+    var csrf   = '<?= wa_e(wa_csrf_token()) ?>';
+
+    function post(action) {
+      var body = new FormData();
+      body.append('wa_csrf', csrf);
+      body.append('action', action);
+      return fetch('<?= wa_e(wa_url('auto_check.php')) ?>', {
+        method: 'POST', body: body, credentials: 'same-origin'
+      }).then(function (res) { return res.json(); });
+    }
+
+    function showToast(text, kind) {
+      var box = document.createElement('div');
+      box.className = 'wa-flash wa-flash--' + (kind === 'ok' ? 'ok' : 'err');
+      box.setAttribute('role', 'status');
+      box.textContent = text;
+      var anchor = document.querySelector('.ribbon');
+      if (anchor && anchor.parentNode) {
+        anchor.parentNode.insertBefore(box, anchor);
+      } else {
+        document.body.insertBefore(box, document.body.firstChild);
+      }
+      setTimeout(function () { box.remove(); }, 8000);
+    }
+
+    // Nút "Không, để sau": chỉ ẩn banner, KHÔNG gửi request ra ngoài.
+    if (btnNo) {
+      btnNo.addEventListener('click', function () {
+        if (banner) { banner.hidden = true; }
+      });
+    }
+
+    // Nút "Cho phép": ghi cờ đồng ý trong phiên (không gọi mạng), rồi mới
+    // chạy kiểm tra.
+    if (btnYes) {
+      btnYes.addEventListener('click', function () {
+        btnYes.disabled = true;
+        post('consent').then(function (data) {
+          if (!data || data.ok !== true) {
+            btnYes.disabled = false;
+            showToast('Không lưu được sự đồng ý. Vui lòng thử lại.', 'err');
+            return;
+          }
+          if (banner) { banner.hidden = true; }
+          runCheck();
+        }).catch(function () {
+          btnYes.disabled = false;
+          showToast('Không gửi được yêu cầu. Vui lòng thử lại.', 'err');
+        });
+      });
+    }
+
+    function runCheck() {
+      post('run').then(function (data) {
+        if (!data || data.ok !== true) { return; }
+        if (data.updated > 0) {
+          showToast('Đã cập nhật ' + data.updated + ' bài viết sang phiên bản mới.', 'ok');
+          // Tải lại trang để badge "có bản mới" và thẻ bài viết cập nhật.
+          setTimeout(function () { window.location.reload(); }, 1200);
+        }
+      }).catch(function () { /* im lặng: kiểm tra nền không được làm hỏng trang */ });
+    }
+
+    // Nếu đã đồng ý trong phiên này (banner bị ẩn sẵn) thì chạy kiểm tra
+    // ngay khi mở trang — đây là điểm khởi động duy nhất, không có cron.
+    if (banner && banner.hidden) {
+      runCheck();
     }
   })();
 </script>

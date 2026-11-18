@@ -2467,6 +2467,9 @@ function wa_parse_tag_input(string $input): array
  * @param string   $url       URL nguồn (dùng đúng URL này để tìm trang đã lưu).
  * @param string[] $tagNames  Danh sách tên nhãn tuỳ chọn.
  * @param int      $userId    Tài khoản thực hiện lưu (saved_pages.created_by).
+ * @param array<string,mixed>|null $prefetched Kết quả capture_url() ĐÃ có sẵn.
+ *        Dùng khi vừa kiểm tra xong nội dung thì lưu luôn — tránh tải cùng
+ *        một URL hai lần (P-AUTOVERSION). Truyền null thì hàm tự tải như cũ.
  *
  * @return array{
  *   ok:bool, error_code:?string, error_title:string, error_message:string,
@@ -2475,12 +2478,19 @@ function wa_parse_tag_input(string $input): array
  *   indexed_terms:int
  * }
  */
-function wa_store_page_capture(int $libraryId, string $url, array $tagNames, int $userId): array
-{
+function wa_store_page_capture(
+    int $libraryId,
+    string $url,
+    array $tagNames,
+    int $userId,
+    ?array $prefetched = null
+): array {
     $url = trim($url);
 
     /* ---------- BƯỚC 1: chạy engine tải trang thật ---------- */
-    $result = capture_url($url);
+    // Nếu người gọi đã tải sẵn (kiểm tra tự động) thì DÙNG LẠI kết quả đó —
+    // không tải cùng một URL hai lần.
+    $result = $prefetched ?? capture_url($url);
 
     $sourceUrl = (string) $result['final_url'] !== '' ? (string) $result['final_url'] : $url;
     $domain    = wa_capture_host($sourceUrl);

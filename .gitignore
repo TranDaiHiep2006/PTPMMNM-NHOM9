@@ -10,6 +10,13 @@
 # Được sinh tự động bởi scripts/setup_db.php — TUYỆT ĐỐI KHÔNG commit.
 config/db.local.php
 
+# Kịch bản cài đặt cục bộ — chứa mật khẩu quản trị MySQL do người dùng nhập.
+# TUYỆT ĐỐI KHÔNG commit (chứa bí mật).
+setup.ps1
+
+# Trợ giúp đăng nhập MySQL cục bộ (hỏi mật khẩu ẩn, không lưu mật khẩu).
+connect-db.ps1
+
 # Log
 *.log
 logs/

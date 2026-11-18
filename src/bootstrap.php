@@ -397,6 +397,10 @@ require_once WA_SRC . '/auth.php';
 require_once WA_SRC . '/queries.php';
 require_once WA_SRC . '/capture.php';
 require_once WA_SRC . '/search.php';
+// AUTO VERSION + THÔNG BÁO (P-AUTOVERSION): hai lớp mới, nằm SAU queries.php
+// vì chúng dùng các hàm truy vấn sẵn có (wa_page_versions, wa_page_tags...).
+require_once WA_SRC . '/auto_version.php';
+require_once WA_SRC . '/notifications.php';
 
 /**
  * Đường dẫn gốc của ứng dụng trên web.

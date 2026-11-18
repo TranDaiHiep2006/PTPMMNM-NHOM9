@@ -1438,4 +1438,47 @@
   .diff-notice { background:#FEF3C7; border:1px solid #F5D67B; border-radius:8px; padding:12px 14px; font-size:13px; margin-bottom:12px; }
   .compare-form { display:flex; gap:10px; flex-wrap:wrap; align-items:end; margin:16px 0; }
   .compare-form .field { margin:0; }
+
+  /* P-AUTOVERSION: chuông thông báo trên thanh trên cùng. */
+  .notif-bell { position:relative; display:inline-flex; align-items:center; justify-content:center;
+                width:38px; height:38px; border-radius:var(--wa-radius-full);
+                color:var(--wa-text-soft); text-decoration:none; }
+  .notif-bell:hover { background:var(--wa-surface-low); color:var(--wa-primary); }
+  .notif-bell__badge { position:absolute; top:2px; right:2px; min-width:16px; height:16px;
+                       padding:0 4px; border-radius:8px; background:var(--wa-action); color:#fff;
+                       font-size:10px; line-height:16px; font-weight:700; text-align:center; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+             overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+
+  /* P-AUTOVERSION: bảng xin phép kiểm tra tự động. */
+  .auto-consent { display:flex; flex-wrap:wrap; gap:16px; align-items:center;
+                  justify-content:space-between; margin:0 0 20px; padding:16px 18px;
+                  border:1px solid #F5D67B; border-radius:var(--wa-radius-xl);
+                  background:#FEF3C7; color:#6B4E06; }
+  .auto-consent[hidden] { display:none; }
+  .auto-consent__body { display:flex; gap:14px; align-items:flex-start; flex:1 1 420px; min-width:0; }
+  .auto-consent__body p { margin:6px 0 0; color:#7A5B0B; }
+  .auto-consent__icon { flex:0 0 auto; color:var(--wa-warning); }
+  .auto-consent__actions { display:flex; gap:8px; flex-wrap:wrap; }
+
+  /* P-AUTOVERSION: thông báo nổi sau khi kiểm tra tự động. */
+  .wa-flash { border-radius:10px; padding:10px 12px; font-size:13px; margin-bottom:16px;
+              display:flex; gap:8px; align-items:flex-start; }
+  .wa-flash--ok { background:#E7F6F3; border:1px solid #BFE5DE; color:#14655C; }
+  .wa-flash--err { background:#FDECEC; border:1px solid #F3C9C9; color:#8A2B2B; }
+
+  /* P-AUTOVERSION: thẻ thông báo chưa đọc. */
+  .article-card.is-unread { border-left:3px solid var(--wa-action); }
+
+  /* P-AUTOVERSION: tóm tắt thay đổi trong thông báo phiên bản mới. */
+  .notify-summary {
+    margin-top:10px; padding:10px 12px; border-radius:10px;
+    background:var(--wa-surface-alt,#F6F7F9); border:1px solid var(--wa-line,#E4E6EA);
+  }
+  .notify-summary__label {
+    margin:0 0 4px; font-size:12px; font-weight:600; letter-spacing:.02em;
+    text-transform:uppercase; color:var(--wa-muted,#74777E);
+  }
+  .notify-summary__list { margin:0; padding-left:18px; }
+  .notify-summary__list li { font-size:13px; line-height:1.5; color:var(--wa-text,#22252A); }
   

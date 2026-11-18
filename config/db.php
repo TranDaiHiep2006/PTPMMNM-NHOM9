@@ -47,6 +47,36 @@ function wa_db_config(): array
         }
     }
 
+    // -------------------------------------------------------------------------
+    // GHI ĐÈ BẰNG BIẾN MÔI TRƯỜNG (không bắt buộc).
+    //
+    // Nhờ vậy có thể đặt mật khẩu MySQL trong PowerShell rồi chạy ứng dụng mà
+    // KHÔNG cần ghi mật khẩu vào config/db.local.php, không cần dán vào tin
+    // nhắn và không rò rỉ bí mật khi chia sẻ mã nguồn.
+    //
+    //   $env:WA_DB_HOST = '127.0.0.1'
+    //   $env:WA_DB_PORT = '3306'
+    //   $env:WA_DB_NAME = 'webarchive'
+    //   $env:WA_DB_USER = 'webarchive'
+    //   $env:WA_DB_PASS = '<mat-khau>'
+    // -------------------------------------------------------------------------
+    foreach (['host', 'dbname', 'user'] as $key) {
+        $envValue = getenv('WA_DB_' . strtoupper($key));
+        if ($envValue !== false && $envValue !== '') {
+            $local[$key] = $envValue;
+        }
+    }
+
+    $envPort = getenv('WA_DB_PORT');
+    if ($envPort !== false && $envPort !== '') {
+        $local['port'] = (int) $envPort;
+    }
+
+    $envPass = getenv('WA_DB_PASS');
+    if ($envPass !== false && $envPass !== '') {
+        $local['password'] = $envPass;
+    }
+
     $host    = (string) $local['host'];
     $port    = (int) $local['port'];
     $dbname  = (string) $local['dbname'];

@@ -45,6 +45,7 @@ $navMain = [
     ['file' => 'libraries.php', 'label' => 'Thư viện của tôi', 'icon' => 'folder'],
     ['file' => 'search.php', 'label' => 'Tìm kiếm nội dung', 'icon' => 'search'],
     ['file' => 'save.php', 'label' => 'Lưu trang Web', 'icon' => 'add_link'],
+    ['file' => 'notifications.php', 'label' => 'Thông báo', 'icon' => 'notifications'],
 ];
 
 $navAdmin = [
@@ -53,6 +54,14 @@ $navAdmin = [
     ['file' => 'admin/libraries.php', 'label' => 'Tất cả thư viện', 'icon' => 'folder_special'],
     ['file' => 'admin/allowlist.php', 'label' => 'Tên miền được duyệt', 'icon' => 'verified_user'],
 ];
+
+// ---------------------------------------------------------------------------
+// P-AUTOVERSION: số thông báo CHƯA ĐỌC của chính tài khoản đang đăng nhập.
+// Dùng cho badge trên chuông thông báo ở thanh trên cùng.
+// Bảng `notifications` chưa migrate thì hàm trả 0 (bắt lỗi bên trong) —
+// thanh trên vẫn hiển thị bình thường.
+// ---------------------------------------------------------------------------
+$headerUnreadCount = $user !== null ? wa_notify_unread_count((int) ($user['id'] ?? 0)) : 0;
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -111,6 +120,16 @@ $navAdmin = [
         <span class="dot dot--live"></span>
         <span>Chế độ offline sẵn sàng</span>
       </div>
+
+      <!-- P-AUTOVERSION: chuông thông báo + số thông báo chưa đọc. -->
+      <a class="notif-bell" href="<?= wa_e(wa_url('notifications.php')) ?>"
+         title="Thông báo<?= $headerUnreadCount > 0 ? ' (' . $headerUnreadCount . ' chưa đọc)' : '' ?>">
+        <span class="ms ms-18" aria-hidden="true">notifications</span>
+        <?php if ($headerUnreadCount > 0): ?>
+          <span class="notif-bell__badge"><?= $headerUnreadCount > 99 ? '99+' : (int) $headerUnreadCount ?></span>
+        <?php endif; ?>
+        <span class="sr-only">Thông báo</span>
+      </a>
 
       <div class="user-chip">
         <span class="avatar" aria-hidden="true"><?= wa_e($user['initials'] ?? 'KH') ?></span>

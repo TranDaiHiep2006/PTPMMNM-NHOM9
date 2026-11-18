@@ -27,11 +27,14 @@ if (PHP_SAPI !== 'cli') {
     exit(1);
 }
 
-const WA_DB_NAME    = 'webarchive';
 const WA_APP_USER   = 'webarchive';
 const WA_APP_HOST   = 'localhost';
-const WA_DB_HOST    = '127.0.0.1';
-const WA_DB_PORT    = 3306;
+
+// Máy chủ + cổng: mặc định 127.0.0.1:3306, ghi đè được bằng biến môi
+// trường WA_DB_HOST / WA_DB_PORT (hữu ích khi chạy thử với một MySQL riêng).
+$dbHost = (string) (getenv('WA_DB_HOST') ?: '127.0.0.1');
+$dbPort = (int) (getenv('WA_DB_PORT') ?: '3306');
+$dbName = (string) (getenv('WA_DB_NAME') ?: 'webarchive');
 
 // -----------------------------------------------------------------------------
 // 1. Đọc thông tin đăng nhập quản trị từ biến môi trường
@@ -91,7 +94,7 @@ try {
     // -------------------------------------------------------------------------
     // 2. Kết nối bằng tài khoản quản trị
     // -------------------------------------------------------------------------
-    $adminDsn = sprintf('mysql:host=%s;port=%d;charset=utf8mb4', WA_DB_HOST, WA_DB_PORT);
+    $adminDsn = sprintf('mysql:host=%s;port=%d;charset=utf8mb4', $dbHost, $dbPort);
 
     $pdo = new PDO($adminDsn, $adminUser, $adminPass, [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
@@ -100,22 +103,22 @@ try {
     ]);
 
     out('[1/6] Đã kết nối MySQL bằng tài khoản quản trị "' . $adminUser . '" tại '
-        . WA_DB_HOST . ':' . WA_DB_PORT);
+        . $dbHost . ':' . $dbPort);
 
     // -------------------------------------------------------------------------
     // 3. Tạo database webarchive nếu chưa có
     // -------------------------------------------------------------------------
     $stmt = $pdo->prepare('SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME = ?');
-    $stmt->execute([WA_DB_NAME]);
+    $stmt->execute([$dbName]);
 
     if ($stmt->fetchColumn() === false) {
         $pdo->exec(sprintf(
             'CREATE DATABASE `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci',
-            WA_DB_NAME
+            $dbName
         ));
-        out('[2/6] Đã tạo database `' . WA_DB_NAME . '` (utf8mb4 / utf8mb4_unicode_ci)');
+        out('[2/6] Đã tạo database `' . $dbName . '` (utf8mb4 / utf8mb4_unicode_ci)');
     } else {
-        out('[2/6] Database `' . WA_DB_NAME . '` đã tồn tại — dùng lại');
+        out('[2/6] Database `' . $dbName . '` đã tồn tại — dùng lại');
     }
 
     // -------------------------------------------------------------------------
@@ -123,6 +126,41 @@ try {
     // -------------------------------------------------------------------------
     $configDir  = dirname(__DIR__) . '/config';
     $configFile = $configDir . '/db.local.php';
+
+    /**
+     * Ghi config/db.local.php với thông tin kết nối đã chốt.
+     * Tệp này được .gitignore — KHÔNG BAO GIỜ commit.
+     */
+    $writeLocalConfig = static function (string $file, string $user, string $password) use ($dbHost, $dbPort, $dbName): void {
+        $php = "<?php\n"
+            . "/**\n"
+            . " * config/db.local.php — THÔNG TIN KẾT NỐI CỤC BỘ (KHÔNG COMMIT).\n"
+            . " *\n"
+            . " * Tệp này được sinh tự động bởi scripts/setup_db.php và đã được .gitignore.\n"
+            . " * Chứa mật khẩu của tài khoản MySQL riêng cho ứng dụng.\n"
+            . " *\n"
+            . " * config/db.php còn cho phép ghi đè từng trường bằng biến môi trường\n"
+            . " * (WA_DB_HOST, WA_DB_PORT, WA_DB_NAME, WA_DB_USER, WA_DB_PASS).\n"
+            . " */\n\n"
+            . "declare(strict_types=1);\n\n"
+            . "return [\n"
+            . "    'host'     => '" . $dbHost . "',\n"
+            . "    'port'     => " . $dbPort . ",\n"
+            . "    'dbname'   => '" . $dbName . "',\n"
+            . "    'user'     => '" . $user . "',\n"
+            . "    'password' => '" . $password . "',\n"
+            . "    'charset'  => 'utf8mb4',\n"
+            . "];\n";
+
+        if (file_put_contents($file, $php) === false) {
+            throw new RuntimeException('Không ghi được config/db.local.php.');
+        }
+    };
+
+    // Mật khẩu tài khoản ứng dụng: ưu tiên biến môi trường WA_DB_PASS.
+    // Nhờ vậy KHÔNG cần ghi mật khẩu vào tệp và không cần dán vào tin nhắn.
+    $envAppPass = getenv('WA_DB_PASS');
+    $envAppPass = $envAppPass === false ? '' : (string) $envAppPass;
 
     if (is_file($configFile)) {
         /** @var mixed $existing */
@@ -132,14 +170,73 @@ try {
         }
         $appUser     = (string) $existing['user'];
         $appPassword = (string) $existing['password'];
-        out('[3/6] Đã có config/db.local.php — tái sử dụng tài khoản ứng dụng "' . $appUser . '"');
+
+        // Biến môi trường được ưu tiên (giống config/db.php): nếu có thì dùng
+        // nó và ĐẶT LẠI mật khẩu tài khoản MySQL cho khớp. Nhờ vậy chạy lại
+        // setup_db.php sau khi đổi mật khẩu là luôn an toàn.
+        if ($envAppPass !== '') {
+            $appPassword = $envAppPass;
+
+            $pdo->exec(sprintf(
+                "CREATE USER IF NOT EXISTS '%s'@'%s' IDENTIFIED BY '%s'",
+                $appUser,
+                WA_APP_HOST,
+                str_replace("'", "''", $appPassword)
+            ));
+            $pdo->exec(sprintf(
+                "ALTER USER '%s'@'%s' IDENTIFIED BY '%s'",
+                $appUser,
+                WA_APP_HOST,
+                str_replace("'", "''", $appPassword)
+            ));
+            $pdo->exec(sprintf(
+                "GRANT ALL PRIVILEGES ON `%s`.* TO '%s'@'%s'",
+                $dbName,
+                $appUser,
+                WA_APP_HOST
+            ));
+            $pdo->exec('FLUSH PRIVILEGES');
+
+            $writeLocalConfig($configFile, $appUser, $appPassword);
+
+            out('[3/6] Đã dùng mật khẩu từ biến môi trường WA_DB_PASS cho tài khoản "' . $appUser . '".');
+        } else {
+            // Không có biến môi trường: dùng mật khẩu đang có trong tệp. Nếu
+            // tệp không có mật khẩu thì KHÔNG đoán — báo lỗi rõ ràng.
+            if ($appPassword === '') {
+                throw new RuntimeException(
+                    'config/db.local.php không có mật khẩu. Hãy đặt biến môi trường '
+                    . 'WA_DB_PASS rồi chạy lại, hoặc xoá config/db.local.php để sinh lại.'
+                );
+            }
+
+            out('[3/6] Đã có config/db.local.php — tái sử dụng tài khoản ứng dụng "' . $appUser . '"');
+
+            // Bảo đảm tài khoản MySQL thật sự tồn tại với đúng mật khẩu (trường
+            // hợp máy đã cài đặt nhưng tài khoản bị xoá hoặc đổi mật khẩu).
+            $pdo->exec(sprintf(
+                "CREATE USER IF NOT EXISTS '%s'@'%s' IDENTIFIED BY '%s'",
+                $appUser,
+                WA_APP_HOST,
+                str_replace("'", "''", $appPassword)
+            ));
+            $pdo->exec(sprintf(
+                "GRANT ALL PRIVILEGES ON `%s`.* TO '%s'@'%s'",
+                $dbName,
+                $appUser,
+                WA_APP_HOST
+            ));
+            $pdo->exec('FLUSH PRIVILEGES');
+        }
     } else {
         if (!is_dir($configDir) && !mkdir($configDir, 0o775, true) && !is_dir($configDir)) {
             throw new RuntimeException('Không tạo được thư mục config/.');
         }
 
         // Mật khẩu ngẫu nhiên mạnh (chỉ ký tự an toàn cho DSN/MySQL).
-        $appPassword = bin2hex(random_bytes(24));
+        // Nếu có WA_DB_PASS thì dùng mật khẩu đó — nhờ vậy không cần lưu bí
+        // mật vào tệp và người dùng không phải dán mật khẩu vào tin nhắn.
+        $appPassword = $envAppPass !== '' ? $envAppPass : bin2hex(random_bytes(24));
         $appUser     = WA_APP_USER;
 
         $pdo->exec(sprintf(
@@ -149,36 +246,23 @@ try {
             str_replace("'", "''", $appPassword)
         ));
         $pdo->exec(sprintf(
+            "ALTER USER '%s'@'%s' IDENTIFIED BY '%s'",
+            $appUser,
+            WA_APP_HOST,
+            str_replace("'", "''", $appPassword)
+        ));
+        $pdo->exec(sprintf(
             "GRANT ALL PRIVILEGES ON `%s`.* TO '%s'@'%s'",
-            WA_DB_NAME,
+            $dbName,
             $appUser,
             WA_APP_HOST
         ));
         $pdo->exec('FLUSH PRIVILEGES');
 
-        $php = "<?php\n"
-            . "/**\n"
-            . " * config/db.local.php — THÔNG TIN KẾT NỐI CỤC BỘ (KHÔNG COMMIT).\n"
-            . " *\n"
-            . " * Tệp này được sinh tự động bởi scripts/setup_db.php và đã được .gitignore.\n"
-            . " * Chứa mật khẩu của tài khoản MySQL riêng cho ứng dụng.\n"
-            . " */\n\n"
-            . "declare(strict_types=1);\n\n"
-            . "return [\n"
-            . "    'host'     => '" . WA_DB_HOST . "',\n"
-            . "    'port'     => " . WA_DB_PORT . ",\n"
-            . "    'dbname'   => '" . WA_DB_NAME . "',\n"
-            . "    'user'     => '" . $appUser . "',\n"
-            . "    'password' => '" . $appPassword . "',\n"
-            . "    'charset'  => 'utf8mb4',\n"
-            . "];\n";
-
-        if (file_put_contents($configFile, $php) === false) {
-            throw new RuntimeException('Không ghi được config/db.local.php.');
-        }
+        $writeLocalConfig($configFile, $appUser, $appPassword);
 
         out('[3/6] Đã tạo tài khoản "' . $appUser . "'@'" . WA_APP_HOST
-            . "' (chỉ có quyền trên " . WA_DB_NAME . ".*) và ghi config/db.local.php");
+            . "' (chỉ có quyền trên " . $dbName . ".*) và ghi config/db.local.php");
     }
 
     // -------------------------------------------------------------------------
@@ -186,9 +270,9 @@ try {
     // -------------------------------------------------------------------------
     $appDsn = sprintf(
         'mysql:host=%s;port=%d;dbname=%s;charset=utf8mb4',
-        WA_DB_HOST,
-        WA_DB_PORT,
-        WA_DB_NAME
+        $dbHost,
+        $dbPort,
+        $dbName
     );
     $app = new PDO($appDsn, $appUser, $appPassword, [
         PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
@@ -197,8 +281,41 @@ try {
     ]);
 
     out('[4/6] Đang áp dụng lược đồ và dữ liệu mẫu...');
-    apply_sql_file($app, dirname(__DIR__) . '/database/schema.sql');
-    apply_sql_file($app, dirname(__DIR__) . '/database/seed.sql');
+
+    // -------------------------------------------------------------------------
+    // AN TOÀN DỮ LIỆU: database/schema.sql dùng DROP TABLE nên nạp lại lược
+    // đồ sẽ XOÁ sạch mọi dữ liệu đang có. Chỉ nạp lại khi database thật sự
+    // TRỐNG; nếu đã có dữ liệu thì GIỮ NGUYÊN và chỉ chạy các migration bổ
+    // sung (bước 5b bên dưới vẫn chạy, vì nó chỉ tạo tệp tài nguyên cục bộ).
+    // -------------------------------------------------------------------------
+    $existingTables = 0;
+    $existingRows   = 0;
+
+    try {
+        $tableCount = $app->query(
+            "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES
+              WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'"
+        )->fetchColumn();
+        $existingTables = (int) $tableCount;
+
+        if ($existingTables > 0) {
+            $rowCount = $app->query('SELECT COUNT(*) FROM `saved_pages`')->fetchColumn();
+            $existingRows = (int) $rowCount;
+        }
+    } catch (Throwable) {
+        // Bảng `saved_pages` chưa có -> database rỗng.
+        $existingTables = 0;
+        $existingRows   = 0;
+    }
+
+    if ($existingTables === 0 || $existingRows === 0) {
+        apply_sql_file($app, dirname(__DIR__) . '/database/schema.sql');
+        apply_sql_file($app, dirname(__DIR__) . '/database/seed.sql');
+    } else {
+        out('  · BỎ QUA nạp lại lược đồ: database đang có ' . $existingTables
+            . ' bảng và ' . $existingRows . ' bài viết — GIỮ NGUYÊN dữ liệu cũ.');
+        out('  · Nếu thật sự muốn cài lại sạch, hãy xoá database thủ công rồi chạy lại.');
+    }
 
     // -------------------------------------------------------------------------
     // 5b. Vật chất hoá tài nguyên cục bộ của dữ liệu mẫu (P-FINAL-2 / B5)
@@ -282,7 +399,7 @@ try {
     ];
 
     out('');
-    out('[6/6] Số dòng sau khi cài đặt (database `' . WA_DB_NAME . '`):');
+    out('[6/6] Số dòng sau khi cài đặt (database `' . $dbName . '`):');
     out(str_repeat('-', 58));
 
     foreach ($tables as $table) {
