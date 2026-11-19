@@ -1454,16 +1454,6 @@
   .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px;
              overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
 
-  /* P-AUTOVERSION: bảng xin phép kiểm tra tự động. */
-  .auto-consent { display:flex; flex-wrap:wrap; gap:16px; align-items:center;
-                  justify-content:space-between; margin:0 0 20px; padding:16px 18px;
-                  border:1px solid #F5D67B; border-radius:var(--wa-radius-xl);
-                  background:#FEF3C7; color:#6B4E06; }
-  .auto-consent[hidden] { display:none; }
-  .auto-consent__body { display:flex; gap:14px; align-items:flex-start; flex:1 1 420px; min-width:0; }
-  .auto-consent__body p { margin:6px 0 0; color:#7A5B0B; }
-  .auto-consent__icon { flex:0 0 auto; color:var(--wa-warning); }
-  .auto-consent__actions { display:flex; gap:8px; flex-wrap:wrap; }
 
   /* P-AUTOVERSION: thông báo nổi sau khi kiểm tra tự động. */
   .wa-flash { border-radius:10px; padding:10px 12px; font-size:13px; margin-bottom:16px;

@@ -510,8 +510,10 @@ function wa_url_policy_host_is_trusted(string $host): bool
 /**
  * Tín hiệu rủi ro của một URL.
  *
- * CHỈ trả về tín hiệu khi có bằng chứng kiểm chứng được. Không có tín hiệu
- * nào dựa vào việc "tên miền chưa từng xuất hiện trong CSDL".
+ * CHỈ trả về tín hiệu khi có bằng chứng kiểm chứng được — NGOẠI TRỪ tín hiệu
+ * `unlisted_domain` (quyết định 19/11: danh sách cho phép phải "hoạt động",
+ * tức là việc thêm trang ngoài danh sách phải hiện thông báo rõ ràng cho
+ * người dùng biết và quyết định, thay vì lưu lặng lẽ như trước).
  *
  * @return array<int, array{code:string, label:string, detail:string}>
  */
@@ -523,6 +525,17 @@ function wa_url_policy_signals(string $host, string $scheme, int $port, bool $tr
     }
 
     $signals = [];
+
+    // Tên miền chưa có trong danh sách cho phép -> báo để người dùng biết
+    // và quyết định: lưu tiếp sau khi xác nhận, hoặc gửi yêu cầu duyệt
+    // tên miền cho quản trị viên. Đây là CẢNH BÁO, không phải lệnh chặn:
+    // chốt an toàn cứng (mạng riêng, metadata, DNS rebinding) vẫn nằm ở
+    // wa_url_policy_inspect() và không có thao tác nào bỏ qua được.
+    $signals[] = [
+        'code'   => 'unlisted_domain',
+        'label'  => 'Chưa có trong danh sách cho phép',
+        'detail' => 'Tên miền "' . $host . '" chưa được quản trị viên duyệt vào danh sách cho phép. Bạn vẫn có thể lưu sau khi xác nhận, hoặc gửi yêu cầu duyệt tên miền này.',
+    ];
 
     if ($scheme === 'http') {
         $signals[] = [

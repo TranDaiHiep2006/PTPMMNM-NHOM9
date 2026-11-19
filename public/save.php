@@ -318,6 +318,27 @@ require __DIR__ . '/../templates/header_app.php';
       </div>
       <div class="state__actions">
         <a class="btn btn--outline" href="<?= wa_e(wa_url('save.php')) ?>">KHÔNG LƯU</a>
+        <?php
+        // Tên miền chưa có trong danh sách cho phép -> cho gửi yêu cầu duyệt
+        // cho quản trị viên (ghi vào hàng chờ, quản trị duyệt ở admin/allowlist.php).
+        $hasUnlisted = false;
+        foreach (($riskNotice['signals'] ?? []) as $signal) {
+            if (($signal['code'] ?? '') === 'unlisted_domain') {
+                $hasUnlisted = true;
+                break;
+            }
+        }
+        $unlistedHost = $hasUnlisted
+            ? (string) (parse_url((string) ($form['url'] ?? ''), PHP_URL_HOST) ?? '')
+            : '';
+        ?>
+        <?php if ($hasUnlisted && $unlistedHost !== ''): ?>
+          <form method="post" action="<?= wa_e(wa_url('domain_request.php')) ?>" style="display:inline">
+            <?= wa_csrf_field() ?>
+            <input type="hidden" name="domain" value="<?= wa_e($unlistedHost) ?>">
+            <button class="btn btn--outline" type="submit">Gửi yêu cầu duyệt tên miền</button>
+          </form>
+        <?php endif; ?>
         <form method="post" action="<?= wa_e(wa_url('save.php')) ?>" style="display:inline">
           <?= wa_csrf_field() ?>
           <input type="hidden" name="url" value="<?= wa_e($form['url']) ?>">

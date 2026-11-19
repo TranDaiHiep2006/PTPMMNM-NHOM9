@@ -45,8 +45,6 @@ quy tắc phiên bản, lập chỉ mục tìm kiếm và tải ảnh không bao
 
 ```bash
 php scripts/run_tests.php             # 6 bài kiểm thử bắt buộc (T1–T6)
-php scripts/test_auto_version.php     # Auto Version + thông báo (19 mục)
-php scripts/test_notify_summary.php   # Tóm tắt thay đổi trong thông báo (7 mục)
 php scripts/test_url_policy.php       # Chính sách URL / chống SSRF (18 mục)
 php scripts/test_backfill_logic.php   # SHA-256 + keyset pagination (10 mục)
 php scripts/test_v3_feeds_parse.php   # RSS/Atom (F9)
@@ -82,7 +80,7 @@ Năm chức năng nghiệp vụ của đề tài số 16 và **chỗ cài đặt
 
 | # | Chức năng của đề tài | Mã nguồn cài đặt (tệp → hàm / route) |
 |---|----------------------|------------------------------------------|
-| 1 | **Thư viện, nhãn, phân quyền**; mọi URL công khai đều lưu được (qua chính sách URL công khai có kiểm tra an toàn) | `src/queries.php` → `wa_library_create()` (dòng 714), `wa_library_update()` (807), `wa_library_delete()` (916), `wa_member_add()` (1058), `wa_member_update_role()` (1124), `wa_member_remove()` (1162); `public/library_action.php` (bộ điều khiển POST: `create`/`update`/`delete`/`member_add`/`member_role`/`member_remove`/`tags`/`star`/`page_delete`/`version_delete`/`version_rename`); `src/url_policy.php` → `wa_url_policy_inspect()` (kiểm tra an toàn **trước mọi** request: DNS + IP công khai, chặn mạng riêng/cloud metadata, chống DNS rebinding); `src/capture.php` → `wa_capture_is_allowlisted()` (danh sách **TIN CẬY** — chỉ dùng để miễn cảnh báo rủi ro); `public/admin/allowlist.php` (bảng `allowlist_domains`); quản trị xoá thư viện qua `public/admin/admin_action.php` (đường `asAdmin` của `wa_library_delete()`) |
+| 1 | **Thư viện, nhãn, phân quyền**; mọi URL công khai đều lưu được (qua chính sách URL công khai có kiểm tra an toàn) | `src/queries.php` → `wa_library_create()` (dòng 714), `wa_library_update()` (807), `wa_library_delete()` (916), `wa_member_add()` (1058), `wa_member_update_role()` (1124), `wa_member_remove()` (1162); `public/library_action.php` (bộ điều khiển POST: `create`/`update`/`delete`/`member_add`/`member_role`/`member_remove`/`tags`/`star`/`page_delete`/`version_delete`/`version_rename`); `src/url_policy.php` → `wa_url_policy_inspect()` (kiểm tra an toàn **trước mọi** request: DNS + IP công khai, chặn mạng riêng/cloud metadata, chống DNS rebinding); `src/capture.php` → `wa_capture_is_allowlisted()` (danh sách **TIN CẬY** — tên miền trong danh sách được lưu thẳng; tên miền ngoài danh sách hiện cảnh báo “Chưa có trong danh sách cho phép” và cần xác nhận trước khi lưu); `public/admin/allowlist.php` (bảng `allowlist_domains`); quản trị xoá thư viện qua `public/admin/admin_action.php` (đường `asAdmin` của `wa_library_delete()`) |
 | 2 | **Tải HTML + bóc tách tiêu đề/nội dung, phân biệt lỗi** | `src/capture.php` → `capture_url()` (dòng 987), `wa_capture_http_get()` (dòng 273, tự đi tối đa 5 redirect và **kiểm tra lại an toàn ở từng đích**; ghim IP đã xác minh qua `CURLOPT_RESOLVE` để chống DNS rebinding), `wa_capture_extract_title()` (587), `wa_capture_find_content_node()` (656); mã lỗi `error_404` / `error_timeout` / `error_blocked` / `error_no_content` / `error_http` / `error_invalid_url`; `src/queries.php` → `wa_store_page_capture()` (dòng 2478) ghi bản ghi lỗi với `fetch_status <> 'success'` |
 | 3 | **Bản đọc lại sạch, ảnh lưu cục bộ** | `src/capture.php` → `wa_capture_sanitize()` (dòng 779, whitelist thẻ/thuộc tính), `wa_capture_localize_images()` (1277 — tải về `public/uploads/snapshots/<id>/<sha256>.<ext>`, đổi `src` thành đường dẫn cục bộ), `wa_capture_assert_clean()` (945); `src/queries.php` → `wa_insert_assets()` (dòng 2365); `public/reader.php` (trình đọc nền giấy ngà) |
 | 4 | **Tìm kiếm tự xây trên nội dung đã lưu**, trả đoạn trích, gắn đúng phiên bản | `src/search.php` → `wa_search_index_snapshot()` (dòng 164), `wa_search_snapshots()` (dòng 258, ngữ nghĩa AND, `score = 3×count_title + count_body`, lọc theo **thẻ** và **tên miền nguồn**); `public/search.php` (route GET `q`/`tag`/`domain`); bảng `search_terms` (`database/schema.sql` dòng 183) |
@@ -269,7 +267,7 @@ scripts/make_sample_images.php Sinh 5 tệp PNG nhỏ hợp lệ cho bộ trang 
 scripts/seed_samples.php       Nạp 15 trang mẫu vào "Kho dữ liệu mẫu" qua engine thật (idempotent)
 scripts/run_tests.php          Sáu bài kiểm thử bắt buộc T1–T6 (tự bật máy chủ riêng)
 scripts/test_url_policy.php    Kiểm thử tĩnh chính sách URL (có chế độ kiểm thử localhost bật bằng WA_TEST_ALLOW_LOCAL=1)
-scripts/migrate_auto_version.php  Tạo bảng `notifications` + `auto_version_events`, thêm cột `saved_pages.auto_*`, `users.auto_update_enabled` (CLI, idempotent)
+scripts/migrate_remove_auto_version.php  Xoá bảng `auto_version_events`, 4 cột `saved_pages.auto_*`, cột `users.auto_update_enabled` (CLI, idempotent; giữ nguyên bảng `notifications`)
 scripts/migrate_v3.php         Tạo bảng/cột V3 (reading_states, reading_queue, annotations, share_links, api_tokens, feed_*, content_watches, page_relations, snapshots.content_hash) (CLI, idempotent)
 scripts/backfill_snapshot_hash.php  Bổ sung `snapshots.content_hash` cho snapshot cũ (CLI, theo lô, --dry-run, KHÔNG ghi đè hash sẵn có)
 scripts/test_backfill_logic.php   Kiểm thử tĩnh hash SHA-256 + chuẩn hoá URL + phân trang keyset (KHÔNG cần mạng/CSDL)
@@ -288,7 +286,6 @@ src/capture.php                Engine lưu trang THẬT (cURL + DOMDocument + sa
 src/v3_api.php                 V3: token API (sinh/kiểm tra/thu hồi token, scope, rate limit, CORS chrome-extension://)
 src/v3_share.php               V3: link chia sẻ có thời hạn + giới hạn lượt xem + sanitizer HTML
 src/url_policy.php             V3: chính sách URL công khai — chốt an toàn SSRF (chặn mạng riêng, cloud metadata, DNS rebinding) + tín hiệu rủi ro
-src/auto_version.php           V2: tự động tạo phiên bản V2/V3 khi nội dung thay đổi
 src/notifications.php           V2: hệ thống thông báo trong ứng dụng
 src/v3_watch.php               V3 Đợt 4: F10 — theo dõi MỘT ĐOẠN nội dung + đối chiếu theo phiên bản
 src/v3_relations.php           V3 Đợt 4: F11 — liên kết bài viết (4 loại) + dữ liệu sơ đồ quan hệ
@@ -362,13 +359,15 @@ Lỗi vẫn được **ghi lại** vào CSDL (snapshot với `fetch_status = err
 trị đếm được, nhưng danh sách thư viện, tìm kiếm và trình đọc **chỉ lấy snapshot có
 `fetch_status = 'success'`** — trang lỗi không bao giờ hiện như bài đọc được.
 
-**Cảnh báo rủi ro (lớp mềm, chỉ khi có bằng chứng kiểm chứng được):** nếu URL có tín hiệu
-rủi ro cụ thể — HTTP không mã hoá, địa chỉ IP thay tên miền, cổng không chuẩn, tên miền
-punycode `xn--` — hệ thống **không** cảnh báo chỉ vì tên miền "chưa có trong CSDL", và
-**không** tự đặt điểm rủi ro tuỳ tiện. Người dùng được hỏi rõ ràng với hai nút
-**KHÔNG LƯU** / **VẪN LƯU**. Xác nhận của người dùng **chỉ** bỏ qua cảnh báo — **không**
-bao giờ bỏ qua chốt an toàn cấp máy chủ. Tên miền nằm trong `allowlist_domains` nay là
-danh sách **TIN CẬY**: được miễn cảnh báo.
+**Cảnh báo rủi ro (lớp mềm):** nếu URL có tín hiệu rủi ro cụ thể — HTTP không mã hoá,
+địa chỉ IP thay tên miền, cổng không chuẩn, tên miền punycode `xn--` — hệ thống hiện
+cảnh báo và hỏi rõ ràng với hai nút **KHÔNG LƯU** / **VẪN LƯU**. Riêng tên miền chưa
+có trong `allowlist_domains` thì luôn hiện thêm tín hiệu “Chưa có trong danh sách cho
+phép” (quyết định 19/11: danh sách cho phép phải “hoạt động”, tức là việc thêm trang
+ngoài danh sách phải thông báo rõ ràng), kèm nút **Gửi yêu cầu duyệt tên miền** cho
+quản trị viên. Xác nhận của người dùng **chỉ** bỏ qua cảnh báo — **không** bao giờ bỏ
+qua chốt an toàn cấp máy chủ. Tên miền nằm trong `allowlist_domains` là danh sách
+**TIN CẬY**: được miễn cảnh báo.
 
 **Ghi chú:** `localhost` được giữ trong `allowlist_domains` làm **host thử nghiệm cục bộ**
 cho fixture server (`php -S localhost:8090 -t tests/fixtures`).
@@ -667,11 +666,12 @@ năng đầy đủ, không phải phạm vi của một giai đoạn.
 - **Bộ kiểm thử tự động** `scripts/run_tests.php` chạy sáu bài kiểm thử bắt buộc
   (T1–T6) trên hai máy chủ riêng do chính nó bật lên, và tự dọn dữ liệu qua hành động
   của chính ứng dụng.
-- **Bộ kiểm thử mở rộng (V3, 10 bộ / 187 mục — tất cả PASS ngày 19/11/2026):**
-  `test_auto_version.php` (19) · `test_notify_summary.php` (7) · `test_url_policy.php` (18) ·
-  `test_backfill_logic.php` (10) · `test_v3_feeds_parse.php` (4) ·
+- **Bộ kiểm thử mở rộng (V3, 8 bộ — tất cả PASS ngày 19/11/2026):**
+  `test_url_policy.php` (18) · `test_backfill_logic.php` (10) · `test_v3_feeds_parse.php` (4) ·
   `test_v3_share_sanitize.php` (3) · `test_v3_research.php` (4) · `test_admin_smoke.php` (5) ·
   `test_extension_chrome.php` (11 — Chrome headless + CDP) · `run_tests.php` (6).
+  (Hai bộ `test_auto_version.php` và `test_notify_summary.php` đã bỏ cùng
+  tính năng tự động cập nhật phiên bản; tổng số mục cần đo lại khi chạy.)
   Chi tiết: [`docs/FINAL_TEST_REPORT.md`](docs/FINAL_TEST_REPORT.md).
 - **Chính sách URL dùng chung** (`src/url_policy.php`): một cổng kiểm tra duy nhất cho
   mọi đường ra ngoài — dùng bởi engine lưu trang, API Extension, RSS/Atom và lưu hàng loạt.
@@ -870,7 +870,7 @@ Trong popup: vào **Cài đặt** → dán **địa chỉ máy chủ** (ví dụ
 - `src/v3_watch.php` → `wa_watch_create()`, `wa_watch_check_page()`, `wa_watch_notify()`.
 - Bôi đen đoạn văn bản trong trình đọc → menu nổi **“Theo dõi đoạn này”**; lưu đoạn +
   ngữ cảnh hai bên + vị trí (CSS selector, text offset) theo snapshot nguồn.
-- Khi Auto Version hoặc “Lấy phiên bản mới” tạo phiên bản mới, hệ thống **tái sử dụng
+- Khi “Lấy phiên bản mới” tạo phiên bản mới, hệ thống **tái sử dụng
   kết quả tải sẵn** (không tải lại website) để đối chiếu từng đoạn.
 - Ba trạng thái: `ok` (còn nguyên) · `changed` (đã sửa → **có thông báo** kèm nội dung cũ/mới
   và link so sánh hai phiên bản) · `unknown` (**“Không tìm thấy đoạn tương ứng”** — không
@@ -972,7 +972,7 @@ Phần này ghi rõ **những gì CHƯA làm** để không gây hiểu nhầm k
 | Website chặn bot / CAPTCHA | Ghi đúng lỗi, không vượt | `error_http` / `error_no_content`; hệ thống **không** cố lách CAPTCHA. |
 | Ghi chú theo đoạn (rich-text, chú thích chéo) | Cơ bản | Ghi chú đã gắn đúng snapshot và giữ qua các bản. |
 | Đồng bộ hai chiều với Zotero/Mendeley | Chưa làm | Ngoài phạm vi 12 chức năng V3. |
-| Auto Version chạy nền | **Cố ý không làm** | Không Task Scheduler, không cron, không tiến trình tự chạy. Chỉ chạy khi người dùng đã **đồng ý** và chủ động bấm kiểm tra. |
+| Tự động cập nhật phiên bản mới | **Đã bỏ** | Chỉ thông báo “Có bản mới” (cờ `has_update` do `check_one.php` ghi); người dùng tự bấm “Lấy phiên bản mới” khi muốn. Không tự tạo snapshot, không Task Scheduler, không cron. |
 
 ---
 
