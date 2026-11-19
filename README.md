@@ -9,7 +9,7 @@ không Composer, không bước build.
 
 | Năng lực | Mô tả ngắn |
 |----------|-----------|
-| **Lưu trang thật** | cURL + `DOMDocument`; kiểm tra allowlist **trước mọi** byte gửi đi và **lại ở từng bước chuyển hướng** |
+| **Lưu trang thật** | cURL + `DOMDocument`; **mọi URL công khai đều lưu được** (không cần Admin duyệt tên miền) nhưng phải qua chốt an toàn SSRF **trước mọi** byte gửi đi và **lại ở từng bước chuyển hướng** |
 | **Ảnh về máy chủ nội bộ** | mọi ảnh trong bài được tải về `public/uploads/snapshots/…`, tên đặt theo SHA256 |
 | **Làm sạch HTML** | whitelist thẻ/thuộc tính — `<script>`, `onclick`, `<iframe>` không thể chạy trong bản lưu |
 | **Lịch sử phiên bản** | mỗi lần lưu là một bản `snapshots` với `version_no` riêng; nút “Lấy phiên bản mới” |
@@ -31,7 +31,12 @@ quy tắc phiên bản, lập chỉ mục tìm kiếm và tải ảnh không bao
 | Tài liệu | Nội dung |
 |----------|----------|
 | [`docs/DEMO.md`](docs/DEMO.md) | **Hai kịch bản trình diễn chính thức**, viết click-by-click |
+| [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md) | **Hướng dẫn demo & báo cáo**: 24 chức năng có thể chụp ảnh, 2 tình huống demo, 8 sơ đồ cho báo cáo Word, danh sách phần chưa hoàn thiện |
+| [`docs/FINAL_TEST_REPORT.md`](docs/FINAL_TEST_REPORT.md) | **Báo cáo kiểm thử cuối kỳ** — 8 bộ test / 74 mục, toàn bộ PASS, kèm log thật |
+| [`docs/REPORT_EVIDENCE.md`](docs/REPORT_EVIDENCE.md) | **Minh chứng & bản đồ mã nguồn** — F1–F12 → file → hàm → bài kiểm thử; bảng lỗi đã sửa; bằng chứng bảo mật |
 | [`docs/SEARCH_QUERIES.md`](docs/SEARCH_QUERIES.md) | **10 câu hỏi tìm kiếm** kèm kết quả mong đợi và thực tế |
+| [`docs/V3_DOT3.md`](docs/V3_DOT3.md) | **Chrome Extension + Chia sẻ + RSS** — cài đặt và kiểm thử thủ công |
+| [`docs/V3_DOT4.md`](docs/V3_DOT4.md) | **Theo dõi đoạn + Quan hệ bài viết + Phát hiện trùng lặp** — cài đặt và kiểm thử thủ công |
 | [`tests/samples/README.md`](tests/samples/README.md) | **Bảng kê 15 trang mẫu** và kết quả lưu trang mong đợi của từng trang |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Quy ước dự án và cách đóng góp |
 | [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) | Bối cảnh dự án và trạng thái từng giai đoạn |
@@ -39,8 +44,19 @@ quy tắc phiên bản, lập chỉ mục tìm kiếm và tải ảnh không bao
 ### Bằng chứng cho đề tài
 
 ```bash
-php scripts/run_tests.php     # 6 bài kiểm thử bắt buộc, tự bật máy chủ riêng
+php scripts/run_tests.php             # 6 bài kiểm thử bắt buộc (T1–T6)
+php scripts/test_auto_version.php     # Auto Version + thông báo (19 mục)
+php scripts/test_notify_summary.php   # Tóm tắt thay đổi trong thông báo (7 mục)
+php scripts/test_url_policy.php       # Chính sách URL / chống SSRF (18 mục)
+php scripts/test_backfill_logic.php   # SHA-256 + keyset pagination (10 mục)
+php scripts/test_v3_feeds_parse.php   # RSS/Atom (F9)
+php scripts/test_v3_share_sanitize.php# Khử XSS nội dung chia sẻ (F8)
+php scripts/test_admin_smoke.php      # Khối phần quản trị (5 mục)
 ```
+
+> **Kết quả chạy thật ngày 19/11/2026: 74/74 mục PASS, 0 FAIL.**
+> Xem [`docs/FINAL_TEST_REPORT.md`](docs/FINAL_TEST_REPORT.md) để biết chi tiết từng mục
+> và các hạng mục còn **BLOCKED** (kiểm thử Chrome thật).
 
 ---
 
@@ -63,8 +79,8 @@ Năm chức năng nghiệp vụ của đề tài số 16 và **chỗ cài đặt
 
 | # | Chức năng của đề tài | Mã nguồn cài đặt (tệp → hàm / route) |
 |---|----------------------|------------------------------------------|
-| 1 | **Thư viện, nhãn, phân quyền**; chỉ URL thuộc allowlist mới được lưu | `src/queries.php` → `wa_library_create()` (dòng 714), `wa_library_update()` (807), `wa_library_delete()` (916), `wa_member_add()` (1058), `wa_member_update_role()` (1124), `wa_member_remove()` (1162); `public/library_action.php` (bộ điều khiển POST: `create`/`update`/`delete`/`member_add`/`member_role`/`member_remove`/`tags`/`star`/`page_delete`/`version_delete`/`version_rename`); `src/capture.php` → `wa_capture_is_allowlisted()` (dòng 225 — kiểm tra allowlist **trước mọi** request); `public/admin/allowlist.php` (bảng `allowlist_domains`); quản trị xoá thư viện qua `public/admin/admin_action.php` (đường `asAdmin` của `wa_library_delete()`) |
-| 2 | **Tải HTML + bóc tách tiêu đề/nội dung, phân biệt lỗi** | `src/capture.php` → `capture_url()` (dòng 987), `wa_capture_http_get()` (dòng 273, tự đi tối đa 5 redirect và **kiểm tra lại allowlist ở từng đích**), `wa_capture_extract_title()` (587), `wa_capture_find_content_node()` (656); mã lỗi `error_404` / `error_timeout` / `error_blocked` / `error_no_content` / `error_http` / `error_invalid_url`; `src/queries.php` → `wa_store_page_capture()` (dòng 2478) ghi bản ghi lỗi với `fetch_status <> 'success'` |
+| 1 | **Thư viện, nhãn, phân quyền**; mọi URL công khai đều lưu được (qua chính sách URL công khai có kiểm tra an toàn) | `src/queries.php` → `wa_library_create()` (dòng 714), `wa_library_update()` (807), `wa_library_delete()` (916), `wa_member_add()` (1058), `wa_member_update_role()` (1124), `wa_member_remove()` (1162); `public/library_action.php` (bộ điều khiển POST: `create`/`update`/`delete`/`member_add`/`member_role`/`member_remove`/`tags`/`star`/`page_delete`/`version_delete`/`version_rename`); `src/url_policy.php` → `wa_url_policy_inspect()` (kiểm tra an toàn **trước mọi** request: DNS + IP công khai, chặn mạng riêng/cloud metadata, chống DNS rebinding); `src/capture.php` → `wa_capture_is_allowlisted()` (danh sách **TIN CẬY** — chỉ dùng để miễn cảnh báo rủi ro); `public/admin/allowlist.php` (bảng `allowlist_domains`); quản trị xoá thư viện qua `public/admin/admin_action.php` (đường `asAdmin` của `wa_library_delete()`) |
+| 2 | **Tải HTML + bóc tách tiêu đề/nội dung, phân biệt lỗi** | `src/capture.php` → `capture_url()` (dòng 987), `wa_capture_http_get()` (dòng 273, tự đi tối đa 5 redirect và **kiểm tra lại an toàn ở từng đích**; ghim IP đã xác minh qua `CURLOPT_RESOLVE` để chống DNS rebinding), `wa_capture_extract_title()` (587), `wa_capture_find_content_node()` (656); mã lỗi `error_404` / `error_timeout` / `error_blocked` / `error_no_content` / `error_http` / `error_invalid_url`; `src/queries.php` → `wa_store_page_capture()` (dòng 2478) ghi bản ghi lỗi với `fetch_status <> 'success'` |
 | 3 | **Bản đọc lại sạch, ảnh lưu cục bộ** | `src/capture.php` → `wa_capture_sanitize()` (dòng 779, whitelist thẻ/thuộc tính), `wa_capture_localize_images()` (1277 — tải về `public/uploads/snapshots/<id>/<sha256>.<ext>`, đổi `src` thành đường dẫn cục bộ), `wa_capture_assert_clean()` (945); `src/queries.php` → `wa_insert_assets()` (dòng 2365); `public/reader.php` (trình đọc nền giấy ngà) |
 | 4 | **Tìm kiếm tự xây trên nội dung đã lưu**, trả đoạn trích, gắn đúng phiên bản | `src/search.php` → `wa_search_index_snapshot()` (dòng 164), `wa_search_snapshots()` (dòng 258, ngữ nghĩa AND, `score = 3×count_title + count_body`, lọc theo **thẻ** và **tên miền nguồn**); `public/search.php` (route GET `q`/`tag`/`domain`); bảng `search_terms` (`database/schema.sql` dòng 183) |
 | 5 | **Tải lại (refetch) + ghi chú + xuất kho có phân quyền** | `public/refetch.php` (POST, gọi CHUNG `wa_store_page_capture()`); `public/note.php` (POST, ghi chú theo từng phiên bản); `public/export.php` (GET `id`, `wa_export_build_document()` — `src/queries.php` dòng 2935 — nhúng ảnh base64 data URI); `src/queries.php` → `wa_page_versions()` (dòng 2622, chỉ lấy `fetch_status = 'success'`) |
@@ -74,7 +90,7 @@ Năm chức năng nghiệp vụ của đề tài số 16 và **chỗ cài đặt
 | Yêu cầu | Cài đặt |
 |---------|---------|
 | Không bao giờ coi trang lỗi là bài hợp lệ; luôn đọc từ snapshot đã lưu | `src/queries.php`: `wa_library_articles()` (dòng 1289), `wa_find_snapshot()` (1437), `wa_page_versions()` (2247) đều có điều kiện `fetch_status = 'success'` **ngay trong SQL**; `public/export.php` trả 404 cho bản ghi lỗi |
-| Snapshot không chứa script/tài nguyên ngoài; mọi đích tải về (kể cả sau redirect) phải qua allowlist | `src/capture.php`: whitelist thẻ/thuộc tính khi sanitize; `wa_capture_http_get()` kiểm tra allowlist **trước khi mở kết nối** và **lại ở từng bước chuyển hướng**; cURL dùng **không** `CURLOPT_FOLLOWLOCATION` |
+| Snapshot không chứa script/tài nguyên ngoài; mọi đích tải về (kể cả sau redirect) phải qua chốt an toàn | `src/capture.php`: whitelist thẻ/thuộc tính khi sanitize; `wa_capture_http_get()` gọi `wa_url_policy_inspect()` **trước khi mở kết nối** và **lại ở từng bước chuyển hướng**; cURL dùng **không** `CURLOPT_FOLLOWLOCATION` |
 
 **Năm bài kiểm thử bắt buộc** (đề tài yêu cầu 5 bài; dự án có 6 vì tách riêng "nguồn
 đã chết" và "mã độc") — bản đồ chi tiết ở mục 5.3.3, tự động chạy bằng
@@ -113,7 +129,7 @@ Năm chức năng nghiệp vụ của đề tài số 16 và **chỗ cài đặt
 
 | Thứ | Nguồn | Ghi chú |
 |-----|-------|---------|
-| PHP 8.3 core — extension `curl` | extension chính thức của PHP | Dùng để tải trang; **không** dùng `CURLOPT_FOLLOWLOCATION` (tự đi redirect để kiểm allowlist) |
+| PHP 8.3 core — extension `curl` | extension chính thức của PHP | Dùng để tải trang; **không** dùng `CURLOPT_FOLLOWLOCATION` (tự đi redirect để kiểm tra an toàn từng đích) |
 | PHP 8.3 core — extension `dom` (`DOMDocument`, `DOMXPath`) | extension chính thức | Bóc tách nội dung + kiểm tra tệp xuất bằng XPath (không regex) |
 | PHP 8.3 core — extension `mbstring` | extension chính thức | `mb_strtolower()`, cắt chuỗi đa byte |
 | PHP 8.3 core — extension `fileinfo` (`finfo_buffer`) | extension chính thức | Nhận diện MIME ảnh **theo nội dung thật**, không tin phần mở rộng |
@@ -220,6 +236,14 @@ khoá, `linh.pham@demo.vn`) dùng để minh hoạ màn hình quản trị.
 | Trình đọc | `/reader.php?id=8943` | Đăng nhập + thành viên thư viện |
 | **Xuất bản lưu (HTML độc lập)** | `/export.php?id=8943` | Đăng nhập + thành viên thư viện |
 | Tìm kiếm nội dung | `/search.php?q=snapshot` | Đăng nhập |
+| **Cấu hình Extension (token API)** | `/extension.php` | Đăng nhập |
+| **API JSON cho Extension** | `/api.php` | Bearer token (`api_tokens`) |
+| **Nguồn RSS / Atom** | `/feeds.php` | Đăng nhập |
+| **Tạo / thu hồi link chia sẻ (POST)** | `/share_action.php` | Chủ sở hữu / được cấp quyền (chỉ POST) |
+| **Xem bản chia sẻ (công khai, chỉ đọc)** | `/shared.php?token=…` | Ai có link |
+| **Đoạn nội dung đang theo dõi** | `/watches.php` | Đăng nhập |
+| **Theo dõi đoạn (POST)** | `/watch_action.php` | Đăng nhập (chỉ POST) |
+| **Liên kết bài viết (POST)** | `/relation_action.php` | Đăng nhập (chỉ POST; cần quyền ghi bài nguồn) |
 | Tổng quan hệ thống | `/admin/index.php` | **Quản trị** |
 | Người dùng | `/admin/users.php` | **Quản trị** |
 | Tên miền được duyệt | `/admin/allowlist.php` | **Quản trị** |
@@ -233,7 +257,7 @@ khoá, `linh.pham@demo.vn`) dùng để minh hoạ màn hình quản trị.
 ```
 prompt.md                      Đặc tả giai đoạn này
 PROJECT_CONTEXT.md             Tóm tắt đặc tả, bản đồ trang, cách các phase sau cắm vào
-database/schema.sql            Lược đồ MySQL (13 bảng, InnoDB, utf8mb4, khoá ngoại)
+database/schema.sql            Lược đồ MySQL (InnoDB, utf8mb4, khoá ngoại) — bảng cốt lõi + V3
 database/seed.sql              Dữ liệu mẫu (INSERT) — chạy lại được nhiều lần
 scripts/setup_db.php           Cài đặt CSDL + tài khoản riêng + nạp seed + tạo tệp tài nguyên cục bộ (CLI, idempotent)
 scripts/migrate_search.php     Tạo bảng chỉ mục `search_terms` (CLI, idempotent, tài khoản ứng dụng)
@@ -241,6 +265,11 @@ scripts/reindex_search.php     Lập lại toàn bộ chỉ mục tìm kiếm (C
 scripts/make_sample_images.php Sinh 5 tệp PNG nhỏ hợp lệ cho bộ trang mẫu (không cần GD)
 scripts/seed_samples.php       Nạp 15 trang mẫu vào "Kho dữ liệu mẫu" qua engine thật (idempotent)
 scripts/run_tests.php          Sáu bài kiểm thử bắt buộc T1–T6 (tự bật máy chủ riêng)
+scripts/test_url_policy.php    Kiểm thử tĩnh chính sách URL (có chế độ kiểm thử localhost bật bằng WA_TEST_ALLOW_LOCAL=1)
+scripts/migrate_auto_version.php  Tạo bảng `notifications` + `auto_version_events`, thêm cột `saved_pages.auto_*`, `users.auto_update_enabled` (CLI, idempotent)
+scripts/migrate_v3.php         Tạo bảng/cột V3 (reading_states, reading_queue, annotations, share_links, api_tokens, feed_*, content_watches, page_relations, snapshots.content_hash) (CLI, idempotent)
+scripts/backfill_snapshot_hash.php  Bổ sung `snapshots.content_hash` cho snapshot cũ (CLI, theo lô, --dry-run, KHÔNG ghi đè hash sẵn có)
+scripts/test_backfill_logic.php   Kiểm thử tĩnh hash SHA-256 + chuẩn hoá URL + phân trang keyset (KHÔNG cần mạng/CSDL)
 scripts/migrate_library_stars.php  Tạo bảng `library_stars` cho tính năng gắn sao (CLI, idempotent)
 scripts/migrate_snapshot_labels.php Thêm cột `snapshots.label` cho đổi tên phiên bản (CLI, idempotent)
 scripts/migrate_domain_requests.php Tạo bảng `domain_requests` cho yêu cầu duyệt tên miền (CLI, idempotent)
@@ -253,6 +282,14 @@ src/bootstrap.php              Đường dẫn, nạp src, hàm trợ giúp, pol
 src/queries.php                Toàn bộ truy vấn CSDL
 src/search.php                 Chỉ mục đảo tìm kiếm tự xây: tokenizer, bỏ dấu, lập chỉ mục, truy vấn AND, đoạn trích <mark>
 src/capture.php                Engine lưu trang THẬT (cURL + DOMDocument + sanitizer + tải ảnh)
+src/v3_api.php                 V3: token API (sinh/kiểm tra/thu hồi token, scope, rate limit, CORS chrome-extension://)
+src/v3_share.php               V3: link chia sẻ có thời hạn + giới hạn lượt xem + sanitizer HTML
+src/url_policy.php             V3: chính sách URL công khai — chốt an toàn SSRF (chặn mạng riêng, cloud metadata, DNS rebinding) + tín hiệu rủi ro
+src/auto_version.php           V2: tự động tạo phiên bản V2/V3 khi nội dung thay đổi
+src/notifications.php           V2: hệ thống thông báo trong ứng dụng
+src/v3_watch.php               V3 Đợt 4: F10 — theo dõi MỘT ĐOẠN nội dung + đối chiếu theo phiên bản
+src/v3_relations.php           V3 Đợt 4: F11 — liên kết bài viết (4 loại) + dữ liệu sơ đồ quan hệ
+src/v3_duplicates.php          V3 Đợt 4: F12 — phát hiện trùng lặp (URL / SHA-256 / n-gram + Jaccard)
 templates/                     2 layout dùng chung (khách / đã đăng nhập) + trang lỗi 403 + trang lỗi CSDL + trợ giúp metrics
 public/                        WEB ROOT
   assets/css/app.css           Toàn bộ design token + component (không framework)
@@ -263,6 +300,17 @@ public/domain_request.php      Nhận yêu cầu duyệt tên miền từ ngư�
 public/admin/admin_action.php  Bộ điều khiển POST cho mọi thao tác quản trị (CSRF + require_admin)
 public/admin/user_detail.php   Trang xem chi tiết người dùng (thống kê + 2 bảng thư viện)
 public/export.php              Xuất bản lưu: tải về một tệp HTML độc lập (ảnh nhúng base64)
+public/api.php                 API JSON cho Chrome Extension (Bearer token, CORS chặt)
+public/extension.php           Cấp/thu hồi token API cho Extension
+public/shared.php              Trang xem bản chia sẻ công khai (chỉ đọc, HTML đã sanitize)
+public/share_action.php        Tạo / thu hồi link chia sẻ (POST, CSRF + kiểm tra quyền)
+public/feeds.php               Xem trước & lưu bài từ nguồn RSS/Atom
+public/watch_action.php        F10: tạo / bật-tắt / xoá mục theo dõi đoạn (POST, CSRF)
+public/watches.php             F10: trang quản lý toàn bộ đoạn nội dung đang theo dõi
+public/relation_action.php     F11: tìm / tạo / sửa / xoá liên kết bài viết + dữ liệu sơ đồ (POST, CSRF)
+chrome-extension/             Chrome Extension Manifest V3 (popup + background service worker)
+docs/V3_DOT3.md                Hướng dẫn cài Extension + kiểm thử F7–F9
+docs/V3_DOT4.md                Hướng dẫn kiểm thử F10 (theo dõi đoạn) – F12 (trùng lặp)
 tests/fixtures/                Trang thử (article.html, pic.png, redir-*.php, slow.php, notice.html)
 tests/samples/                 15 trang mẫu tiếng Việt + 5 ảnh PNG + README.md làm bảng kê
 docs/DEMO.md                   Hai kịch bản trình diễn chính thức, click-by-click
@@ -281,11 +329,18 @@ CONTRIBUTING.md                Quy ước dự án và cách đóng góp
 chỉ `cURL` + `DOMDocument`. Pipeline theo thứ tự:
 
 1. Kiểm tra URL: chỉ `http`/`https`, bắt buộc có host, từ chối URL chứa thông tin đăng nhập.
-2. **Allowlist trước khi gửi bất kỳ byte nào** — host khớp đúng một domain trong
-   `allowlist_domains`, hoặc kết thúc bằng `.` + domain (không phân biệt hoa thường).
-   Lệch allowlist → `error_blocked`, **không gửi HTTP request nào**.
-3. cURL **không** tự đi theo redirect; ứng dụng tự đi tối đa **5** bước và **kiểm tra lại
-   allowlist ở từng đích redirect** trước khi tải. Kết nối **5 s**, tổng **12 s**.
+2. **Chốt an toàn trước khi gửi bất kỳ byte nào** (`src/url_policy.php` → `wa_url_policy_inspect()`):
+   - **Không** cần tên miền nằm trong `allowlist_domains` — mọi URL http/https công khai đều lưu được.
+   - DNS phải phân giải được; **mọi** IP trả về phải là IP công khai. Chặn: loopback, RFC 1918
+     (10/8, 172.16/12, 192.168/16), CGNAT 100.64/10, link-local **và cloud metadata 169.254.169.254**,
+     ULA `fc00::/7`, IPv6 link-local, multicast, dải đặc biệt, IPv4-mapped tới IPv4 riêng tư,
+     NAT64 `64:ff9b::/96`, 6to4 `2002::/16`; chặn cả `localhost`, `*.local`, `*.internal`,
+     `metadata.google.internal`.
+   - Chặn giao thức không phải http/https và URL chứa `user:password`.
+   - Đích không xác minh được (DNS fail, không có IP) → `error_blocked`, **không gửi HTTP request nào**.
+3. cURL **không** tự đi theo redirect; ứng dụng tự đi tối đa **5** bước và **kiểm tra lại an toàn
+   ở từng đích redirect** trước khi tải. IP đã xác minh được **ghim** vào cURL
+   (`CURLOPT_RESOLVE`) để chống **DNS rebinding**. Kết nối **5 s**, tổng **12 s**.
    Dừng tải nếu vượt **5 MB**.
 4. 404 → `error_404`; 4xx/5xx khác → `error_http`; `Content-Type` không phải HTML → `error_no_content`.
 5. Bóc tách bằng `DOMDocument`: tiêu đề `og:title` → `<title>` → `<h1>`; thân lấy `<article>` →
@@ -295,7 +350,7 @@ chỉ `cURL` + `DOMDocument`. Pipeline theo thứ tự:
 7. **Sanitizer whitelist tự viết** — chỉ giữ tag/thuộc tính được duyệt, mọi link thêm
    `rel="noopener noreferrer"`, link không phải http/https bị bỏ nhưng giữ chữ.
 8. **Ảnh tải về máy chủ**: tối đa 20 ảnh, `src` giải phân giải thành URL tuyệt đối, kiểm tra
-   allowlist host, cap 5 MB, chỉ nhận JPEG/PNG/GIF/WebP (kiểm bằng `finfo`, **không tin
+   an toàn (cùng chính sách với URL trang), cap 5 MB, chỉ nhận JPEG/PNG/GIF/WebP (kiểm bằng `finfo`, **không tin
    phần mở rộng**, không SVG). Lưu vào `public/uploads/snapshots/<snapshot_id>/<hash>.<ext>`,
    ghi bảng `assets`, và `img src` được đổi thành đường dẫn cục bộ — sau bước này nội dung
    **không còn URL ảnh ngoài**.
@@ -304,9 +359,16 @@ Lỗi vẫn được **ghi lại** vào CSDL (snapshot với `fetch_status = err
 trị đếm được, nhưng danh sách thư viện, tìm kiếm và trình đọc **chỉ lấy snapshot có
 `fetch_status = 'success'`** — trang lỗi không bao giờ hiện như bài đọc được.
 
+**Cảnh báo rủi ro (lớp mềm, chỉ khi có bằng chứng kiểm chứng được):** nếu URL có tín hiệu
+rủi ro cụ thể — HTTP không mã hoá, địa chỉ IP thay tên miền, cổng không chuẩn, tên miền
+punycode `xn--` — hệ thống **không** cảnh báo chỉ vì tên miền "chưa có trong CSDL", và
+**không** tự đặt điểm rủi ro tuỳ tiện. Người dùng được hỏi rõ ràng với hai nút
+**KHÔNG LƯU** / **VẪN LƯU**. Xác nhận của người dùng **chỉ** bỏ qua cảnh báo — **không**
+bao giờ bỏ qua chốt an toàn cấp máy chủ. Tên miền nằm trong `allowlist_domains` nay là
+danh sách **TIN CẬY**: được miễn cảnh báo.
+
 **Ghi chú:** `localhost` được giữ trong `allowlist_domains` làm **host thử nghiệm cục bộ**
-cho fixture server (`php -S localhost:8090 -t tests/fixtures`). Nếu không muốn thử nghiệm
-trang nội bộ thì xoá dòng đó trong `/admin/allowlist.php`.
+cho fixture server (`php -S localhost:8090 -t tests/fixtures`).
 
 ---
 
@@ -532,6 +594,32 @@ Dọn dẹp **chỉ qua hành động của chính ứng dụng**: thư viện t
 trong `public/uploads/`**), tài khoản rác bị xoá bằng tài khoản CSDL của ứng dụng.
 Tên thư viện và tài khoản rác có hậu tố ngẫu nhiên nên **chạy lại an toàn**.
 
+#### 5.3.4 Chế độ kiểm thử cho URL nội bộ (`localhost`) — `scripts/test_url_policy.php`
+
+Bộ kiểm thử T1–T6 chạy engine tải trang thật về `http://localhost:18091/…`.
+Chính sách URL chặn loopback để chống SSRF, nên cần một **chế độ kiểm thử riêng**,
+tường minh và **không kích hoạt được qua request web**:
+
+| Điều kiện | Bắt buộc? |
+|-----------|-----------|
+| SAPI phải là `cli` hoặc `cli-server` | ✅ — trên php-fpm/Apache SAPI khác → chế độ **luôn tắt** |
+| Biến môi trường `WA_TEST_ALLOW_LOCAL=1` (hoặc `WA_DEV_ALLOW_LOCAL=1`) do **tiến trình** đặt | ✅ — HTTP request không tạo được biến môi trường của tiến trình |
+| Cờ không được xuất hiện trong `$_GET` / `$_POST` / `$_COOKIE` / header `HTTP_*` | ✅ — phòng vệ chống kích hoạt qua web |
+
+Phạm vi nới lỏng **rất hẹp**: chỉ `localhost`, `*.localhost` và loopback
+`127.0.0.0/8` / `::1`; đồng thời tắt tín hiệu rủi ro mềm (`no_tls`,
+`nonstandard_port`, `ip_literal`) cho đích loopback. **Cloud metadata
+(`169.254.169.254`) và mọi IP nội bộ khác vẫn bị chặn**; chốt SSRF cứng, ghim IP
+(`CURLOPT_RESOLVE`) và kiểm tra lại ở từng bước chuyển hướng **giữ nguyên**.
+
+```bash
+php scripts/test_url_policy.php                        # chế độ thường: loopback bị chặn
+WA_TEST_ALLOW_LOCAL=1 php scripts/test_url_policy.php   # chế độ kiểm thử: loopback được phép
+```
+
+`scripts/run_tests.php` tự đặt `WA_TEST_ALLOW_LOCAL=1` **trước khi** bật hai máy
+chủ `php -S` con, nên chạy bộ kiểm thử không cần cấu hình gì thêm.
+
 ---
 
 ## 6. Tính năng — trạng thái DONE
@@ -539,14 +627,17 @@ Tên thư viện và tài khoản rác có hậu tố ngẫu nhiên nên **chạ
 Mọi tính năng của đề tài đã **hoàn thành**. Danh sách dưới đây là phần tính
 năng đầy đủ, không phải phạm vi của một giai đoạn.
 
-- **CSDL thật:** MySQL qua PDO; **13 bảng** InnoDB utf8mb4 có khoá ngoại và UNIQUE
+- **CSDL thật:** MySQL qua PDO; các bảng InnoDB utf8mb4 có khoá ngoại và UNIQUE
   (`users`, `libraries`, `library_stars`, `library_members`, `tags`, `saved_pages`, `page_tags`, `snapshots`,
-  `search_terms`, `assets`, `notes`, `allowlist_domains`, `domain_requests`).
+  `search_terms`, `assets`, `notes`, `allowlist_domains`, `domain_requests`,
+  cùng các bảng V3: `api_tokens`, `share_links`, `feed_subscriptions`, `feed_items`,
+  `content_watches`, `page_relations`).
   Mọi truy vấn có tham số đều là **prepared statement**.
 - **Tài khoản:** đăng nhập/đăng ký/đăng xuất đối chiếu bảng `users`; đăng ký **ghi thật**
   vào CSDL, mật khẩu băm bằng `password_hash()`.
-- **Engine lưu trang thật** (mục 5): allowlist trước mọi kết nối, tự đi tối đa 5 bước
-  chuyển hướng và **kiểm tra lại allowlist ở từng đích**, bóc tách `DOMDocument`,
+- **Engine lưu trang thật** (mục 5): chốt an toàn (DNS + IP công khai, chặn mạng riêng và
+  cloud metadata, chống DNS rebinding) trước mọi kết nối, tự đi tối đa 5 bước
+  chuyển hướng và **kiểm tra lại an toàn ở từng đích**, bóc tách `DOMDocument`,
   sanitize whitelist, tải ảnh về `public/uploads/snapshots/…`, ghi vào bảng `assets`.
 - **Sáu mã lỗi** phân biệt rõ: `error_404`, `error_timeout`, `error_blocked`,
   `error_no_content`, `error_http`, `error_invalid_url`.
@@ -573,6 +664,15 @@ năng đầy đủ, không phải phạm vi của một giai đoạn.
 - **Bộ kiểm thử tự động** `scripts/run_tests.php` chạy sáu bài kiểm thử bắt buộc
   (T1–T6) trên hai máy chủ riêng do chính nó bật lên, và tự dọn dữ liệu qua hành động
   của chính ứng dụng.
+- **Bộ kiểm thử mở rộng (V3, 8 bộ / 74 mục — tất cả PASS ngày 19/11/2026):**
+  `test_auto_version.php` (19) · `test_notify_summary.php` (7) · `test_url_policy.php` (18) ·
+  `test_backfill_logic.php` (10) · `test_v3_feeds_parse.php` (4) ·
+  `test_v3_share_sanitize.php` (3) · `test_admin_smoke.php` (5) · `run_tests.php` (6).
+  Chi tiết: [`docs/FINAL_TEST_REPORT.md`](docs/FINAL_TEST_REPORT.md).
+- **Chính sách URL dùng chung** (`src/url_policy.php`): một cổng kiểm tra duy nhất cho
+  mọi đường ra ngoài — dùng bởi engine lưu trang, API Extension, RSS/Atom và lưu hàng loạt.
+  Đích được **ghim IP** sau khi xác minh công khai (chống DNS rebinding) và **thử lần lượt
+  từng IP** (hỗ trợ cả IPv4 lẫn IPv6 trên Windows).
 
 > Các mục sau đây từng là phạm vi của các giai đoạn trước và **đều đã xong**:
 > `mock_capture.php` → engine thật (P-CAPTURE) · tải lại + ghi chú (P-READ) ·
@@ -712,6 +812,98 @@ dấu hiệu phiên bản) → bấm **Lấy phiên bản mới** lần 2 (thêm
    đổi hiển thị, hoặc **Xoá thư viện** (phải gõ lại mã xác nhận). Sau khi xoá, thư viện biến mất
    khỏi danh sách và mọi bài trong đó không còn mở được nữa.
 
+## 6.5 WEBARCHIVE V3 — Đợt 3: Extension + Chia sẻ + RSS
+
+> Chi tiết đầy đủ (cài đặt, kiểm thử, kiến trúc bảo mật): [`docs/V3_DOT3.md`](docs/V3_DOT3.md).
+
+### F7 — Chrome Extension Manifest V3 (`chrome-extension/`)
+
+| Thành phần | Nội dung |
+|------------|----------|
+| `manifest.json` | Manifest V3, quyền tối thiểu: `activeTab`, `storage`, `notifications`, `optional_host_permissions` |
+| `popup.html/.css/.js` | Giao diện **một cú bấm**: tự nhận diện tab, **ghi nhớ thư viện đã chọn gần nhất**, **Lưu trang**, **+ Tạo thư viện** (chỉ MỘT ô bắt buộc: *Tên thư viện*), cảnh báo rủi ro với hai nút **KHÔNG LƯU** / **VẪN LƯU**, **Mở bản lưu**, tiến độ; nhãn + cài đặt + lịch sử gộp vào phần mở rộng |
+| `background.js` | Service worker: tự động lưu theo domain người dùng chọn, chống trùng URL + cooldown, **bỏ qua** trang gặp cảnh báo rủi ro (báo người dùng xác nhận thủ công), **không** cron/daemon |
+| `public/api.php` | API JSON xác thực bằng Bearer token (`whoami`, `libraries`, `library_create`, `save`) |
+| `public/extension.php` | Trang cấp/thu hồi token API cho Extension |
+
+- Tạo thư viện trong popup gọi **API thật** → tái dùng `wa_library_create()`, ghi vào MySQL, tự chọn thư viện mới; mặc định **riêng tư**, mô tả/màu/biểu tượng dùng giá trị mặc định.
+- Lưu trang gọi **API thật** → tái dùng `wa_store_page_capture()` + `wa_can_write_library()`; chính sách URL công khai + chống SSRF + quyền kiểm tra lại ở backend; chống tạo snapshot trùng gần đây (`wa_api_find_recent_snapshot()`).
+- Xác thực: token ngẫu nhiên, chỉ lưu **SHA-256** trong bảng `api_tokens`, có scope (`read`, `library:create`, `page:save`), thời hạn và thu hồi.
+- CORS: origin phải khớp `^chrome-extension://[a-zA-Z0-9_\-]{16,64}$`, **không** wildcard; giới hạn tần suất 60 req/phút (15 req/phút cho lưu trang).
+
+#### Cài Chrome Extension (3 bước)
+
+1. Mở `chrome://extensions` → bật **Developer mode** (góc trên bên phải).
+2. Chọn **Load unpacked** → chọn thư mục `chrome-extension/` trong dự án.
+3. Mở WebArchive → trang **Kết nối Chrome Extension** (`extension.php`) → chọn scope
+   `read`, `library:create`, `page:save` → **Tạo token** → copy (token chỉ hiện **một lần**).
+
+Trong popup: vào **Cài đặt** → dán **địa chỉ máy chủ** (ví dụ `http://127.0.0.1:8080`) và
+**token** → bấm **Kiểm tra kết nối** → Chrome hỏi quyền truy cập → chọn **Cho phép**.
+
+> Chi tiết từng bước và bảng kiểm tra thủ công cho từng lỗi đã sửa:
+> [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md) mục 5.
+
+### F8 — Chia sẻ snapshot có giới hạn
+
+- `src/v3_share.php` → `wa_share_create()`, `wa_share_revoke()`, `wa_share_open()`, `wa_share_sanitize_html()`.
+- Liên kết có **thời hạn** (1 giờ / 1 ngày / 7 ngày / tùy chỉnh) và **giới hạn lượt xem**; token 32 byte ngẫu nhiên, server chỉ lưu hash SHA-256.
+- Đếm lượt xem bằng `UPDATE … WHERE view_count < max_views` → an toàn khi có người xem đồng thời.
+- `public/shared.php` — trình xem **chỉ đọc**, HTML đã sanitize, không lộ thư viện/ghi chú/thành viên; `public/share_action.php` — tạo & thu hồi link (CSRF + kiểm tra quyền).
+
+### F9 — Nguồn RSS / Atom
+
+- `src/v3_feeds.php` → `wa_feed_fetch()` (qua `wa_capture_http_get()`: SSRF + kiểm tra an toàn + timeout + cap dung lượng), `wa_feed_parse()` (RSS 2.0 / RSS 1.0 / Atom, `DOMDocument` + `LIBXML_NONET`).
+- `public/feeds.php` — xem trước tên feed, tiêu đề bài, ngày xuất bản, URL; **chọn một hoặc nhiều bài** để lưu vào thư viện (tạo thư viện mới nếu chưa có); báo rõ kết quả từng bài; chống trùng URL.
+- Chỉ tải feed **khi người dùng yêu cầu** — không cron, không daemon.
+
+## 6.6 WEBARCHIVE V3 — Đợt 4: Theo dõi đoạn + Quan hệ + Trùng lặp
+
+> Chi tiết đầy đủ (cài đặt, kiểm thử tay từng bước): [`docs/V3_DOT4.md`](docs/V3_DOT4.md).
+
+### F10 — Theo dõi thay đổi một đoạn nội dung
+
+- `src/v3_watch.php` → `wa_watch_create()`, `wa_watch_check_page()`, `wa_watch_notify()`.
+- Bôi đen đoạn văn bản trong trình đọc → menu nổi **“Theo dõi đoạn này”**; lưu đoạn +
+  ngữ cảnh hai bên + vị trí (CSS selector, text offset) theo snapshot nguồn.
+- Khi Auto Version hoặc “Lấy phiên bản mới” tạo phiên bản mới, hệ thống **tái sử dụng
+  kết quả tải sẵn** (không tải lại website) để đối chiếu từng đoạn.
+- Ba trạng thái: `ok` (còn nguyên) · `changed` (đã sửa → **có thông báo** kèm nội dung cũ/mới
+  và link so sánh hai phiên bản) · `unknown` (**“Không tìm thấy đoạn tương ứng”** — không
+  tự khẳng định nội dung đã bị xoá).
+- Chống thông báo trùng: khoá `watch:{user}:{watch}:{version}`.
+- `public/watch_action.php` (endpoint) + `public/watches.php` (trang quản lý: xem / bật-tắt / xoá).
+- **Không** sửa `content_html` gốc của snapshot (giữ nguyên F4).
+
+### F11 — Liên kết bài viết và sơ đồ quan hệ
+
+- `src/v3_relations.php` → `wa_relation_create/update/delete()`, `wa_relation_search_pages()`,
+  `wa_relation_graph_data()`.
+- Bốn loại quan hệ: **Liên quan** · **Tham khảo** · **Bổ sung** · **Đối chiếu**.
+- Tạo/sửa/xoá cần quyền **ghi** trên thư viện chứa bài nguồn; bài đích phải nằm trong
+  thư viện người dùng **có quyền đọc**; khi hiển thị, quan hệ chỉ hiện khi người đọc
+  có quyền đọc **cả hai bên** (lọc ngay trong SQL).
+- Sơ đồ quan hệ vẽ bằng **JavaScript thuần + SVG** (không thư viện nặng, không dịch vụ trả phí);
+  bấm vào một nút để **mở bài viết**.
+- Bài bị xoá → quan hệ tự biến mất (FK `ON DELETE CASCADE`).
+
+### F12 — Phát hiện nội dung trùng lặp
+
+- `src/v3_duplicates.php` → `wa_dup_detect()`, `wa_dup_check_url()`.
+- Ba mức: **trùng URL** (sau chuẩn hoá) · **trùng nội dung chính xác** (SHA-256 của
+  `snapshots.content_hash`) · **gần giống** (n-gram 3 từ + Jaccard — hiển thị **tỷ lệ ước lượng**
+  kèm giải thích, không khẳng định tuyệt đối).
+- Giới hạn khối lượng: lọc trước theo độ dài (40%–250%) + tối đa **200 ứng viên**,
+  tối đa **600 n-gram** mỗi bài.
+- `public/save.php`: cảnh báo trước khi lưu với hai lựa chọn **HUỶ** / **VẪN LƯU**
+  (nội dung tải trước được **dùng lại** → không tải URL hai lần).
+- `public/api.php`: trả HTTP **409** kèm danh sách bài trùng cho Chrome Extension.
+- Chrome Extension (`background.js` / `popup.js` / `popup.html`): hiện hộp **"Cảnh báo trùng lặp"**
+  với danh sách bài tương tự + hai nút **KHÔNG LƯU** / **VẪN LƯU**; gửi lại với
+  `override_dup: true` để vẫn lưu. **Tự động lưu KHÔNG bao giờ vượt qua cảnh báo này.**
+- **KHÔNG** tự xoá / gộp / ghi đè snapshot; **KHÔNG** coi V1/V2/V3 của cùng một bài là
+  bài trùng độc lập; chỉ so sánh trong phạm vi bài **được phép đọc**.
+
 ## 7. Cách trải nghiệm nhanh
 
 > Muốn có **kịch bản trình diễn đầy đủ** (từng cú bấm, từng màn hình mong đợi)
@@ -760,6 +952,23 @@ dấu hiệu phiên bản) → bấm **Lấy phiên bản mới** lần 2 (thêm
 - **Defect đã sửa:** trang chủ trong bộ tham chiếu dùng nhầm header đã đăng nhập. Trang chủ
   là trang dành cho khách, nên dự án này dùng header khách (chỉ có “Đăng nhập” / “Tạo tài khoản”).
   Hai kiểu header không bao giờ trộn lẫn.
+
+---
+
+## 8.1 Giới hạn đã biết & công việc tương lai
+
+Phần này ghi rõ **những gì CHƯA làm** để không gây hiểu nhầm khi bảo vệ đồ án.
+
+| Hạng mục | Tình trạng | Ghi chú |
+|----------|-----------|---------|
+| Nâng cấp giao diện Admin | Chưa làm | Ngoài phạm vi đợt này. Các chức năng quản trị **cũ vẫn chạy tốt** (`test_admin_smoke.php` → 5/5 PASS). |
+| Dashboard giám sát Admin nâng cao | Chưa làm | Bảng `admin_logs` đã có sẵn nhưng chưa có giao diện quản lý đầy đủ. |
+| Kiểm thử Chrome thật tự động | **BLOCKED** | Môi trường không có Chrome điều khiển được. Đã thay bằng kiểm tra tĩnh (`node --check`, Manifest V3 hợp lệ) + hướng dẫn thủ công ở [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md) mục 5. |
+| E2E trình duyệt (Playwright/Selenium) | **BLOCKED** | Không có trình duyệt headless được phép. |
+| Website chặn bot / CAPTCHA | Ghi đúng lỗi, không vượt | `error_http` / `error_no_content`; hệ thống **không** cố lách CAPTCHA. |
+| Ghi chú theo đoạn (rich-text, chú thích chéo) | Cơ bản | Ghi chú đã gắn đúng snapshot và giữ qua các bản. |
+| Đồng bộ hai chiều với Zotero/Mendeley | Chưa làm | Ngoài phạm vi 12 chức năng V3. |
+| Auto Version chạy nền | **Cố ý không làm** | Không Task Scheduler, không cron, không tiến trình tự chạy. Chỉ chạy khi người dùng đã **đồng ý** và chủ động bấm kiểm tra. |
 
 ---
 

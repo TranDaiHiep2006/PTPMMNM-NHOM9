@@ -94,7 +94,7 @@ require __DIR__ . '/../templates/header_guest.php';
       <ul class="auth__list">
         <li><span class="ms ms-16 ms-fill">folder_special</span><span>Không giới hạn số thư viện và nhãn phân loại.</span></li>
         <li><span class="ms ms-16 ms-fill">group</span><span>Mời thành viên và phân quyền Chủ sở hữu, Biên tập viên, Người xem.</span></li>
-        <li><span class="ms ms-16 ms-fill">verified_user</span><span>Chỉ lưu những URL thuộc danh sách tên miền được duyệt.</span></li>
+        <li><span class="ms ms-16 ms-fill">verified_user</span><span>Lưu mọi website công khai — máy chủ tự kiểm tra an toàn, không cần duyệt tên miền.</span></li>
       </ul>
     </div>
 

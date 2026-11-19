@@ -9,7 +9,7 @@
  * Luồng:
  *   1. Kiểm tra quyền ghi (chủ sở hữu / biên tập viên / quản trị viên, giống
  *      nút "Lấy phiên bản mới"). Người xem không kiểm tra được.
- *   2. Tải trang gốc bằng ĐÚNG engine lưu trang (capture_url: allowlist trước
+ *   2. Tải trang gốc bằng ĐÚNG engine lưu trang (capture_url: kiểm tra an toàn trước
  *      mọi byte, tối đa 5 redirect) nhưng KHÔNG ghi gì vào snapshots — nội
  *      dung xem trước này bị huỷ sau khi trang hiển thị xong.
  *   3. So sánh khối với MỘT phiên bản đã lưu làm mốc: mặc định là bản mới nhất,

@@ -37,6 +37,13 @@
  *      - Token ngẫu nhiên của tiến trình đang giữ khoá. Chỉ tiến trình giữ
  *        token này mới được nhả khoá / ghi kết quả.
  *
+ *   6) Bảng `auto_version_events`
+ *      - Nhật ký mỗi lần tự tạo phiên bản (chống tạo bản trùng).
+ *
+ *   7) Cột `users.auto_update_enabled`
+ *      - Cài đặt bật/tắt tự động cập nhật, lưu lâu dài theo tài khoản.
+ *      - NULL = chưa cài đặt -> mặc định BẬT.
+ *
  * Nhờ kiểm tra INFORMATION_SCHEMA trước nên chạy lại bao nhiêu lần cũng an toàn.
  * --------------------------------------------------------------------------
  */
@@ -150,6 +157,27 @@ try {
         out('OK: da tao bang `auto_version_events`.');
     } else {
         out('OK: bang `auto_version_events` da ton tai.');
+    }
+
+    /* -------------------------------------------------------------------------
+     * 7) Cột `users.auto_update_enabled` — cài đặt bật/tắt TỰ ĐỘNG CẬP NHẬT,
+     *    lưu lâu dài theo tài khoản (thay cho popup xin phép mỗi lần mở).
+     *
+     *    NULL = chưa cài đặt -> mặc định BẬT (không chặn tính năng).
+     * ---------------------------------------------------------------------- */
+    $userCols = $pdo->query(
+        "SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users'"
+    )->fetchAll(PDO::FETCH_COLUMN);
+
+    if (!in_array('auto_update_enabled', $userCols, true)) {
+        $pdo->exec(
+            'ALTER TABLE `users`
+                ADD COLUMN `auto_update_enabled` TINYINT(1) NULL DEFAULT NULL'
+        );
+        out('OK: da them cot `users.auto_update_enabled`.');
+    } else {
+        out('OK: cot `users.auto_update_enabled` da ton tai.');
     }
 
     out('');

@@ -95,6 +95,17 @@ $result = wa_store_page_capture(
 if ($result['ok'] === true) {
     $imageCount = (int) $result['image_count'];
 
+    // V3 ĐỢT 4 / F10: đối chiếu các đoạn đang theo dõi của bài này với nội
+    // dung phiên bản vừa tải. Tái sử dụng kết quả vừa tải — không tải lại.
+    if (function_exists('wa_watch_check_page')) {
+        wa_watch_check_page(
+            (int) $article['page_id'],
+            $snapshotId,
+            (int) $result['snapshot_id'],
+            (int) $result['version']
+        );
+    }
+
     // P-CHECK: đã có bản mới thật nên xoá cờ "có bản mới" của bài này.
     try {
         db()->prepare('UPDATE `saved_pages` SET `has_update` = 0 WHERE `id` = ?')

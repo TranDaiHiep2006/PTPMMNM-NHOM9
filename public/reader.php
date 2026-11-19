@@ -40,7 +40,7 @@ $snapshotId = (int) ($_GET['id'] ?? 0);
 /** Nhãn + mã lỗi tiếng Việt riêng cho mỗi nguyên nhân. */
 $readerErrorTitles = [
     'error_invalid_url' => 'URL không hợp lệ',
-    'error_blocked'     => 'URL không thuộc danh sách được duyệt',
+    'error_blocked'     => 'URL không an toàn để tải',
     'error_404'         => 'Trang gốc trả về 404',
     'error_http'        => 'Máy chủ nguồn trả về lỗi',
     'error_timeout'     => 'Hết thời gian chờ khi tải trang',
@@ -117,8 +117,52 @@ $canManageReader = $role === 'owner' || $isAdmin;
 $hasUpdate = (bool) ($context['has_update'] ?? false);
 $checkedAt = (string) ($context['checked_at'] ?? '');
 
+// V3 / FEATURE 3 — trạng thái đọc + tiến độ đọc của CHÍNH tài khoản này.
+$readingState = wa_reading_state($currentUserId, (int) $article['id']);
+$readingStatus = (string) ($readingState['status'] ?? 'unread');
+$readingProgress = (int) ($readingState['progress'] ?? 0);
+$readingInQueue = wa_reading_queue_map($currentUserId, [(int) $article['id']])[(int) $article['id']] ?? false;
+
+// V3 / FEATURE 4 — đánh dấu (bôi đen) của chính tài khoản này trên snapshot này.
+$annotations = wa_annotation_list((int) $article['id'], $currentUserId);
+
+// V3 / FEATURE 2 — trích dẫn tài liệu (APA + thông thường).
+$citationSnapshot = [
+    'id'         => (int) $article['id'],
+    'title'      => (string) $article['title'],
+    'source_url' => (string) $article['source_url'],
+    'version_no' => $versionNo,
+    'fetched_at' => (string) $article['fetched_at'],
+    'site_name'  => (string) $article['domain'],
+    // Tác giả / ngày xuất bản không có sẵn trong CSDL -> để trống, hàm dựng
+    // trích dẫn sẽ dùng nhãn quy ước thay vì bịa.
+    'author_name' => '',
+    'published_at' => '',
+];
+$citationApa   = wa_citation_build($citationSnapshot, 'apa');
+$citationPlain = wa_citation_build($citationSnapshot, 'plain');
+
+// V3 / FEATURE 8 — CHIA SẺ snapshot: danh sách link + link vừa tạo (chỉ hiện 1 lần).
+$shareLinks = wa_share_list((int) $article['id']);
+$canShare   = wa_share_can_manage((int) $article['id']);
+$newShareLink = null;
+if (isset($_SESSION['wa_share_new_link']) && is_array($_SESSION['wa_share_new_link'])) {
+    $newShareLink = $_SESSION['wa_share_new_link'];
+    unset($_SESSION['wa_share_new_link']);
+}
+
 // A9: số tài nguyên cục bộ CÒN trên đĩa của bản lưu đang mở (đo thật).
 $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
+
+// V3 ĐỢT 4 / F10 — các ĐOẠN NỘI DUNG đang được theo dõi trong bài này.
+$watches = wa_watch_list_for_page((int) $context['page_id'], $currentUserId);
+
+// V3 ĐỢT 4 / F11 — QUAN HỆ với các bài viết khác + dữ liệu sơ đồ quan hệ.
+$relations       = wa_relation_list_for_page((int) $context['page_id']);
+$relationTypes   = wa_relation_type_meta();
+$relationGraph   = wa_relation_graph_data((int) $context['page_id']);
+$canWriteRelation = wa_relation_can_write((int) $context['page_id']);
+$relationIncoming = wa_relation_list_incoming((int) $context['page_id']);
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -203,6 +247,35 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
                  display:flex; flex-wrap:wrap; gap:10px; align-items:center; justify-content:space-between; }
     .wa-banner--update { background:#FEF3C7; border:1px solid #F5D67B; color:#6B4E06; }
     .wa-banner__actions { display:flex; gap:8px; flex-wrap:wrap; }
+
+    /* ---- V3 ĐỢT 4 / F10: menu nổi khi bôi đen đoạn văn bản ---- */
+    .wa-selmenu { position:absolute; z-index:80; display:none; gap:6px; align-items:center;
+                  background:#fff; border:1px solid var(--wa-border); border-radius:10px;
+                  box-shadow:0 8px 24px rgba(0,0,0,.16); padding:6px 8px; }
+    .wa-selmenu.is-open { display:flex; }
+    .wa-selmenu__label { font-size:12px; color:var(--wa-text-muted); max-width:320px;
+                         overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+    /* ---- V3 ĐỢT 4 / F11: hộp tìm bài + sơ đồ quan hệ ---- */
+    .wa-relsearch { display:flex; flex-direction:column; gap:8px; }
+    .wa-relsearch__list { max-height:280px; overflow:auto; border:1px solid var(--wa-border);
+                          border-radius:10px; }
+    .wa-relsearch__item { display:flex; gap:10px; align-items:flex-start; width:100%; text-align:left;
+                           background:#fff; border:0; cursor:pointer; padding:9px 12px; font-size:13px;
+                           color:var(--wa-text); }
+    .wa-relsearch__item + .wa-relsearch__item { border-top:1px solid var(--wa-border); }
+    .wa-relsearch__item:hover { background:#F5F7F9; }
+    .wa-relsearch__item.is-picked { background:#EAF0F8; }
+    .wa-relsearch__empty { padding:14px; font-size:13px; color:var(--wa-text-muted); }
+    .wa-graph { width:100%; height:auto; max-height:520px; border:1px solid var(--wa-border);
+                border-radius:10px; background:#FCFDFE; }
+    .wa-graph__node { cursor:pointer; }
+    .wa-graph__node circle { fill:#EAF0F8; stroke:var(--wa-action); stroke-width:1.5; }
+    .wa-graph__node.is-self circle { fill:var(--wa-teal-soft,#E3F4F1); stroke:var(--wa-teal-deep); stroke-width:2.5; }
+    .wa-graph__node text { font-size:10px; fill:var(--wa-text); }
+    .wa-graph__edge { stroke:#9AA7B4; stroke-width:1.4; }
+    .wa-graph__edge-label { font-size:9px; fill:#74777E; }
+    .wa-graph__legend { display:flex; flex-wrap:wrap; gap:12px; margin-top:10px; font-size:12px; color:var(--wa-text-muted); }
 </style>
 </head>
 <body class="reader" id="reader-body">
@@ -264,6 +337,64 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
           ? $snapshotAssets['present'] . '/' . $snapshotAssets['total'] . ' tài nguyên cục bộ'
           : 'Đọc ngoại tuyến' ?>
     </span>
+
+    <!-- V3 / FEATURE 4 — bật/tắt chế độ bôi đen + chọn màu đánh dấu. -->
+    <div class="wa-annot" id="wa-annot-tool">
+      <button class="btn btn--outline btn--sm" type="button" id="wa-annot-toggle"
+              aria-pressed="false" title="Bật chế độ bôi đen để tô màu hoặc ghi chú">
+        <span class="ms ms-16">ink_highlighter</span>
+        <span class="reader__export-label">Bôi đen</span>
+      </button>
+      <div class="wa-annot__colors" id="wa-annot-colors" hidden>
+        <?php foreach (['yellow', 'green', 'blue', 'pink', 'orange'] as $c): ?>
+          <button class="wa-annot__color wa-annot__color--<?= wa_e($c) ?>" type="button"
+                  data-color="<?= wa_e($c) ?>" title="<?= wa_e($c) ?>"
+                  aria-label="Màu <?= wa_e($c) ?>"></button>
+        <?php endforeach; ?>
+      </div>
+    </div>
+
+    <!-- V3 / FEATURE 2 — nút Trích dẫn (APA / thông thường), sao chép nhanh. -->
+    <button class="btn btn--outline btn--sm" type="button"
+            data-modal-open="modal-citation"
+            title="Xem và sao chép trích dẫn cho bản lưu này">
+      <span class="ms ms-16">format_quote</span>
+      <span class="reader__export-label">Trích dẫn</span>
+    </button>
+
+    <!-- V3 / FEATURE 5 — tìm cụm từ trong lịch sử phiên bản của bài này. -->
+    <a class="btn btn--outline btn--sm"
+       href="<?= wa_e(wa_url('version_search.php?page_id=' . (int) $context['page_id'])) ?>"
+       title="Tìm một cụm từ trong lịch sử phiên bản của bài này">
+      <span class="ms ms-16">manage_search</span>
+      <span class="reader__export-label">Tìm trong lịch sử</span>
+    </a>
+
+    <!-- V3 / FEATURE 6 — xác minh tính toàn vẹn bản lưu bằng SHA-256. -->
+    <a class="btn btn--outline btn--sm"
+       href="<?= wa_e(wa_url('integrity.php?id=' . (int) $article['id'])) ?>"
+       title="Kiểm tra tính toàn vẹn nội dung bản lưu này bằng SHA-256">
+      <span class="ms ms-16">verified_user</span>
+      <span class="reader__export-label">Tính toàn vẹn</span>
+    </a>
+
+    <!-- V3 / FEATURE 8 — chia sẻ bản lưu này bằng link có thời hạn / giới hạn lượt xem. -->
+    <?php if ($canShare): ?>
+      <button class="btn btn--outline btn--sm" type="button"
+              data-modal-open="modal-share"
+              title="Tạo link chia sẻ cho đúng phiên bản này">
+        <span class="ms ms-16">share</span>
+        <span class="reader__export-label">Chia sẻ</span>
+      </button>
+    <?php endif; ?>
+
+    <!-- V3 / FEATURE 3 — đánh dấu đọc / đọc sau. -->
+    <button class="btn btn--outline btn--sm" type="button" id="wa-queue-btn"
+            data-in-queue="<?= $readingInQueue ? '1' : '0' ?>"
+            title="Thêm / gỡ khỏi danh sách đọc sau">
+      <span class="ms ms-16">bookmark_add</span>
+      <span class="reader__export-label">Đọc sau</span>
+    </button>
   </div>
 </header>
 
@@ -316,6 +447,25 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
   <?php endif; ?>
 
   <header class="reader__head">
+    <!-- V3 / FEATURE 3 — trạng thái đọc của chính tài khoản này. -->
+    <div class="wa-readstate" id="wa-readstate"
+         data-status="<?= wa_e($readingStatus) ?>"
+         data-progress="<?= (int) $readingProgress ?>">
+      <span class="chip <?= $readingStatus === 'read' ? 'chip--teal' : ($readingStatus === 'reading' ? 'chip--blue' : 'chip--plain') ?>"
+            id="wa-readstate-chip">
+        <span class="ms ms-14"><?= $readingStatus === 'read' ? 'task_alt' : ($readingStatus === 'reading' ? 'menu_book' : 'radio_button_unchecked') ?></span>
+        <span id="wa-readstate-label"><?= $readingStatus === 'read' ? 'Đã đọc' : ($readingStatus === 'reading' ? 'Đang đọc' : 'Chưa đọc') ?></span>
+      </span>
+      <span class="wa-readstate__pct" id="wa-readstate-pct"><?= (int) $readingProgress ?>%</span>
+      <span class="wa-readstate__actions">
+        <button class="btn btn--ghost btn--sm" type="button" id="wa-read-mark"
+                data-status="<?= wa_e($readingStatus) ?>">
+          <span class="ms ms-16">check_circle</span>
+          <span id="wa-read-mark-label"><?= $readingStatus === 'read' ? 'Đánh dấu chưa đọc' : 'Đánh dấu đã đọc' ?></span>
+        </button>
+      </span>
+    </div>
+
     <div class="row row--between" style="gap:8px">
       <span class="chip chip--blue">
         <span class="ms ms-14">terminal</span>
@@ -543,9 +693,257 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
   </header>
 
   <!-- ===================== NỘI DUNG BÀI VIẾT (từ bảng snapshots) ===================== -->
+  <!-- V3 / FEATURE 4: nội dung được vẽ lại với các đánh dấu của CHÍNH tài khoản.
+       Bản gốc trong CSDL KHÔNG bị sửa — đánh dấu nằm riêng ở bảng `annotations`. -->
   <div class="reader__body" id="reading-content">
-<?= $article['content_html'] ?>
+<?= wa_annotation_render_html((string) $article['content_html'], $annotations) ?>
   </div>
+
+  <!-- ===================== ĐÁNH DẤU & GHI CHÚ TRỰC TIẾP (V3 / FEATURE 4) ===================== -->
+  <section class="wa-notes" id="wa-annotations" aria-labelledby="wa-annotations-title">
+    <div class="wa-prov__head" style="margin:-14px -14px 14px">
+      <span class="wa-prov__lib" style="cursor:default">
+        <span class="ms ms-16">ink_highlighter</span>
+        <span id="wa-annotations-title">Đánh dấu của tôi</span>
+      </span>
+      <span class="t-label-sm t-muted">
+        <?= count($annotations) ?> đánh dấu · thuộc riêng phiên bản <?= $versionNo ?>
+      </span>
+    </div>
+
+    <p class="t-body-sm t-muted" style="margin:0 0 12px">
+      Bôi đen một đoạn văn trong bài để tô màu hoặc ghi chú. Đánh dấu được neo
+      theo vị trí văn bản nên vẫn hiện đúng khi mở lại bản lưu này.
+    </p>
+
+    <?php if ($annotations === []): ?>
+      <p class="t-body-sm t-muted" style="margin:0 0 12px">
+        Chưa có đánh dấu nào. Bôi đen một đoạn trong bài rồi chọn màu hoặc thêm ghi chú.
+      </p>
+    <?php else: ?>
+      <?php foreach ($annotations as $ann): ?>
+        <div class="wa-notes__item" id="ann-<?= (int) $ann['id'] ?>">
+          <div class="wa-notes__meta">
+            <span>
+              <span class="wa-notes__author">
+                <span class="ms ms-16">ink_highlighter</span>
+                Đánh dấu #<?= (int) $ann['id'] ?>
+              </span>
+              <span class="chip chip--plain" style="margin-left:6px">
+                <?= wa_e((string) $ann['color']) ?>
+              </span>
+            </span>
+            <span class="wa-notes__time"><?= wa_e((string) $ann['created_label']) ?></span>
+          </div>
+
+          <p class="wa-notes__text">“<?= wa_e((string) $ann['quote']) ?>”</p>
+
+          <?php if (trim((string) ($ann['note'] ?? '')) !== ''): ?>
+            <p class="t-body-sm" style="margin:6px 0 0">
+              <span class="t-label-sm t-muted">Ghi chú:</span>
+              <?= wa_e((string) $ann['note']) ?>
+            </p>
+          <?php endif; ?>
+
+          <div class="wa-notes__acts">
+            <form method="post" action="<?= wa_e(wa_url('annotation_action.php')) ?>"
+                  onsubmit="return confirm('Xoá đánh dấu này?');" style="margin:0">
+              <?= wa_csrf_field() ?>
+              <input type="hidden" name="action" value="delete">
+              <input type="hidden" name="snapshot_id" value="<?= (int) $article['id'] ?>">
+              <input type="hidden" name="annotation_id" value="<?= (int) $ann['id'] ?>">
+              <button class="btn btn--outline btn--sm" type="submit">
+                <span class="ms ms-16">delete</span> Xoá
+              </button>
+            </form>
+          </div>
+        </div>
+      <?php endforeach; ?>
+    <?php endif; ?>
+  </section>
+
+  <!-- ===================== THEO DÕI ĐOẠN NỘI DUNG (V3 ĐỢT 4 / F10) ===================== -->
+  <section class="wa-notes" id="wa-watches" aria-labelledby="wa-watches-title">
+    <div class="wa-prov__head" style="margin:-14px -14px 14px">
+      <span class="wa-prov__lib" style="cursor:default">
+        <span class="ms ms-16">visibility</span>
+        <span id="wa-watches-title">Đoạn nội dung đang theo dõi</span>
+      </span>
+      <span class="t-label-sm t-muted">
+        <?= count($watches) ?> mục · theo dõi riêng theo tài khoản này
+      </span>
+    </div>
+
+    <p class="t-body-sm t-muted" style="margin:0 0 12px">
+      Bôi đen một đoạn trong bài rồi bấm <strong>Theo dõi đoạn này</strong>. Khi
+      Auto Version tạo phiên bản mới, hệ thống đối chiếu đoạn đó và báo cho bạn
+      nếu nội dung đã bị sửa. Bản lưu gốc không bị thay đổi.
+    </p>
+
+    <?php if ($watches === []): ?>
+      <p class="t-body-sm t-muted" style="margin:0 0 12px">
+        Chưa có đoạn nào được theo dõi trong bài viết này.
+      </p>
+    <?php else: ?>
+      <div class="wa-ver__list">
+        <?php foreach ($watches as $w): ?>
+          <div class="wa-ver__item" id="watch-<?= (int) $w['id'] ?>">
+            <div class="wa-ver__link" style="align-items:flex-start;flex-direction:column;gap:4px">
+              <div class="row" style="gap:8px;flex-wrap:wrap;width:100%">
+                <span class="chip chip--<?= $w['status'] === 'changed' ? 'warn' : ($w['status'] === 'unknown' ? 'plain' : 'teal') ?>">
+                  <?= wa_e((string) $w['status_label']) ?>
+                </span>
+                <span class="t-label-sm t-muted">#<?= (int) $w['id'] ?></span>
+                <?php if (!$w['is_active']): ?>
+                  <span class="chip chip--plain">đang tạm dừng</span>
+                <?php endif; ?>
+              </div>
+              <div class="t-body-sm" style="margin:0">“<?= wa_e((string) $w['quote']) ?>”</div>
+              <?php if ((string) $w['status_note'] !== ''): ?>
+                <div class="t-label-sm t-muted"><?= wa_e((string) $w['status_note']) ?></div>
+              <?php endif; ?>
+              <div class="t-label-sm t-muted">
+                Tạo: <?= wa_e((string) $w['created_label']) ?>
+                <?php if ((string) $w['last_changed_at'] !== ''): ?>
+                  · Cập nhật: <?= wa_e(wa_datetime((string) $w['last_changed_at'])) ?>
+                <?php endif; ?>
+              </div>
+            </div>
+            <div class="wa-ver__menu">
+              <form method="post" action="<?= wa_e(wa_url('watch_action.php')) ?>" style="margin:0">
+                <?= wa_csrf_field() ?>
+                <input type="hidden" name="action" value="toggle">
+                <input type="hidden" name="redirect" value="reader">
+                <input type="hidden" name="snapshot_id" value="<?= (int) $article['id'] ?>">
+                <input type="hidden" name="watch_id" value="<?= (int) $w['id'] ?>">
+                <input type="hidden" name="is_active" value="<?= $w['is_active'] ? '0' : '1' ?>">
+                <button class="btn btn--ghost btn--sm" type="submit"
+                        title="<?= $w['is_active'] ? 'Tạm dừng theo dõi' : 'Bật theo dõi' ?>">
+                  <span class="ms ms-16"><?= $w['is_active'] ? 'pause' : 'play_arrow' ?></span>
+                  <span class="reader__export-label">
+                    <?= $w['is_active'] ? 'Tắt' : 'Bật' ?>
+                  </span>
+                </button>
+              </form>
+              <form method="post" action="<?= wa_e(wa_url('watch_action.php')) ?>"
+                    onsubmit="return confirm('Xoá mục theo dõi này?');" style="margin:0">
+                <?= wa_csrf_field() ?>
+                <input type="hidden" name="action" value="delete">
+                <input type="hidden" name="redirect" value="reader">
+                <input type="hidden" name="snapshot_id" value="<?= (int) $article['id'] ?>">
+                <input type="hidden" name="watch_id" value="<?= (int) $w['id'] ?>">
+                <button class="btn btn--ghost btn--sm" type="submit" title="Xoá mục theo dõi">
+                  <span class="ms ms-16">delete</span>
+                </button>
+              </form>
+            </div>
+          </div>
+        <?php endforeach; ?>
+      </div>
+    <?php endif; ?>
+  </section>
+
+  <!-- ===================== BÀI VIẾT LIÊN QUAN + SƠ ĐỒ (V3 ĐỢT 4 / F11) ===================== -->
+  <section class="wa-notes" id="wa-relations" aria-labelledby="wa-relations-title">
+    <div class="wa-prov__head" style="margin:-14px -14px 14px">
+      <span class="wa-prov__lib" style="cursor:default">
+        <span class="ms ms-16">hub</span>
+        <span id="wa-relations-title">Bài viết liên quan</span>
+      </span>
+      <span class="t-label-sm t-muted">
+        <?= count($relations) ?> liên kết ra · <?= count($relationIncoming) ?> liên kết vào
+      </span>
+    </div>
+
+    <div class="row" style="gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <button class="btn btn--outline btn--sm" type="button" id="wa-relation-add-open"
+              data-modal-open="modal-relation">
+        <span class="ms ms-16">add_link</span> Liên kết bài viết
+      </button>
+      <button class="btn btn--outline btn--sm" type="button" id="wa-graph-open"
+              data-modal-open="modal-graph">
+        <span class="ms ms-16">schema</span> Xem sơ đồ quan hệ
+      </button>
+    </div>
+
+    <?php if ($relations === [] && $relationIncoming === []): ?>
+      <p class="t-body-sm t-muted" style="margin:0 0 12px">
+        Bài viết này chưa liên kết với bài nào khác. Bấm “Liên kết bài viết” để
+        tạo quan hệ Liên quan / Tham khảo / Bổ sung / Đối chiếu.
+      </p>
+    <?php endif; ?>
+
+    <?php if ($relations !== []): ?>
+      <h3 class="t-headline-sm" style="font-weight:700;margin:0 0 8px">Liên kết từ bài này</h3>
+      <div class="wa-ver__list" style="margin-bottom:16px">
+        <?php foreach ($relations as $rel): ?>
+          <div class="wa-ver__item">
+            <div class="wa-ver__link" style="align-items:flex-start;flex-direction:column;gap:4px">
+              <div class="row" style="gap:8px;flex-wrap:wrap;width:100%">
+                <span class="chip chip--plain"><?= wa_e((string) $rel['type_label']) ?></span>
+                <?php if ($rel['target_snapshot_id'] > 0): ?>
+                  <a href="<?= wa_e(wa_url('reader.php?id=' . (int) $rel['target_snapshot_id'])) ?>"
+                     style="font-size:13px;font-weight:600"><?= wa_e((string) $rel['target_title']) ?></a>
+                <?php else: ?>
+                  <strong style="font-size:13px"><?= wa_e((string) $rel['target_title']) ?></strong>
+                <?php endif; ?>
+              </div>
+              <?php if ((string) $rel['note'] !== ''): ?>
+                <div class="t-body-sm t-muted" style="margin:0"><?= wa_e((string) $rel['note']) ?></div>
+              <?php endif; ?>
+              <div class="t-label-sm t-muted">
+                <?= wa_e((string) $rel['target_library']) ?> · <?= wa_e((string) $rel['created_label']) ?>
+              </div>
+            </div>
+            <?php if ($canWriteRelation): ?>
+              <div class="wa-ver__menu">
+                <button class="btn btn--ghost btn--sm" type="button"
+                        data-relation-edit="<?= (int) $rel['id'] ?>"
+                        data-relation-type="<?= wa_e((string) $rel['relation_type']) ?>"
+                        data-relation-note="<?= wa_e((string) $rel['note']) ?>"
+                        title="Sửa quan hệ">
+                  <span class="ms ms-16">edit</span>
+                </button>
+                <form method="post" action="<?= wa_e(wa_url('relation_action.php')) ?>"
+                      onsubmit="return confirm('Xoá quan hệ này?');" style="margin:0">
+                  <?= wa_csrf_field() ?>
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="redirect" value="reader">
+                  <input type="hidden" name="source_page_id" value="<?= (int) $context['page_id'] ?>">
+                  <input type="hidden" name="relation_id" value="<?= (int) $rel['id'] ?>">
+                  <button class="btn btn--ghost btn--sm" type="submit" title="Xoá quan hệ">
+                    <span class="ms ms-16">delete</span>
+                  </button>
+                </form>
+              </div>
+            <?php endif; ?>
+          </div>
+        <?php endforeach; ?>
+      </div>
+    <?php endif; ?>
+
+    <?php if ($relationIncoming !== []): ?>
+      <h3 class="t-headline-sm" style="font-weight:700;margin:0 0 8px">Bài khác trỏ tới bài này</h3>
+      <div class="wa-ver__list">
+        <?php foreach ($relationIncoming as $rel): ?>
+          <div class="wa-ver__item">
+            <div class="wa-ver__link" style="align-items:flex-start;flex-direction:column;gap:4px">
+              <div class="row" style="gap:8px;flex-wrap:wrap;width:100%">
+                <span class="chip chip--plain"><?= wa_e((string) $rel['type_label']) ?></span>
+                <?php if ($rel['source_snapshot_id'] > 0): ?>
+                  <a href="<?= wa_e(wa_url('reader.php?id=' . (int) $rel['source_snapshot_id'])) ?>"
+                     style="font-size:13px;font-weight:600"><?= wa_e((string) $rel['source_title']) ?></a>
+                <?php else: ?>
+                  <strong style="font-size:13px"><?= wa_e((string) $rel['source_title']) ?></strong>
+                <?php endif; ?>
+              </div>
+              <div class="t-label-sm t-muted"><?= wa_e((string) $rel['source_library']) ?></div>
+            </div>
+          </div>
+        <?php endforeach; ?>
+      </div>
+    <?php endif; ?>
+  </section>
 
   <!-- ===================== GHI CHÚ CỦA PHIÊN BẢN NÀY ===================== -->
   <section class="wa-notes" aria-labelledby="wa-notes-title">
@@ -724,6 +1122,320 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
     update();
   })();
 
+  // ---- V3 / FEATURE 2: sao chép trích dẫn (Clipboard API + fallback) ----
+  (function () {
+    document.querySelectorAll('[data-copy-target]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var box = document.getElementById(btn.getAttribute('data-copy-target'));
+        if (!box) { return; }
+
+        // Ô nhập (textarea/input) dùng .value; khối <div> dùng .textContent.
+        var text = ('value' in box) ? (box.value || '') : (box.textContent || '');
+        var done = function () {
+          var old = btn.getAttribute('data-old-label');
+          btn.setAttribute('data-old-label', btn.innerHTML);
+          btn.innerHTML = '<span class="ms ms-16 ms-fill">check</span> Đã sao chép';
+          setTimeout(function () {
+            if (old !== null && old !== undefined) { btn.innerHTML = old; }
+          }, 1800);
+        };
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done).catch(function () { fallback(); });
+        } else {
+          fallback();
+        }
+
+        function fallback() {
+          if ('value' in box) {
+            box.removeAttribute('readonly');
+            box.focus();
+            box.select();
+            try { document.execCommand('copy'); } catch (e) { /* bỏ qua */ }
+            box.setAttribute('readonly', 'readonly');
+          } else {
+            var sel = window.getSelection();
+            var range = document.createRange();
+            range.selectNodeContents(box);
+            sel.removeAllRanges();
+            sel.addRange(range);
+            try { document.execCommand('copy'); } catch (e) { /* bỏ qua */ }
+            sel.removeAllRanges();
+          }
+          done();
+        }
+      });
+    });
+  })();
+
+  // ---- V3 / FEATURE 4: bôi đen, tô màu và ghi chú trực tiếp ----
+  (function () {
+    var content = document.getElementById('reading-content');
+    var toggle = document.getElementById('wa-annot-toggle');
+    var palette = document.getElementById('wa-annot-colors');
+    if (!content || !toggle) { return; }
+
+    var snapshotId = <?= (int) $article['id'] ?>;
+    var csrf = '<?= wa_e(wa_csrf_token()) ?>';
+    var actionUrl = '<?= wa_e(wa_url('annotation_action.php')) ?>';
+    var color = 'yellow';
+    var active = false;
+
+    // Đường dẫn CSS của khối, TÍNH TƯƠNG ĐỐI so với #reading-content.
+    // Phía PHP dựng lại cây DOM chỉ từ content_html, nên phải dùng cùng một
+    // gốc để đường dẫn khớp nhau.
+    function cssPath(el) {
+      var parts = [];
+      var cur = el;
+      while (cur && cur !== content) {
+        if (cur.nodeType !== 1) { break; }
+        var tag = cur.nodeName.toLowerCase();
+        var index = 1;
+        var sib = cur.previousElementSibling;
+        while (sib) {
+          if (sib.nodeName.toLowerCase() === tag) { index++; }
+          sib = sib.previousElementSibling;
+        }
+        parts.unshift(tag + ':nth-of-type(' + index + ')');
+        cur = cur.parentNode;
+      }
+      return parts.join(' > ');
+    }
+
+    // Tìm khối chứa đoạn đang chọn (phần tử khối gần nhất: p, li, td, h1..h6, blockquote, pre).
+    function blockOf(node) {
+      var cur = node;
+      while (cur && cur !== content) {
+        if (cur.nodeType === 1) {
+          var t = cur.nodeName.toLowerCase();
+          if (['p', 'li', 'td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'figcaption'].indexOf(t) !== -1) {
+            return cur;
+          }
+        }
+        cur = cur.parentNode;
+      }
+      return content;
+    }
+
+    // Tính vị trí ký tự của một nút chữ trong textContent của khối.
+    // Đếm theo CODE POINT (mảng ký tự Unicode) để khớp với mb_strlen() của PHP.
+    function offsetIn(block, textNode, offset) {
+      var total = 0;
+      var found = false;
+      var walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, null);
+      var n;
+      while ((n = walker.nextNode())) {
+        var chars = Array.from(n.nodeValue);
+        if (n === textNode) {
+          total += Math.min(offset, chars.length);
+          found = true;
+          break;
+        }
+        total += chars.length;
+      }
+      return found ? total : null;
+    }
+
+    function contextAround(block, start, end) {
+      var chars = Array.from(block.textContent || '');
+      return {
+        prefix: chars.slice(Math.max(0, start - <?= WA_ANNOTATION_CONTEXT ?>), start).join(''),
+        suffix: chars.slice(end, end + <?= WA_ANNOTATION_CONTEXT ?>).join('')
+      };
+    }
+
+    function post(action, payload, cb) {
+      var body = new FormData();
+      body.append('wa_csrf', csrf);
+      body.append('action', action);
+      body.append('snapshot_id', String(snapshotId));
+      Object.keys(payload || {}).forEach(function (k) { body.append(k, String(payload[k])); });
+
+      fetch(actionUrl, { method: 'POST', body: body, credentials: 'same-origin' })
+        .then(function (res) { return res.json(); })
+        .then(function (data) { if (data && cb) { cb(data); } })
+        .catch(function () { /* im lặng */ });
+    }
+
+    // Bật/tắt chế độ bôi đen.
+    toggle.addEventListener('click', function () {
+      active = !active;
+      toggle.setAttribute('aria-pressed', active ? 'true' : 'false');
+      toggle.classList.toggle('is-active', active);
+      if (palette) { palette.hidden = !active; }
+      content.classList.toggle('wa-annot-on', active);
+    });
+
+    // Chọn màu.
+    if (palette) {
+      palette.querySelectorAll('.wa-annot__color').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          color = btn.getAttribute('data-color') || 'yellow';
+          palette.querySelectorAll('.wa-annot__color').forEach(function (b) { b.classList.remove('is-active'); });
+          btn.classList.add('is-active');
+        });
+      });
+    }
+
+    // Bôi đen -> hiện hộp chọn màu / ghi chú.
+    content.addEventListener('mouseup', function () {
+      if (!active) { return; }
+
+      var sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) { return; }
+
+      var text = sel.toString();
+      if (!text || text.trim().length < 2) { return; }
+
+      var range = sel.getRangeAt(0);
+      var block = blockOf(range.startContainer);
+
+      if (!block || block === content) { return; }
+
+      var start = offsetIn(block, range.startContainer, range.startOffset);
+      var end = offsetIn(block, range.endContainer, range.endOffset);
+
+      if (start === null || end === null || end <= start) { return; }
+
+      var ctx = contextAround(block, start, end);
+      var note = window.prompt('Ghi chú cho đoạn đã bôi đen (để trống nếu không cần):', '');
+
+      if (note === null) { return; }
+
+      post('add', {
+        selector: cssPath(block),
+        start_offset: start,
+        end_offset: end,
+        quote: text.slice(0, 900),
+        prefix: ctx.prefix,
+        suffix: ctx.suffix,
+        color: color,
+        note: note
+      }, function (data) {
+        if (data && data.ok) {
+          window.location.reload();
+        }
+      });
+
+      sel.removeAllRanges();
+    });
+  })();
+
+  // ---- V3 / FEATURE 3: trạng thái đọc + tiến độ đọc + danh sách đọc sau ----
+  (function () {
+    var snapshotId = <?= (int) $article['id'] ?>;
+    var csrf = '<?= wa_e(wa_csrf_token()) ?>';
+    var actionUrl = '<?= wa_e(wa_url('reading_action.php')) ?>';
+
+    var panel = document.getElementById('wa-readstate');
+    var chip = document.getElementById('wa-readstate-chip');
+    var label = document.getElementById('wa-readstate-label');
+    var pctEl = document.getElementById('wa-readstate-pct');
+    var markBtn = document.getElementById('wa-read-mark');
+    var markLabel = document.getElementById('wa-read-mark-label');
+    var queueBtn = document.getElementById('wa-queue-btn');
+
+    var status = panel ? panel.getAttribute('data-status') : 'unread';
+    var progress = panel ? parseInt(panel.getAttribute('data-progress') || '0', 10) : 0;
+    var saved = false;
+    var timer = null;
+
+    function post(action, extra, cb) {
+      var body = new FormData();
+      body.append('wa_csrf', csrf);
+      body.append('action', action);
+      body.append('snapshot_id', String(snapshotId));
+      Object.keys(extra || {}).forEach(function (k) { body.append(k, String(extra[k])); });
+
+      fetch(actionUrl, { method: 'POST', body: body, credentials: 'same-origin' })
+        .then(function (res) { return res.json(); })
+        .then(function (data) { if (data && data.ok === true && cb) { cb(data); } })
+        .catch(function () { /* im lặng: lưu tiến độ không được làm hỏng trang */ });
+    }
+
+    function syncStatus() {
+      if (!panel) { return; }
+      panel.setAttribute('data-status', status);
+      panel.setAttribute('data-progress', String(progress));
+
+      if (label) {
+        label.textContent = status === 'read' ? 'Đã đọc' : (status === 'reading' ? 'Đang đọc' : 'Chưa đọc');
+      }
+
+      if (chip) {
+        chip.className = 'chip ' + (status === 'read' ? 'chip--teal' : (status === 'reading' ? 'chip--blue' : 'chip--plain'));
+        var icon = chip.querySelector('.ms');
+        if (icon) {
+          icon.textContent = status === 'read' ? 'task_alt' : (status === 'reading' ? 'menu_book' : 'radio_button_unchecked');
+        }
+      }
+
+      if (pctEl) { pctEl.textContent = progress + '%'; }
+
+      if (markLabel) {
+        markLabel.textContent = status === 'read' ? 'Đánh dấu chưa đọc' : 'Đánh dấu đã đọc';
+      }
+    }
+
+    // Lưu tiến độ (mỗi 5 giây, chỉ khi đã cuộn).
+    function currentProgress() {
+      var doc = document.documentElement;
+      var max = doc.scrollHeight - doc.clientHeight;
+      if (max <= 0) { return 100; }
+      return Math.round(Math.min(100, Math.max(0, (doc.scrollTop / max) * 100)));
+    }
+
+    window.addEventListener('scroll', function () {
+      if (timer) { return; }
+      timer = setTimeout(function () {
+        timer = null;
+        if (status === 'read') { return; }
+
+        var pct = currentProgress();
+
+        if (pct <= progress && progress > 0) { return; }
+
+        progress = pct;
+        if (status === 'unread') { status = 'reading'; }
+        syncStatus();
+        saved = true;
+        post('progress', { progress: progress, scroll_offset: Math.round(window.scrollY) });
+      }, 5000);
+    }, { passive: true });
+
+    if (markBtn) {
+      markBtn.addEventListener('click', function () {
+        var next = status === 'read' ? 'unread' : 'read';
+        status = next;
+        if (next === 'read') { progress = 100; }
+        syncStatus();
+        post('state', { status: next, progress: progress, scroll_offset: Math.round(window.scrollY) });
+      });
+    }
+
+    if (queueBtn) {
+      queueBtn.addEventListener('click', function () {
+        post('queue', {}, function (data) {
+          var inQueue = data.in_queue === true;
+          queueBtn.setAttribute('data-in-queue', inQueue ? '1' : '0');
+          var icon = queueBtn.querySelector('.ms');
+          if (icon) { icon.textContent = inQueue ? 'bookmark' : 'bookmark_add'; }
+          var txt = queueBtn.querySelector('.reader__export-label');
+          if (txt) { txt.textContent = inQueue ? 'Đã lưu' : 'Đọc sau'; }
+        });
+      });
+    }
+
+    // Mở lại bài đã đọc dở -> khôi phục vị trí cuộn.
+    if (panel && (status === 'reading' || status === 'read') && progress > 2 && progress < 98) {
+      var doc = document.documentElement;
+      var max = doc.scrollHeight - doc.clientHeight;
+      if (max > 0) {
+        window.scrollTo(0, Math.round((progress / 100) * max));
+      }
+    }
+  })();
+
   // ---- Sửa / huỷ ghi chú (JavaScript thuần) ----
   function waNoteEdit(noteId) {
     var box = document.getElementById('wa-note-edit-' + noteId);
@@ -754,6 +1466,178 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
     });
   })();
 </script>
+
+<!-- ===================== MODAL: TRÍCH DẪN TÀI LIỆU (V3 / FEATURE 2) =====================
+     Trích dẫn được dựng từ metadata thật của snapshot. Không có tác giả hay
+     ngày xuất bản trong CSDL thì dùng nhãn quy ước ("n.d." / bỏ trống), KHÔNG bịa. -->
+<div class="modal-backdrop" id="modal-citation" hidden>
+  <div class="modal">
+    <div class="modal__head">
+      <div class="row" style="gap:8px">
+        <span class="ms ms-24" style="color:var(--wa-primary)">format_quote</span>
+        <h2 class="t-headline-sm" style="font-weight:700">Trích dẫn tài liệu</h2>
+      </div>
+      <button class="btn btn--ghost" type="button" data-modal-close aria-label="Đóng">
+        <span class="ms ms-18">close</span>
+      </button>
+    </div>
+
+    <div class="stack">
+      <p class="t-body-sm t-muted">
+        Bản lưu phiên bản <?= $versionNo ?> · SNAP-<?= (int) $article['id'] ?>.
+        Trích dẫn lấy từ metadata thật của bản lưu; trường thiếu được ghi rõ
+        theo quy ước, không tự điền.
+      </p>
+
+      <div class="field">
+        <label for="wa-citation-apa">APA (7th)</label>
+        <textarea class="input" id="wa-citation-apa" rows="3" readonly><?= wa_e($citationApa['text']) ?></textarea>
+      </div>
+
+      <div class="field">
+        <label for="wa-citation-plain">Trích dẫn thông thường</label>
+        <textarea class="input" id="wa-citation-plain" rows="3" readonly><?= wa_e($citationPlain['text']) ?></textarea>
+      </div>
+
+      <div class="row" style="gap:8px;justify-content:flex-end;flex-wrap:wrap">
+        <button class="btn btn--outline btn--sm" type="button" data-copy-target="wa-citation-apa">
+          <span class="ms ms-16">content_copy</span> Sao chép APA
+        </button>
+        <button class="btn btn--outline btn--sm" type="button" data-copy-target="wa-citation-plain">
+          <span class="ms ms-16">content_copy</span> Sao chép kiểu thường
+        </button>
+        <button class="btn btn--dark btn--sm" type="button" data-modal-close>Đóng</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: CHIA SẺ BẢN LƯU (V3 / FEATURE 8) =====================
+     Tạo link chia sẻ cho ĐÚNG snapshot đang xem. Token chỉ hiện một lần ngay
+     sau khi tạo (nằm trong $newShareLink); server chỉ lưu hash SHA-256. -->
+<div class="modal-backdrop" id="modal-share" hidden>
+  <div class="modal">
+    <div class="modal__head">
+      <div class="row" style="gap:8px">
+        <span class="ms ms-24" style="color:var(--wa-primary)">share</span>
+        <h2 class="t-headline-sm" style="font-weight:700">Chia sẻ bản lưu này</h2>
+      </div>
+      <button class="btn btn--ghost" type="button" data-modal-close aria-label="Đóng">
+        <span class="ms ms-18">close</span>
+      </button>
+    </div>
+
+    <div class="stack">
+      <?php if ($newShareLink !== null): ?>
+        <div class="wa-flash wa-flash--ok" style="margin:0">
+          <span class="ms ms-18 ms-fill">check_circle</span>
+          <span>
+            <strong>Link đã tạo.</strong> Sao chép ngay — link chỉ hiện một lần:
+            <div class="wa-prov__url" id="wa-share-new-url"
+                 style="margin-top:6px;word-break:break-all"><?= wa_e((string) $newShareLink['url']) ?></div>
+            <div class="row" style="gap:8px;margin-top:8px">
+              <button class="btn btn--outline btn--sm" type="button"
+                      data-copy-target="wa-share-new-url">
+                <span class="ms ms-16">content_copy</span> Sao chép link
+              </button>
+              <span class="t-label-sm t-muted">
+                Hết hạn: <?= wa_e((string) $newShareLink['expires_at']) ?>
+                <?php if (!empty($newShareLink['max_views'])): ?>
+                  · Tối đa <?= (int) $newShareLink['max_views'] ?> lượt xem
+                <?php endif; ?>
+              </span>
+            </div>
+          </span>
+        </div>
+      <?php endif; ?>
+
+      <p class="t-body-sm t-muted" style="margin:0">
+        Link chia sẻ chỉ mở đúng phiên bản <?= $versionNo ?> · SNAP-<?= (int) $article['id'] ?>.
+        Khách có link chỉ đọc — không thấy ghi chú, thành viên hay thư viện.
+      </p>
+
+      <form class="stack stack--sm" method="post" action="<?= wa_e(wa_url('share_action.php')) ?>">
+        <?= wa_csrf_field() ?>
+        <input type="hidden" name="action" value="create">
+        <input type="hidden" name="snapshot_id" value="<?= (int) $article['id'] ?>">
+
+        <div class="field">
+          <label for="share-label">Nhãn link (tuỳ chọn)</label>
+          <input class="input" type="text" id="share-label" name="label" maxlength="190"
+                 placeholder="Ví dụ: Gửi đồng nghiệp">
+        </div>
+
+        <div class="field">
+          <label for="share-preset">Thời hạn</label>
+          <select class="input" id="share-preset" name="preset">
+            <option value="1h">1 giờ</option>
+            <option value="1d" selected>1 ngày</option>
+            <option value="7d">7 ngày</option>
+            <option value="custom">Tuỳ chỉnh…</option>
+          </select>
+        </div>
+
+        <div class="field" id="share-custom-wrap" hidden>
+          <label for="share-custom-hours">Số giờ tự động hết hạn</label>
+          <input class="input" type="number" id="share-custom-hours" name="custom_hours"
+                 min="1" max="720" value="24">
+        </div>
+
+        <div class="field">
+          <label for="share-max-views">Giới hạn lượt mở (để trống = không giới hạn)</label>
+          <input class="input" type="number" id="share-max-views" name="max_views"
+                 min="1" max="100000" placeholder="Ví dụ: 10">
+        </div>
+
+        <div class="row" style="justify-content:flex-end;gap:8px">
+          <button class="btn btn--outline" type="button" data-modal-close>Hủy</button>
+          <button class="btn btn--dark" type="submit">
+            <span class="ms ms-18">link</span> Tạo link
+          </button>
+        </div>
+      </form>
+
+      <?php if ($shareLinks !== []): ?>
+        <div>
+          <h3 class="t-headline-sm" style="font-weight:700;margin-bottom:8px">
+            Link đã tạo (<?= count($shareLinks) ?>)
+          </h3>
+          <div class="wa-ver__list">
+            <?php foreach ($shareLinks as $sl): ?>
+              <div class="wa-ver__item">
+                <div class="wa-ver__link" style="align-items:flex-start;flex-direction:column;gap:4px">
+                  <div class="row" style="gap:8px;flex-wrap:wrap;width:100%">
+                    <strong style="font-size:13px"><?= wa_e((string) $sl['label']) ?></strong>
+                    <span class="chip chip--<?= $sl['dead'] ? 'plain' : 'teal' ?>"><?= wa_e((string) $sl['status']) ?></span>
+                  </div>
+                  <div class="t-label-sm t-muted">
+                    Hết hạn: <?= wa_e((string) $sl['expires_label']) ?>
+                    · Lượt xem: <?= (int) $sl['view_count'] ?><?= $sl['max_views'] !== null ? '/' . (int) $sl['max_views'] : '' ?>
+                    · Tạo: <?= wa_e((string) $sl['created_label']) ?>
+                  </div>
+                </div>
+                <?php if (!$sl['dead']): ?>
+                  <div class="wa-ver__menu">
+                    <form method="post" action="<?= wa_e(wa_url('share_action.php')) ?>"
+                          onsubmit="return confirm('Thu hồi link này ngay lập tức?');" style="margin:0">
+                      <?= wa_csrf_field() ?>
+                      <input type="hidden" name="action" value="revoke">
+                      <input type="hidden" name="snapshot_id" value="<?= (int) $article['id'] ?>">
+                      <input type="hidden" name="link_id" value="<?= (int) $sl['id'] ?>">
+                      <button class="btn btn--ghost btn--sm" type="submit" title="Thu hồi link">
+                        <span class="ms ms-16">link_off</span>
+                      </button>
+                    </form>
+                  </div>
+                <?php endif; ?>
+              </div>
+            <?php endforeach; ?>
+          </div>
+        </div>
+      <?php endif; ?>
+    </div>
+  </div>
+</div>
 
 <!-- ===================== MODAL: ĐỔI TÊN PHIÊN BẢN =====================
      Mở từ menu 3 chấm trên dòng lịch sử phiên bản (chủ / quản trị viên);
@@ -841,6 +1725,17 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
         if (e.target === box) { box.setAttribute('hidden', ''); }
       });
     });
+
+    // V3 / FEATURE 8: hiện/ẩn ô "số giờ tuỳ chỉnh" theo lựa chọn thời hạn.
+    var sharePreset = document.getElementById('share-preset');
+    var shareCustom = document.getElementById('share-custom-wrap');
+    if (sharePreset && shareCustom) {
+      var syncShareCustom = function () {
+        shareCustom.hidden = (sharePreset.value !== 'custom');
+      };
+      sharePreset.addEventListener('change', syncShareCustom);
+      syncShareCustom();
+    }
   })();
 </script>
 
@@ -877,5 +1772,499 @@ $snapshotAssets = wa_metrics_snapshot_assets((int) $article['id']);
   })();
 </script>
 <?php endif; ?>
+<!-- ===================== MENU NỔI: THEO DÕI ĐOẠN ĐANG BÔI ĐEN (V3 ĐỢT 4 / F10) =====================
+     Hiện khi người dùng bôi đen một đoạn văn bản trong #reading-content. -->
+<div class="wa-selmenu" id="wa-selmenu" role="menu" aria-label="Thao tác với đoạn đang chọn">
+  <span class="wa-selmenu__label" id="wa-selmenu-text"></span>
+  <button class="btn btn--dark btn--sm" type="button" id="wa-watch-create">
+    <span class="ms ms-16">visibility</span>
+    <span>Theo dõi đoạn này</span>
+  </button>
+  <button class="btn btn--ghost btn--sm" type="button" id="wa-selmenu-close" aria-label="Đóng">
+    <span class="ms ms-16">close</span>
+  </button>
+</div>
+
+<!-- ===================== MODAL: LIÊN KẾT BÀI VIẾT (V3 ĐỢT 4 / F11) =====================
+     Tìm bài viết trong các thư viện người dùng có quyền đọc, chọn loại quan hệ
+     rồi gửi sang public/relation_action.php (action=create). -->
+<div class="modal-backdrop" id="modal-relation" hidden>
+  <div class="modal">
+    <div class="modal__head">
+      <div class="row" style="gap:8px">
+        <span class="ms ms-24" style="color:var(--wa-primary)">add_link</span>
+        <h2 class="t-headline-sm" style="font-weight:700">Liên kết bài viết</h2>
+      </div>
+      <button class="btn btn--ghost" type="button" data-modal-close aria-label="Đóng">
+        <span class="ms ms-18">close</span>
+      </button>
+    </div>
+
+    <div class="stack">
+      <?php if (!$canWriteRelation): ?>
+        <div class="wa-flash wa-flash--err" style="margin:0">
+          <span class="ms ms-18 ms-fill">lock</span>
+          <span>Bạn không có quyền ghi trên bài viết này nên không thể tạo liên kết.</span>
+        </div>
+      <?php endif; ?>
+
+      <p class="t-body-sm t-muted" style="margin:0">
+        Bài viết nguồn: <strong><?= wa_e($article['title']) ?></strong>
+      </p>
+
+      <div class="field">
+        <label for="wa-rel-q">Tìm bài viết để liên kết</label>
+        <input class="input" type="search" id="wa-rel-q"
+               placeholder="Nhập tiêu đề hoặc URL của bài viết…" autocomplete="off">
+      </div>
+
+      <div class="wa-relsearch__list" id="wa-rel-results">
+        <div class="wa-relsearch__empty">Nhập từ khoá để tìm bài viết trong các thư viện bạn có quyền đọc.</div>
+      </div>
+
+      <div class="field">
+        <label for="wa-rel-picked">Bài viết đã chọn</label>
+        <input class="input" type="text" id="wa-rel-picked" readonly value="">
+      </div>
+
+      <div class="field">
+        <label for="wa-rel-type">Loại quan hệ</label>
+        <select class="input" id="wa-rel-type">
+          <?php foreach ($relationTypes as $relType => $relMeta): ?>
+            <option value="<?= wa_e($relType) ?>"><?= wa_e($relMeta['label']) ?></option>
+          <?php endforeach; ?>
+        </select>
+        <p class="t-body-sm t-muted" style="margin:6px 0 0" id="wa-rel-type-desc">
+          <?= wa_e($relationTypes['related']['desc']) ?>
+        </p>
+      </div>
+
+      <div class="field">
+        <label for="wa-rel-note">Ghi chú (tuỳ chọn)</label>
+        <textarea class="input" id="wa-rel-note" rows="2" maxlength="400"
+                  placeholder="Ví dụ: bài này dùng làm nguồn số liệu cho bài kia."></textarea>
+      </div>
+
+      <div class="row" style="justify-content:flex-end;gap:8px">
+        <button class="btn btn--outline" type="button" data-modal-close>Hủy</button>
+        <button class="btn btn--dark" type="button" id="wa-rel-submit" disabled>
+          <span class="ms ms-18">link</span> Tạo liên kết
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== MODAL: SƠ ĐỒ QUAN HỆ (V3 ĐỢT 4 / F11) =====================
+     SVG tự vẽ bằng JavaScript thuần; bấm vào một nút để mở bài viết. -->
+<div class="modal-backdrop" id="modal-graph" hidden>
+  <div class="modal">
+    <div class="modal__head">
+      <div class="row" style="gap:8px">
+        <span class="ms ms-24" style="color:var(--wa-primary)">schema</span>
+        <h2 class="t-headline-sm" style="font-weight:700">Sơ đồ quan hệ bài viết</h2>
+      </div>
+      <button class="btn btn--ghost" type="button" data-modal-close aria-label="Đóng">
+        <span class="ms ms-18">close</span>
+      </button>
+    </div>
+
+    <div class="stack">
+      <svg class="wa-graph" id="wa-graph-svg" viewBox="0 0 720 480"
+           role="img" aria-label="Sơ đồ quan hệ giữa các bài viết"></svg>
+      <div class="wa-graph__legend" id="wa-graph-legend"></div>
+      <p class="t-body-sm t-muted" style="margin:0">
+        Chỉ hiển thị những bài viết mà bạn có quyền đọc. Bấm vào một nút để mở bài.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ===========================================================================
+  // V3 ĐỢT 4 / F10 — THEO DÕI MỘT ĐOẠN NỘI DUNG
+  // ===========================================================================
+  (function () {
+    var content = document.getElementById('reading-content');
+    var menu    = document.getElementById('wa-selmenu');
+    var menuTxt = document.getElementById('wa-selmenu-text');
+    var btnSave = document.getElementById('wa-watch-create');
+    var btnClose= document.getElementById('wa-selmenu-close');
+    if (!content || !menu || !btnSave) { return; }
+
+    var snapshotId = <?= (int) $article['id'] ?>;
+    var csrf    = '<?= wa_e(wa_csrf_token()) ?>';
+    var actionUrl = '<?= wa_e(wa_url('watch_action.php')) ?>';
+    var pending = null;   // vị trí đoạn đang chọn
+
+    // Đường dẫn CSS của khối, TƯƠNG ĐỐI so với #reading-content (giống F4).
+    function cssPath(el) {
+      var parts = [];
+      var cur = el;
+      while (cur && cur !== content) {
+        if (cur.nodeType !== 1) { break; }
+        var tag = cur.nodeName.toLowerCase();
+        var index = 1;
+        var sib = cur.previousElementSibling;
+        while (sib) {
+          if (sib.nodeName.toLowerCase() === tag) { index++; }
+          sib = sib.previousElementSibling;
+        }
+        parts.unshift(tag + ':nth-of-type(' + index + ')');
+        cur = cur.parentNode;
+      }
+      return parts.join(' > ');
+    }
+
+    function blockOf(node) {
+      var cur = node;
+      while (cur && cur !== content) {
+        if (cur.nodeType === 1) {
+          var t = cur.nodeName.toLowerCase();
+          if (['p', 'li', 'td', 'th', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'pre', 'figcaption'].indexOf(t) !== -1) {
+            return cur;
+          }
+        }
+        cur = cur.parentNode;
+      }
+      return content;
+    }
+
+    // Vị trí ký tự theo CODE POINT để khớp mb_strlen() của PHP.
+    function offsetIn(block, textNode, offset) {
+      var total = 0;
+      var found = false;
+      var walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, null);
+      var n;
+      while ((n = walker.nextNode())) {
+        var chars = Array.from(n.nodeValue);
+        if (n === textNode) {
+          total += Math.min(offset, chars.length);
+          found = true;
+          break;
+        }
+        total += chars.length;
+      }
+      return found ? total : null;
+    }
+
+    function closeMenu() {
+      menu.classList.remove('is-open');
+      pending = null;
+    }
+
+    btnClose.addEventListener('click', closeMenu);
+
+    document.addEventListener('mouseup', function (e) {
+      if (e.target.closest('#wa-selmenu')) { return; }
+
+      // Nếu đang bật chế độ Bôi đen của F4 thì không mở menu theo dõi
+      // (tránh hai hộp thoại cùng lúc trên cùng một lần bôi đen).
+      var annotBtn = document.getElementById('wa-annot-toggle');
+      if (annotBtn && annotBtn.getAttribute('aria-pressed') === 'true') { return; }
+
+      var sel = window.getSelection();
+      if (!sel || sel.isCollapsed || sel.rangeCount === 0) { closeMenu(); return; }
+
+      var text = sel.toString();
+      if (!text || text.trim().length < 3) { closeMenu(); return; }
+
+      var range = sel.getRangeAt(0);
+      if (!content.contains(range.startContainer) || !content.contains(range.endContainer)) {
+        closeMenu();
+        return;
+      }
+
+      var block = blockOf(range.startContainer);
+      if (!block || block === content) { closeMenu(); return; }
+
+      var start = offsetIn(block, range.startContainer, range.startOffset);
+      var end   = offsetIn(block, range.endContainer, range.endOffset);
+      if (start === null || end === null || end <= start) { closeMenu(); return; }
+
+      var chars = Array.from(block.textContent || '');
+      var quote = text.replace(/\s+/g, ' ').trim().slice(0, 900);
+
+      pending = {
+        selector: cssPath(block),
+        start_offset: start,
+        end_offset: end,
+        quote: quote,
+        prefix: chars.slice(Math.max(0, start - 32), start).join(''),
+        suffix: chars.slice(end, end + 32).join('')
+      };
+
+      menuTxt.textContent = quote.length > 60 ? quote.slice(0, 60) + '…' : quote;
+      var rect = range.getBoundingClientRect();
+      menu.style.left = (window.scrollX + rect.left + (rect.width / 2)) + 'px';
+      menu.style.top  = (window.scrollY + rect.bottom + 8) + 'px';
+      menu.classList.add('is-open');
+    });
+
+    btnSave.addEventListener('click', function () {
+      if (!pending) { return; }
+      var body = new FormData();
+      body.append('wa_csrf', csrf);
+      body.append('action', 'create');
+      body.append('snapshot_id', String(snapshotId));
+      body.append('selector', pending.selector);
+      body.append('start_offset', String(pending.start_offset));
+      body.append('end_offset', String(pending.end_offset));
+      body.append('quote', pending.quote);
+      body.append('prefix', pending.prefix);
+      body.append('suffix', pending.suffix);
+
+      btnSave.disabled = true;
+
+      fetch(actionUrl, { method: 'POST', body: body, credentials: 'same-origin' })
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+          btnSave.disabled = false;
+          if (data && data.ok) {
+            window.location.reload();
+            return;
+          }
+          window.alert((data && data.message) ? data.message : 'Không lưu được mục theo dõi.');
+        })
+        .catch(function () {
+          btnSave.disabled = false;
+          window.alert('Không gửi được yêu cầu. Vui lòng thử lại.');
+        });
+    });
+  })();
+
+  // ===========================================================================
+  // V3 ĐỢT 4 / F11 — LIÊN KẾT BÀI VIẾT + SƠ ĐỒ QUAN HỆ
+  // ===========================================================================
+  (function () {
+    var csrf     = '<?= wa_e(wa_csrf_token()) ?>';
+    var relUrl   = '<?= wa_e(wa_url('relation_action.php')) ?>';
+    var pageId   = <?= (int) $context['page_id'] ?>;
+    var canWrite = <?= $canWriteRelation ? 'true' : 'false' ?>;
+    var typeMeta = <?= json_encode($relationTypes, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+
+    var qInput   = document.getElementById('wa-rel-q');
+    var results  = document.getElementById('wa-rel-results');
+    var picked   = document.getElementById('wa-rel-picked');
+    var typeSel  = document.getElementById('wa-rel-type');
+    var typeDesc = document.getElementById('wa-rel-type-desc');
+    var noteInput= document.getElementById('wa-rel-note');
+    var submit   = document.getElementById('wa-rel-submit');
+    if (!qInput || !results || !submit) { return; }
+
+    var chosen = null;
+    var timer  = null;
+
+    function post(action, payload, cb) {
+      var body = new FormData();
+      body.append('wa_csrf', csrf);
+      body.append('action', action);
+      Object.keys(payload || {}).forEach(function (k) { body.append(k, String(payload[k])); });
+
+      fetch(relUrl, { method: 'POST', body: body, credentials: 'same-origin' })
+        .then(function (res) { return res.json(); })
+        .then(function (data) { if (data && cb) { cb(data); } })
+        .catch(function () {
+          results.innerHTML = '<div class="wa-relsearch__empty">Không gửi được yêu cầu. Vui lòng thử lại.</div>';
+        });
+    }
+
+    function esc(s) {
+      var d = document.createElement('div');
+      d.textContent = s == null ? '' : String(s);
+      return d.innerHTML;
+    }
+
+    // --- Tìm bài viết ---
+    qInput.addEventListener('input', function () {
+      if (timer) { clearTimeout(timer); }
+      var q = qInput.value.trim();
+      if (q.length < 2) {
+        results.innerHTML = '<div class="wa-relsearch__empty">Nhập từ khoá để tìm bài viết trong các thư viện bạn có quyền đọc.</div>';
+        return;
+      }
+      timer = setTimeout(function () {
+        post('search', { q: q }, function (data) {
+          if (!data || data.ok !== true) { return; }
+          var items = data.items || [];
+          if (!items.length) {
+            results.innerHTML = '<div class="wa-relsearch__empty">Không tìm thấy bài viết nào phù hợp.</div>';
+            return;
+          }
+          results.innerHTML = '';
+          items.forEach(function (it) {
+            var btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'wa-relsearch__item';
+            btn.setAttribute('data-page-id', String(it.page_id));
+            btn.innerHTML = '<span style="flex:1"><span style="font-weight:600;display:block">' + esc(it.title)
+                          + '</span><span class="t-label-sm t-muted">' + esc(it.library_name) + '</span></span>';
+            btn.addEventListener('click', function () {
+              chosen = it;
+              picked.value = it.title + ' · ' + it.library_name;
+              results.querySelectorAll('.wa-relsearch__item').forEach(function (b) { b.classList.remove('is-picked'); });
+              btn.classList.add('is-picked');
+              submit.disabled = false;
+            });
+            results.appendChild(btn);
+          });
+        });
+      }, 300);
+    });
+
+    // --- Mô tả loại quan hệ ---
+    if (typeSel && typeDesc) {
+      var syncDesc = function () {
+        var m = typeMeta[typeSel.value];
+        typeDesc.textContent = m ? m.desc : '';
+      };
+      typeSel.addEventListener('change', syncDesc);
+      syncDesc();
+    }
+
+    // --- Tạo liên kết ---
+    submit.addEventListener('click', function () {
+      if (!chosen || !canWrite) { return; }
+      submit.disabled = true;
+      post('create', {
+        source_page_id: pageId,
+        target_page_id: chosen.page_id,
+        relation_type: typeSel ? typeSel.value : 'related',
+        note: noteInput ? noteInput.value : ''
+      }, function (data) {
+        submit.disabled = false;
+        if (data && data.ok) {
+          window.location.reload();
+          return;
+        }
+        window.alert((data && data.message) ? data.message : 'Không tạo được liên kết.');
+      });
+    });
+
+    // --- Sửa loại quan hệ / ghi chú (nút Sửa trong danh sách) ---
+    document.querySelectorAll('[data-relation-edit]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var rid = btn.getAttribute('data-relation-edit');
+        var t   = btn.getAttribute('data-relation-type') || 'related';
+        var n   = btn.getAttribute('data-relation-note') || '';
+        var newType = window.prompt(
+          'Loại quan hệ mới (related / references / supplements / contrasts):', t);
+        if (newType === null) { return; }
+        newType = newType.trim();
+        if (typeMeta[newType] === undefined) {
+          window.alert('Loại quan hệ không hợp lệ.');
+          return;
+        }
+        var newNote = window.prompt('Ghi chú quan hệ:', n);
+        if (newNote === null) { return; }
+
+        post('update', { relation_id: rid, relation_type: newType, note: newNote }, function (data) {
+          if (data && data.ok) {
+            window.location.reload();
+            return;
+          }
+          window.alert((data && data.message) ? data.message : 'Không cập nhật được quan hệ.');
+        });
+      });
+    });
+
+    // --- Sơ đồ quan hệ (SVG tự vẽ) ---
+    var svg    = document.getElementById('wa-graph-svg');
+    var legend = document.getElementById('wa-graph-legend');
+    if (!svg) { return; }
+
+    function drawGraph(graph) {
+      var nodes = (graph && graph.nodes) || [];
+      var edges = (graph && graph.edges) || [];
+
+      if (!nodes.length) {
+        svg.innerHTML = '<text x="360" y="240" text-anchor="middle" font-size="13" fill="#74777E">'
+                      + 'Chưa có quan hệ nào để hiển thị.</text>';
+        if (legend) { legend.innerHTML = ''; }
+        return;
+      }
+
+      var W = 720, H = 480, cx = W / 2, cy = H / 2;
+      var R = nodes.length > 1 ? Math.min(170, 60 + nodes.length * 26) : 0;
+      var pos = {};
+
+      nodes.forEach(function (n, i) {
+        var angle = (2 * Math.PI * i) / nodes.length - Math.PI / 2;
+        pos[n.id] = n.is_self
+          ? { x: cx, y: cy }
+          : { x: cx + R * Math.cos(angle), y: cy + R * Math.sin(angle) };
+      });
+
+      var parts = [];
+
+      edges.forEach(function (e) {
+        var a = pos[e.from], b = pos[e.to];
+        if (!a || !b) { return; }
+        parts.push('<line class="wa-graph__edge" x1="' + a.x + '" y1="' + a.y + '" x2="' + b.x + '" y2="' + b.y + '"></line>');
+        var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        parts.push('<text class="wa-graph__edge-label" x="' + mx + '" y="' + (my - 4) + '" text-anchor="middle">'
+                 + esc(e.label) + '</text>');
+      });
+
+      nodes.forEach(function (n) {
+        var p = pos[n.id];
+        var short = n.title.length > 26 ? n.title.slice(0, 26) + '…' : n.title;
+        var g = '<g class="wa-graph__node' + (n.is_self ? ' is-self' : '') + '" data-page-id="' + n.id
+              + '" data-snapshot-id="' + n.snapshot_id + '">'
+              + '<circle cx="' + p.x + '" cy="' + p.y + '" r="22"></circle>'
+              + '<text x="' + p.x + '" y="' + (p.y + 36) + '" text-anchor="middle">' + esc(short) + '</text>'
+              + '<title>' + esc(n.title) + ' — ' + esc(n.library) + '</title>'
+              + '</g>';
+        parts.push(g);
+      });
+
+      svg.innerHTML = parts.join('');
+
+      svg.querySelectorAll('.wa-graph__node').forEach(function (g) {
+        g.addEventListener('click', function () {
+          var sid = parseInt(g.getAttribute('data-snapshot-id') || '0', 10);
+          if (sid > 0) {
+            window.location.href = '<?= wa_e(wa_url('reader.php')) ?>?id=' + sid;
+          }
+        });
+      });
+
+      if (legend) {
+        var seen = {};
+        legend.innerHTML = edges.map(function (e) {
+          if (seen[e.type]) { return ''; }
+          seen[e.type] = true;
+          return '<span class="chip chip--plain">' + esc(e.label) + '</span>';
+        }).join('') + '<span class="t-label-sm t-muted">Bấm vào một nút để mở bài viết.</span>';
+      }
+    }
+
+    var graphLoaded = false;
+    var graphModal = document.getElementById('modal-graph');
+
+    function loadGraph() {
+      post('graph', { source_page_id: pageId }, function (data) {
+        if (data && data.ok) {
+          drawGraph(data.graph);
+          graphLoaded = true;
+        }
+      });
+    }
+
+    var graphBtn = document.getElementById('wa-graph-open');
+    if (graphBtn) {
+      graphBtn.addEventListener('click', function () {
+        if (graphLoaded) { return; }
+        drawGraph(null);
+        loadGraph();
+      });
+    }
+    if (graphModal) {
+      graphModal.addEventListener('click', function (e) {
+        if (e.target === graphModal) { return; }
+      });
+    }
+  })();
+</script>
 </body>
 </html>

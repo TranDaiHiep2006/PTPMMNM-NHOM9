@@ -51,7 +51,7 @@ $navAdmin = [
     ['file' => 'admin/index.php', 'label' => 'Tổng quan hệ thống', 'icon' => 'dashboard'],
     ['file' => 'admin/users.php', 'label' => 'Người dùng', 'icon' => 'group'],
     ['file' => 'admin/libraries.php', 'label' => 'Tất cả thư viện', 'icon' => 'folder_special'],
-    ['file' => 'admin/allowlist.php', 'label' => 'Tên miền được duyệt', 'icon' => 'verified_user'],
+    ['file' => 'admin/allowlist.php', 'label' => 'Tên miền tin cậy', 'icon' => 'verified_user'],
 ];
 ?>
 <!DOCTYPE html>

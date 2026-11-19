@@ -2555,6 +2555,13 @@ function wa_store_page_capture(
         //      riêng, nên kết quả tìm kiếm luôn gắn với đúng phiên bản đã lưu.
         $indexedTerms = wa_search_index_snapshot($snapshotId);
 
+        // 4g) V3 / FEATURE 6: ghi mã SHA-256 của nội dung ĐÚNG lúc tạo snapshot.
+        //      Hàm này chỉ ghi khi cột còn trống, nên không bao giờ ghi đè hash
+        //      gốc của một snapshot đã có.
+        if (function_exists('wa_snapshot_record_hash')) {
+            wa_snapshot_record_hash($snapshotId, $finalHtml);
+        }
+
         return [
             'ok'            => true,
             'error_code'    => null,
@@ -3483,7 +3490,7 @@ function wa_export_build_document(array $article, array $meta): string
             'exported_at'     => (string) $meta['exported_at'],
             'exported_label'  => $exportedLabel,
             'role'            => (string) $meta['role'],
-            'tags'            => (string) $article['tags'][0] ?? '',
+            'tags'            => (string) ($article['tags'][0] ?? ''),
             'tags_html'       => $titleRows,
         ]) . "\n"
         . '<main class="article">' . "\n"

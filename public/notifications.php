@@ -72,6 +72,7 @@ require __DIR__ . '/../templates/header_app.php';
         $snapshotId  = (int) ($notification['snapshot_id'] ?? 0);
         $pageId      = (int) ($notification['page_id'] ?? 0);
         $isRead      = (bool) $notification['is_read'];
+        $canRead     = (bool) ($notification['can_read'] ?? false);
         $toVersion   = (int) ($notification['to_version'] ?? 0);
         $fromVersion = (int) ($notification['from_version'] ?? 0);
 
@@ -91,10 +92,11 @@ require __DIR__ . '/../templates/header_app.php';
 
         $bodyText = trim(implode("\n", $bodyText));
 
-        // Link so sánh: chỉ dựng khi biết CẢ hai số phiên bản từ dữ liệu thật.
+        // Link so sánh: chỉ dựng khi biết CẢ hai số phiên bản từ dữ liệu thật
+        // VÀ người đọc vẫn có quyền với thư viện chứa bài.
         $compareUrl = '';
 
-        if ($pageId > 0 && $toVersion > 0 && $fromVersion > 0 && $fromVersion !== $toVersion) {
+        if ($canRead && $pageId > 0 && $toVersion > 0 && $fromVersion > 0 && $fromVersion !== $toVersion) {
             $compareUrl = wa_url(
                 'compare.php?page_id=' . $pageId
                 . '&from=' . $fromVersion
@@ -134,7 +136,7 @@ require __DIR__ . '/../templates/header_app.php';
               <?php endif; ?>
 
               <div class="row" style="gap:8px;margin-top:12px;flex-wrap:wrap">
-                <?php if ($snapshotId > 0): ?>
+                <?php if ($canRead && $snapshotId > 0): ?>
                   <a class="btn btn--dark btn--sm" href="<?= wa_e(wa_url('reader.php?id=' . $snapshotId)) ?>">
                     <span class="ms ms-14">open_in_new</span>
                     <?= $toVersion > 0 ? 'Xem V' . $toVersion : 'Xem phiên bản mới' ?>
@@ -146,10 +148,14 @@ require __DIR__ . '/../templates/header_app.php';
                     <span class="ms ms-14">difference</span>Xem thay đổi
                     (V<?= $fromVersion ?> → V<?= $toVersion ?>)
                   </a>
-                <?php elseif ($pageId > 0): ?>
+                <?php elseif ($canRead && $pageId > 0): ?>
                   <a class="btn btn--outline btn--sm" href="<?= wa_e(wa_url('compare.php?page_id=' . $pageId)) ?>">
                     <span class="ms ms-14">difference</span>Xem khác biệt
                   </a>
+                <?php endif; ?>
+
+                <?php if (!$canRead): ?>
+                  <span class="t-body-sm t-muted">Bạn không còn quyền xem bài viết này.</span>
                 <?php endif; ?>
 
                 <?php if (!$isRead): ?>

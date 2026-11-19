@@ -44,7 +44,7 @@ if (isset($_SESSION['wa_flash']) && is_array($_SESSION['wa_flash'])) {
     unset($_SESSION['wa_flash']);
 }
 
-$pageTitle = 'Tên miền được duyệt';
+$pageTitle = 'Tên miền tin cậy';
 require __DIR__ . '/../../templates/header_app.php';
 ?>
 
@@ -54,16 +54,17 @@ require __DIR__ . '/../../templates/header_app.php';
       <div class="ribbon__eyebrow">
         <span class="t-label-sm t-upper t-accent" style="font-weight:600">Quản trị hệ thống / Allowlist</span>
       </div>
-      <h1 class="ribbon__title">Tên miền được duyệt</h1>
+      <h1 class="ribbon__title">Tên miền tin cậy</h1>
       <p class="ribbon__sub">
-        Danh sách kiểm soát truy cập cho tính năng lưu trang. Chỉ những URL thuộc các tên miền này mới được tải về.
+        Danh sách tên miền đã được quản trị viên xác nhận tin cậy — được miễn cảnh báo rủi ro.
+        Việc lưu trang KHÔNG phụ thuộc danh sách này: mọi URL công khai đều lưu được.
       </p>
     </div>
 
     <div class="row" style="flex-shrink:0">
       <span class="chip chip--teal">
         <span class="ms ms-14">verified_user</span>
-        <?= count($allowlist) ?> tên miền trong danh sách
+        <?= count($allowlist) ?> tên miền tin cậy
       </span>
     </div>
   </div>
@@ -78,10 +79,15 @@ require __DIR__ . '/../../templates/header_app.php';
 
 <!-- ===================== GHI CHÚ QUY TẮC ===================== -->
 <div class="note-box" style="margin-bottom:24px">
-  <b>Quy tắc kiểm tra:</b> mọi yêu cầu lưu trang đều được đối chiếu với danh sách này — kể cả các đích
-  tải về phát sinh sau khi chuyển hướng (redirect chain). Nếu bất kỳ đích nào không thuộc danh sách,
-  toàn bộ quá trình lưu sẽ bị từ chối với thông báo
-  <em>“URL không thuộc danh sách được duyệt”</em>. Ngoài ra, một trang trả về 404 hoặc timeout
+  <b>Vai trò của danh sách này:</b> đây là danh sách <b>TIN CẬY</b>, KHÔNG phải điều kiện
+  để được phép lưu. Mọi URL công khai (http/https) đều có thể lưu ngay mà không cần
+  quản trị viên duyệt tên miền — máy chủ tự kiểm tra DNS và địa chỉ IP trước khi tải
+  (chặn mạng nội bộ, localhost, cloud metadata, đích không xác minh được, chống DNS
+  rebinding), kể cả ở mọi đích phát sinh sau khi chuyển hướng.
+  <br><br>
+  <b>Điểm khác biệt duy nhất:</b> tên miền nằm trong danh sách này sẽ <b>không</b> bị
+  hiện cảnh báo rủi ro (ví dụ trang dùng HTTP không mã hoá hay địa chỉ IP thay tên miền),
+  vì quản trị viên đã xác nhận tin cậy. Ngoài ra, một trang trả về 404 hoặc timeout
   sẽ không bao giờ được lưu thành một bài viết hợp lệ.
 </div>
 

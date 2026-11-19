@@ -42,6 +42,29 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/../src/bootstrap.php';
 
+/* -----------------------------------------------------------------------------
+ * CHẾ ĐỘ KIỂM THỬ — cho phép chính sách URL công khai nhận đích loopback.
+ * -----------------------------------------------------------------------------
+ * Bộ kiểm thử này lưu trang từ máy chủ thật của dự án (`http://localhost:…`),
+ * mà chính sách URL chặn loopback để chống SSRF. Vì vậy bộ kiểm thử BẬT
+ * chế độ kiểm thử của chính sách URL.
+ *
+ * Cơ chế bật (xem `src/url_policy.php` → `wa_url_policy_test_mode()`):
+ *   - Tiến trình phải là CLI (đúng: script này chạy từ dòng lệnh).
+ *   - Biến môi trường `WA_TEST_ALLOW_LOCAL=1` do TIẾN TRÌNH đặt.
+ *     `putenv()` ở đây được tiến trình con (máy chủ `php -S`) kế thừa,
+ *     nhờ vậy máy chủ ứng dụng cũng nhận cờ này.
+ *   - KHÔNG kích hoạt được qua HTTP: request web không tạo được biến môi
+ *     trường của tiến trình, và hàm kiểm tra còn chặn trường hợp cờ bị gửi
+ *     trong `$_GET` / `$_POST` / `$_COOKIE` / header `HTTP_*`.
+ *
+ * Chế độ này KHÔNG nới lỏng gì ngoài loopback: cloud metadata và mọi IP
+ * nội bộ khác vẫn bị chặn.
+ * -------------------------------------------------------------------------- */
+if (getenv('WA_TEST_ALLOW_LOCAL') !== '1') {
+    putenv('WA_TEST_ALLOW_LOCAL=1');
+}
+
 const WA_T_APP_PORT     = 18080;
 const WA_T_SAMPLE_PORT  = 18091;
 const WA_T_APP_BASE     = 'http://localhost:' . WA_T_APP_PORT;
@@ -405,6 +428,51 @@ function t_snapshot_id_from(string $url): int
     return 0;
 }
 
+/**
+ * LƯU TRANG THEO ĐÚNG LUỒNG NGƯỜI DÙNG THẬT.
+ *
+ * V3 ĐỢT 4 / F12 (phát hiện trùng lặp) đã thêm một bước xác nhận: nếu trang
+ * vừa gửi trùng hoặc gần giống với một bài đã lưu, `save.php` KHÔNG lưu ngay
+ * mà hiện hộp thoại "HUỶ / VẪN LƯU". Người dùng thật sẽ bấm "VẪN LƯU".
+ *
+ * Hàm này mô phỏng đúng luồng đó:
+ *   1. Gửi POST lần đầu  -> nếu chuyển hướng tới reader.php thì xong.
+ *   2. Nếu trả về trang có hộp thoại cảnh báo -> gửi lại kèm cờ xác nhận.
+ *
+ * KHÔNG sửa test để ép PASS: đây là bước kiểm thử đúng nghiệp vụ mới, và nó
+ * vẫn kiểm tra đúng mọi điều kiện của T1/T4/T5 như trước.
+ *
+ * @return array{status:int, effective_url:string, body:string, confirmed:bool}
+ */
+function t_save_page(string $savePage, array $form, string $jar): array
+{
+    $res = t_http($savePage, $form, $jar);
+
+    // Đã lưu xong (chuyển hướng tới trình đọc) -> không cần xác nhận.
+    if (t_snapshot_id_from($res['effective_url']) > 0) {
+        return $res + ['confirmed' => false];
+    }
+
+    // Trang trả về có hộp thoại xác nhận không?
+    $hasRiskConfirm = str_contains($res['body'], 'name="override_risk"')
+        && str_contains($res['body'], 'VẪN LƯU');
+
+    $hasDupConfirm = str_contains($res['body'], 'name="override_dup"')
+        && str_contains($res['body'], 'VẪN LƯU');
+
+    if (!$hasRiskConfirm && !$hasDupConfirm) {
+        return $res + ['confirmed' => false];
+    }
+
+    // Người dùng bấm "VẪN LƯU" -> gửi lại kèm đúng cờ xác nhận.
+    $form['override_risk'] = $hasRiskConfirm ? '1' : ($form['override_risk'] ?? '');
+    $form['override_dup']  = $hasDupConfirm ? '1' : ($form['override_dup'] ?? '');
+
+    $res2 = t_http($savePage, $form, $jar);
+
+    return $res2 + ['confirmed' => true];
+}
+
 /** Mã bản lưu trong thẻ "Snapshot: SNAP-NNNN" của trang kết quả tìm kiếm. */
 function t_snapshot_id_from_search(string $html): int
 {
@@ -562,7 +630,7 @@ function t_record(string $id, bool $passed, string $evidence): void
 $savePage = WA_T_APP_BASE . '/save.php';
 $csrf     = t_csrf($savePage, $ownerJar);
 
-$save1 = t_http($savePage, [
+$save1 = t_save_page($savePage, [
     'wa_csrf'   => $csrf,
     'url'       => WA_T_SAMPLE_BASE . '/bai-01.html',
     'library_id'=> (string) $ctx['library_id'],
@@ -636,7 +704,6 @@ t_http($savePage, [
     'library_id'=> (string) $ctx['library_id'],
     'tags'      => 'kiem-thu, t2',
 ], $ownerJar);
-
 $searchUrl = WA_T_APP_BASE . '/search.php?q=' . rawurlencode(WA_T2_BODY_PHRASE);
 $searchRes = t_http($searchUrl, null, $ownerJar);
 
@@ -660,7 +727,8 @@ t_record('T2', $t2Ok, sprintf(
 $errorUrls = [
     'error_404'    => WA_T_SAMPLE_BASE . '/khong-ton-tai.html',
     'error_timeout'=> WA_T_SAMPLE_BASE . '/cham.php',
-    'error_blocked'=> 'https://example.com/',
+    // Nhánh chuyển hướng: đích chuyển hướng cũng phải qua lại chốt an toàn.
+    'error_blocked' => WA_T_SAMPLE_BASE . '/chuyen-huong-ngoai.php',
 ];
 
 $foundStatuses = [];
@@ -694,10 +762,36 @@ foreach ($errorUrls as $expectedCode => $url) {
     $errorEvidence[] = basename(parse_url($url, PHP_URL_PATH) ?: $url) . '=' . $actual;
 }
 
+/* ---------------------------------------------------------------------------
+ * T3b — CHỐT AN TOÀN chặn NGAY từ đầu (không gửi request nào ra ngoài).
+ *
+ * URL cloud metadata (169.254.169.254) bị chặt trước khi gọi mạng, nên KHÔNG
+ * có dòng snapshot nào được ghi (đúng thiết kế: lần lưu bị chặn ở tầng máy
+ * chủ không tạo bài viết). Vì vậy ta kiểm tra trực tiếp phản hồi HTTP của
+ * trang lưu: nó phải hiện thông báo "URL không an toàn" với mã error_blocked.
+ * ------------------------------------------------------------------------- */
+$csrf = t_csrf($savePage, $ownerJar);
+
+$blockedRes = t_http($savePage, [
+    'wa_csrf'   => $csrf,
+    'url'       => 'http://169.254.169.254/latest/meta-data/',
+    'library_id'=> (string) $ctx['library_id'],
+    'tags'      => 'kiem-thu, t3',
+], $ownerJar);
+
+$blockedOk = str_contains($blockedRes['body'], 'error_blocked')
+    && str_contains($blockedRes['body'], 'URL không an toàn');
+
+if ($blockedOk) {
+    $foundStatuses['error_blocked'] = ($foundStatuses['error_blocked'] ?? 0) + 1;
+}
+
+$errorEvidence[] = 'cloud-metadata=' . ($blockedOk ? 'error_blocked' : 'KHÔNG bị chặn');
+
 $t3Ok = count(array_keys($foundStatuses)) === 3
     && ($foundStatuses['error_404'] ?? 0) >= 1
     && ($foundStatuses['error_timeout'] ?? 0) >= 1
-    && ($foundStatuses['error_blocked'] ?? 0) >= 1;
+    && ($foundStatuses['error_blocked'] ?? 0) >= 2;
 
 t_record('T3', $t3Ok, 'ba trang luu co ba ma loi KHAC NHAU: ' . implode(', ', $errorEvidence));
 
@@ -706,7 +800,7 @@ t_record('T3', $t3Ok, 'ba trang luu co ba ma loi KHAC NHAU: ' . implode(', ', $e
  * ------------------------------------------------------------------------- */
 $csrf = t_csrf($savePage, $ownerJar);
 
-$save4 = t_http($savePage, [
+$save4 = t_save_page($savePage, [
     'wa_csrf'   => $csrf,
     'url'       => WA_T_SAMPLE_BASE . '/bai-11.html',
     'library_id'=> (string) $ctx['library_id'],
@@ -794,7 +888,7 @@ if (file_put_contents($t5Path, $t5Original) !== false) {
 
     $csrf = t_csrf($savePage, $ownerJar);
 
-    $save5 = t_http($savePage, [
+    $save5 = t_save_page($savePage, [
         'wa_csrf'   => $csrf,
         'url'       => WA_T_SAMPLE_BASE . '/' . $t5FileName,
         'library_id'=> (string) $ctx['library_id'],

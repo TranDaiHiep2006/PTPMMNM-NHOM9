@@ -8,21 +8,22 @@
  * cURL (mạng) và DOM/DOMDocument (bóc tách HTML).
  *
  * ── BA NGUYÊN TẮC BẮT BUỘC CỦA HỆ THỐNG ────────────────────────────────────
- * 1. KHÔNG BAO GIỜ lưu trang lỗi (404, 5xx, timeout, ngoài allowlist, không có
+ * 1. KHÔNG BAO GIỜ lưu trang lỗi (404, 5xx, timeout, URL không an toàn, không có
  *    nội dung) như một bài viết hợp lệ — mỗi nguyên nhân có error_code riêng.
  * 2. LUÔN đọc nội dung từ bản snapshot đã lưu, không đọc lại trang gốc.
- * 3. Mọi ĐÍCH tải về — kể cả sau khi chuyển hướng và cả ảnh — đều phải được
- *    kiểm tra với allowlist_domains. Không có ngoại lệ.
- *
+ * 3. Mọi ĐÍCH tải về — kể cả sau khi chuyển hướng và cả ảnh — đều phải qua
+ *    CHỐT AN TOÀN của src/url_policy.php (chặn mạng riêng, localhost, cloud
+ *    metadata, đích không xác minh được, DNS rebinding). Không có ngoại lệ.
+
  * ── CẤU HÌNH ─────────────────────────────────────────────────────────────────
  *   Kết nối 5 s • tổng 12 s • tối đa 5 lần chuyển hướng • tối đa 5 MB mỗi tài
  *   nguyên • tối đa 20 ảnh mỗi bài viết • tối thiểu 200 ký tự văn bản.
  *
  * Luồng của capture_url() (đúng thứ tự trong đặc tả):
  *   1. Kiểm tra URL                                   → error_invalid_url
- *   2. Allowlist TRƯỚC khi gọi mạng                  → error_blocked
+ *   2. CHỐT AN TOÀN TRƯỚC khi gọi mạng                → error_blocked
  *   3. Tải bằng cURL, TỰ chuyển hướng, kiểm tra
- *      allowlist LẠI trên mọi đích chuyển hướng      → error_blocked
+ *      an toàn LẠI trên mọi đích chuyển hướng        → error_blocked
  *      timeout: kết nối 5 s / tổng 12 s              → error_timeout
  *   4. 404 → error_404; 4xx/5xx khác → error_http;
  *      Content-Type không phải HTML                  → error_no_content
@@ -36,6 +37,10 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/db.php';
+
+// CHÍNH SÁCH URL CÔNG KHAI (V3 / điều chỉnh F7): chốt an toàn cấp máy chủ
+// (SSRF) + tín hiệu rủi ro. Nạp ở đây vì capture.php là nơi dùng nó.
+require_once __DIR__ . '/url_policy.php';
 
 /** Thư mục public/ — nơi lưu ảnh đã tải về. */
 if (!defined('WA_PUBLIC')) {
@@ -61,6 +66,16 @@ const WA_CAPTURE_MAX_BYTES = 5 * 1024 * 1024;
 const WA_CAPTURE_MAX_IMAGES = 20;
 /** Ngưỡng độ dài văn bản tối thiểu để coi là bài viết hợp lệ. */
 const WA_CAPTURE_MIN_TEXT = 200;
+/**
+ * Ngưỡng độ dài văn bản tối thiểu để MỘT ứng viên theo tên thẻ
+ * (`#mw-content-text`, `<article>`, `<main>`…) được coi là "vùng nội dung thật".
+ *
+ * Lý do (BUG-13): Wikipedia có `<main id="content" class="mw-body">` chỉ chứa
+ * 31 ký tự ("Bách khoá toàn thư mở Wikipedia") nằm TRƯỚC `#mw-content-text`.
+ * Nếu chỉ "lấy phần tử đầu tiên" thì sẽ báo error_no_content dù trang có
+ * hàng nghìn ký tự. Ngưỡng này bắt buộc ứng viên đó bị loại.
+ */
+const WA_CAPTURE_CONTENT_MIN_TEXT = 200;
 
 /* =============================================================================
     DANH SÁCH MÃ LỖI
@@ -89,8 +104,8 @@ function wa_capture_error_text(string $code, string $detail = ''): array
             'message' => 'Địa chỉ URL không hợp lệ. Vui lòng nhập một đường dẫn http:// hoặc https:// đầy đủ.',
         ],
         WA_ERR_BLOCKED => [
-            'title'   => 'URL không thuộc danh sách được duyệt',
-            'message' => 'Tên miền này chưa được quản trị viên duyệt. Mọi đích tải về — kể cả sau khi chuyển hướng — đều phải nằm trong danh sách được duyệt.',
+            'title'   => 'URL không an toàn để tải',
+            'message' => 'Địa chỉ này không vượt qua kiểm tra an toàn của máy chủ (mạng nội bộ, cloud metadata, đích không xác minh được hoặc giao thức không hợp lệ), nên hệ thống không tải về. Mọi đích chuyển hướng và cả ảnh trong bài cũng được kiểm tra lại.',
         ],
         WA_ERR_TIMEOUT => [
             'title'   => 'Hết thời gian chờ khi tải trang',
@@ -174,6 +189,23 @@ function wa_capture_clean_text(string $text): string
 
 /**
  * Bỏ mọi thẻ khỏi chuỗi HTML để lấy văn bản thuần.
+ *
+ * CẢNH BÁO: hàm này dùng `strip_tags()` của PHP, và `strip_tags()` **rất dễ
+ * bị "nuốt" toàn bộ tài liệu** khi gặp thuộc tính có dấu nháy thoát bằng
+ * dấu gạch chéo — đúng trường hợp của HTML do MediaWiki/Parsoid sinh ra:
+ *
+ *     data-mw='{"parts":[{"template":{"target":{"wt":"Infobox programming
+ *     language\n"}}}}]'
+ *
+ * Ở đó chuỗi `\"` khiến `strip_tags()` hiểu sai ranh giới thẻ và trả về
+ * CHUỖI RỘNG (xem BUG-13: Wikipedia trả HTTP 200 nhưng bị `error_no_content`).
+ *
+ * Vì vậy:
+ *   - Hàm này CHỈ dùng cho HTML ĐÃ SANITIZE (thuộc tính rác đã bị gỡ hết),
+ *     nơi `strip_tags()` hoạt động đúng — và dùng đúng hàm này để tính
+ *     `content_text` / SHA-256, nên hash cũ KHÔNG bị đổi.
+ *   - Khi cần ĐO văn bản trên HTML CHƯA sanitize, phải dùng
+ *     `wa_capture_text_length()` (đọc `textContent` từ DOM, không dùng regex).
  */
 function wa_capture_text_only(string $html): string
 {
@@ -182,6 +214,46 @@ function wa_capture_text_only(string $html): string
     $html = strip_tags($html);
 
     return html_entity_decode($html, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+}
+
+/**
+ * Đo độ dài văn bản thuần của một đoạn HTML BẤT KỲ (kể cả HTML chưa sanitize).
+ *
+ * Dùng DOM (`textContent`) thay vì `strip_tags()` nên KHÔNG bị lỗi "nuốt hết
+ * tài liệu" của HTML có thuộc tính dấu nháy thoát (BUG-13).
+ *
+ * @return int Số ký tự văn bản (0 nếu HTML rỗng / không phân tích được).
+ */
+function wa_capture_text_length(string $html): int
+{
+    if (trim($html) === '') {
+        return 0;
+    }
+
+    // Thử nhanh bằng strip_tags: nếu ra kết quả khác rỗng thì đó gần như
+    // chắc chắn là độ dài thật (nhanh hơn nhiều so với phân tích DOM).
+    $quick = strip_tags($html);
+
+    if (trim($quick) !== '') {
+        return mb_strlen(wa_capture_clean_text(html_entity_decode($quick, ENT_QUOTES | ENT_HTML5, 'UTF-8')), 'UTF-8');
+    }
+
+    // strip_tags trả rỗng -> rất có thể gặp trường hợp nháy thoát.
+    // Đọc trực tiếp từ DOM.
+    $doc = wa_capture_dom($html);
+
+    if ($doc === null) {
+        return 0;
+    }
+
+    $body = $doc->getElementsByTagName('body')->item(0);
+    $node = $body ?? $doc->documentElement;
+
+    if ($node === null) {
+        return 0;
+    }
+
+    return mb_strlen(wa_capture_clean_text((string) $node->textContent), 'UTF-8');
 }
 
 /**
@@ -211,7 +283,7 @@ function wa_capture_failure(string $errorCode, string $detail, int $httpStatus =
     ============================================================================= */
 
 /**
- * Tên miền có nằm trong bảng `allowlist_domains` không?
+ * Tên miền có nằm trong bảng `allowlist_domains` (danh sách TIN CẬY) không?
  *
  * Quy tắc so khớp (không phân biệt hoa/thường):
  *   - host BẰNG ĐÚNG một tên miền trong danh sách, HOẶC
@@ -257,15 +329,23 @@ function wa_capture_is_allowlisted(string $host): bool
 }
 
 /* =============================================================================
-    BƯỚC 3 — TẢI BẰNG cURL (tự chuyển hướng, kiểm tra allowlist mỗi lần)
+    BƯỚC 3 — TẢI BẰNG cURL (tự chuyển hướng, kiểm tra an toàn mỗi lần)
     ============================================================================= */
 
 /**
- * Tải một tài nguyên, tự xử lý chuyển hướng và kiểm tra allowlist ở MỌI đích.
+ * Tải một tài nguyên, tự xử lý chuyển hướng và kiểm tra an toàn ở MỌI đích.
  *
  * cURL được dùng KHÔNG kèm CURLOPT_FOLLOWLOCATION. Mỗi lần gặp 3xx, ta lấy
- * địa chỉ đích từ CURLINFO_REDIRECT_URL, chạy lại hàm kiểm tra allowlist, rồi
- * mới tải tiếp. Nhờ vậy không có đường nào để một redirect lách khỏi allowlist.
+ * địa chỉ đích từ CURLINFO_REDIRECT_URL, chạy lại hàm kiểm tra an toàn, rồi
+ * mới tải tiếp. Nhờ vậy không có đường nào để một redirect lách khỏi chốt an toàn.
+ *
+ * BUG-14 — GHIM IP VÀ FALLBACK:
+ *   `CURLOPT_RESOLVE` với NHIỀU địa chỉ KHÔNG tự thử lần lượt: cURL coi cả danh
+ *   sách là một "đích" và hỏng ngay khi địa chỉ đầu tiên không kết nối được
+ *   (thường là IPv6 khi máy không có IPv6). Vì vậy ta THỬ TỪNG địa chỉ đã xác
+ *   minh là công khai, mỗi địa chỉ một lần ghim riêng, và dùng địa chỉ nào
+ *   kết nối được thì trả về. Chống DNS rebinding vẫn giữ nguyên: mọi địa chỉ
+ *   dùng đều đã được kiểm tra là công khai TRƯỚC khi kết nối.
  *
  * @return array{ok:bool, error_code?:string, detail?:string, body?:string,
  *              status:int, final_url:string, content_type:string}
@@ -276,47 +356,93 @@ function wa_capture_http_get(string $url): array
     $redirect = 0;
 
     while (true) {
-        // --- Allowlist TRƯỚC khi mở kết nối (nguyên tắc số 3) ---
+        // --- CHỐT AN TOÀN (chính sách URL công khai) ---
         $host = wa_capture_host($current);
-        if (!wa_capture_is_allowlisted($host)) {
+        $policy = wa_url_policy_inspect($current);
+
+        if ($policy['ok'] !== true) {
             return [
                 'ok'           => false,
                 'error_code'   => WA_ERR_BLOCKED,
-                'detail'       => 'tên miền "' . $host . '" không nằm trong danh sách được duyệt',
+                'detail'       => (string) $policy['message'],
                 'status'       => 0,
                 'final_url'    => $current,
                 'content_type' => '',
             ];
         }
 
-        $ch = curl_init();
-        curl_setopt_array($ch, [
-            CURLOPT_URL             => $current,
-            CURLOPT_RETURNTRANSFER  => true,
-            // KHÔNG dùng CURLOPT_FOLLOWLOCATION — ta đi từng bước để kiểm tra allowlist.
-            CURLOPT_FOLLOWLOCATION  => false,
-            CURLOPT_CONNECTTIMEOUT  => WA_CAPTURE_CONNECT_TIMEOUT,
-            CURLOPT_TIMEOUT         => WA_CAPTURE_TIMEOUT,
-            CURLOPT_USERAGENT       => WA_CAPTURE_USER_AGENT,
-            CURLOPT_ACCEPT_ENCODING => '',
-            CURLOPT_SSL_VERIFYPEER  => true,
-            CURLOPT_SSL_VERIFYHOST  => 2,
-            CURLOPT_PROTOCOLS       => CURLPROTO_HTTP | CURLPROTO_HTTPS,
-            CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
-            CURLOPT_BUFFERSIZE      => 65536,
-        ]);
+        // Danh sách địa chỉ đã xác minh là công khai (có thể rỗng -> không ghim).
+        $verifiedIps = array_values(array_filter(
+            (array) ($policy['ips'] ?? []),
+            static fn ($ip): bool => is_string($ip) && $ip !== ''
+        ));
 
-        $body      = curl_exec($ch);
-        $errno     = curl_errno($ch);
-        $errstr    = curl_error($ch);
-        $status    = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
-        $ctype     = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
-        $redirectTo = (string) curl_getinfo($ch, CURLINFO_REDIRECT_URL);
-        curl_close($ch);
+        // Nếu không ghim được (host là IP sẵn) -> thử một lần không ghim.
+        $resolveTargets = $verifiedIps === []
+            ? [null]
+            : array_map(
+                static fn (string $ip): string => (string) $policy['host'] . ':' . (int) $policy['port'] . ':' . $ip,
+                $verifiedIps
+            );
+
+        $lastErrno    = 0;
+        $lastErrstr   = '';
+        $lastStatus   = 0;
+        $body         = false;
+        $ctype        = '';
+        $redirectTo   = '';
+        $connected    = false;
+
+        foreach ($resolveTargets as $resolveEntry) {
+            $ch = curl_init();
+
+            $curlOpts = [
+                CURLOPT_URL             => $current,
+                CURLOPT_RETURNTRANSFER  => true,
+                // KHÔNG dùng CURLOPT_FOLLOWLOCATION — đi từng bước để kiểm tra lại.
+                CURLOPT_FOLLOWLOCATION  => false,
+                CURLOPT_CONNECTTIMEOUT  => WA_CAPTURE_CONNECT_TIMEOUT,
+                CURLOPT_TIMEOUT         => WA_CAPTURE_TIMEOUT,
+                CURLOPT_USERAGENT       => WA_CAPTURE_USER_AGENT,
+                CURLOPT_ACCEPT_ENCODING => '',
+                CURLOPT_SSL_VERIFYPEER  => true,
+                CURLOPT_SSL_VERIFYHOST  => 2,
+                CURLOPT_PROTOCOLS       => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+                CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTP | CURLPROTO_HTTPS,
+                CURLOPT_BUFFERSIZE      => 65536,
+            ];
+
+            // GHIM IP đã xác minh vào cURL (CURLOPT_RESOLVE) -> chống DNS rebinding:
+            // nếu DNS đổi kết quả giữa lúc kiểm tra và lúc kết nối, cURL vẫn nối
+            // đúng IP đã xác minh là công khai.
+            if (is_string($resolveEntry) && $resolveEntry !== '') {
+                $curlOpts[CURLOPT_RESOLVE] = [$resolveEntry];
+            }
+
+            curl_setopt_array($ch, $curlOpts);
+
+            $body       = curl_exec($ch);
+            $errno      = curl_errno($ch);
+            $errstr     = curl_error($ch);
+            $status     = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+            $ctype      = (string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE);
+            $redirectTo = (string) curl_getinfo($ch, CURLINFO_REDIRECT_URL);
+            curl_close($ch);
+
+            if ($body !== false && $errno === 0) {
+                $connected = true;
+                break;
+            }
+
+            // Ghi nhớ lỗi cuối cùng để báo cáo nếu mọi địa chỉ đều thất bại.
+            $lastErrno  = $errno;
+            $lastErrstr = $errstr;
+            $lastStatus = $status;
+        }
 
         // --- Lỗi mạng / hết thời gian ---
-        if ($body === false || $errno !== 0) {
-            $isTimeout = in_array($errno, [
+        if (!$connected) {
+            $isTimeout = in_array($lastErrno, [
                 CURLE_OPERATION_TIMEOUTED,
                 CURLE_COULDNT_CONNECT,
                 CURLE_GOT_NOTHING,
@@ -328,14 +454,14 @@ function wa_capture_http_get(string $url): array
                 'detail'       => $isTimeout
                     ? 'không có phản hồi trong ' . WA_CAPTURE_CONNECT_TIMEOUT . ' s kết nối / '
                         . WA_CAPTURE_TIMEOUT . ' s tổng thời gian'
-                    : 'lỗi mạng cURL ' . $errno . ': ' . $errstr,
-                'status'       => 0,
+                    : 'lỗi mạng cURL ' . $lastErrno . ': ' . $lastErrstr,
+                'status'       => $lastStatus,
                 'final_url'    => $current,
                 'content_type' => '',
             ];
         }
 
-        // --- Chuyển hướng: allowlist được kiểm tra LẠI ở vòng lặp kế tiếp ---
+        // --- Chuyển hướng: an toàn được kiểm tra LẠI ở vòng lặp kế tiếp ---
         if ($status >= 300 && $status < 400) {
             if ($redirectTo === '') {
                 return [
@@ -650,23 +776,91 @@ function wa_capture_density(DOMNode $node): array
 }
 
 /**
- * Tìm phần tử chứa nội dung chính: <article> → <main> → div/section có mật độ
- * văn bản cao nhất → <body>.
+ * Tìm phần tử chứa nội dung chính.
+ *
+ * THỨ TỰ ƯU TIÊN (sửa BUG-13 — Wikipedia/MediaWiki bị lỗi error_no_content):
+ *
+ *   1. **MediaWiki**: `#mw-content-text` (vùng nội dung thật của Wikipedia),
+ *      `.mw-parser-output` (dùng cho các bản skin cũ / trang không có
+ *      `#mw-content-text`), `#bodyContent`.
+ *   2. `<article>` — CHỉ dùng khi nó thực sự chứa nhiều văn bản.
+ *   3. `<main>` — CHỈ dùng khi nó thực sự chứa nhiều văn bản.
+ *   4. div/section có mật độ văn bản cao nhất.
+ *   5. `<body>`.
+ *
+ * NGUYÊN TẮC: KHÔNG được chọn một phần tử "rỗng" chỉ vì nó đứng trước
+ * trong tài liệu. Wikipedia có `<main id="content" class="mw-body">` là vỏ
+ * bọc rất ngắn (chỉ "Bách khoá toàn thư mở Wikipedia") nằm TRƯỚC phần nội
+ * dung thật — chọn nó sẽ ra `error_no_content` dù trang có hàng nghìn ký tự.
+ * Vì vậy mọi ứng viên "theo tên thẻ" đều phải vượt qua ngưỡng mật độ văn bản
+ * tối thiểu, nếu không sẽ rơi xuống ứng viên mật độ cao nhất.
  */
 function wa_capture_find_content_node(DOMDocument $doc): ?DOMElement
 {
     $xpath = new DOMXPath($doc);
 
-    $article = $xpath->query('//article');
-    if ($article !== false && $article->length > 0 && $article->item(0) instanceof DOMElement) {
-        return $article->item(0);
+    /* --- 1. MediaWiki: vùng nội dung thật --- */
+    $mediaWiki = [
+        "//*[contains(concat(' ', normalize-space(@id), ' '), ' mw-content-text ')]",
+        "//*[contains(concat(' ', normalize-space(@class), ' '), ' mw-parser-output ')]",
+        "//*[contains(concat(' ', normalize-space(@id), ' '), ' bodyContent ')]",
+    ];
+
+    foreach ($mediaWiki as $expr) {
+        $nodes = $xpath->query($expr);
+
+        if ($nodes === false || $nodes->length === 0) {
+            continue;
+        }
+
+        for ($i = 0; $i < $nodes->length; $i++) {
+            $node = $nodes->item($i);
+
+            if (!$node instanceof DOMElement) {
+                continue;
+            }
+
+            $density = wa_capture_density($node);
+
+            if ($density['text_length'] >= WA_CAPTURE_CONTENT_MIN_TEXT) {
+                return $node;
+            }
+        }
     }
 
-    $main = $xpath->query('//main');
-    if ($main !== false && $main->length > 0 && $main->item(0) instanceof DOMElement) {
-        return $main->item(0);
+    /* --- 2/3. <article> / <main>: chỉ dùng khi thực sự có nội dung --- */
+    foreach (['//article', '//main'] as $expr) {
+        $nodes = $xpath->query($expr);
+
+        if ($nodes === false || $nodes->length === 0) {
+            continue;
+        }
+
+        // Nhiều ứng viên -> chọn ứng viên dày văn bản nhất, không lấy "cái đầu tiên".
+        $best = null;
+        $bestLen = 0;
+
+        for ($i = 0; $i < $nodes->length; $i++) {
+            $node = $nodes->item($i);
+
+            if (!$node instanceof DOMElement) {
+                continue;
+            }
+
+            $density = wa_capture_density($node);
+
+            if ($density['text_length'] > $bestLen) {
+                $bestLen = $density['text_length'];
+                $best    = $node;
+            }
+        }
+
+        if ($best instanceof DOMElement && $bestLen >= WA_CAPTURE_CONTENT_MIN_TEXT) {
+            return $best;
+        }
     }
 
+    /* --- 4. div/section có mật độ văn bản cao nhất --- */
     $best      = null;
     $bestScore = 0.0;
     $candidates = $xpath->query('//div | //section');
@@ -685,6 +879,7 @@ function wa_capture_find_content_node(DOMDocument $doc): ?DOMElement
         return $best;
     }
 
+    /* --- 5. <body> --- */
     $body = $doc->getElementsByTagName('body');
 
     return $body->length > 0 ? $body->item(0) : null;
@@ -1014,11 +1209,16 @@ function capture_url(string $url): array
         return wa_capture_failure(WA_ERR_INVALID_URL, 'URL không được chứa thông tin đăng nhập (user:password)');
     }
 
-    /* ---------- BƯỚC 2: ALLOWLIST TRƯỚC KHI GỌI MẠNG ---------- */
-    if (!wa_capture_is_allowlisted($host)) {
+    /* ---------- BƯỚC 2: CHỐT AN TOÀN TRƯỚC KHI GỌI MẠNG ---------- */
+    // Chính sách URL công khai: KHÔNG cần tên miền nằm trong allowlist, nhưng
+    // mọi đích phải qua được kiểm tra an toàn (chặn mạng riêng, metadata,
+    // đích không xác minh được).
+    $policy = wa_url_policy_inspect($url);
+
+    if ($policy['ok'] !== true) {
         return wa_capture_failure(
             WA_ERR_BLOCKED,
-            'tên miền "' . $host . '" không nằm trong danh sách được duyệt',
+            (string) $policy['message'],
             0,
             $url
         );
@@ -1089,8 +1289,12 @@ function capture_url(string $url): array
 
     /* ---------- BƯỚC 6: ĐỘ DÀI VĂN BẢN ---------- */
     $rawHtml   = $doc->saveHTML($contentNode) ?: '';
-    $rawText   = wa_capture_clean_text(wa_capture_text_only($rawHtml));
-    $textChars = mb_strlen($rawText, 'UTF-8');
+
+    // Đo bằng DOM (KHÔNG dùng strip_tags): HTML của MediaWiki/Parsoid có
+    // thuộc tính `data-mw='...\"...'` làm strip_tags() trả về rỗng -> nếu đo
+    // bằng strip_tags thì trang hợp lệ sẽ bị báo nhầm error_no_content
+    // (BUG-13: Wikipedia C++ trả HTTP 200 nhưng lỗi "chỉ 31 ký tự").
+    $textChars = wa_capture_text_length($rawHtml);
 
     if ($textChars < WA_CAPTURE_MIN_TEXT) {
         return wa_capture_failure(
@@ -1267,8 +1471,8 @@ function wa_capture_extension_for_mime(string $mime): string
  *   3) UPDATE content_html với src đã trỏ về đường dẫn cục bộ
  *   4) INSERT các dòng assets
  *
- * Mọi ảnh được kiểm tra allowlist GIỐNG HỆT URL trang (kể cả từng bước chuyển
- * hướng). Ảnh ngoài allowlist, ảnh không phải raster hợp lệ, ảnh tải lỗi hoặc
+ * Mọi ảnh được kiểm tra an toàn GIỐNG HỆT URL trang (kể cả từng bước chuyển
+ * hướng). Ảnh không an toàn, ảnh không phải raster hợp lệ, ảnh tải lỗi hoặc
  * vượt giới hạn đều bị GỎ khỏi HTML và đếm vào images_skipped — sau bước này
  * content_html không còn URL ảnh bên ngoài nào.
  *
@@ -1324,13 +1528,15 @@ function wa_capture_localize_images(string $contentHtml, int $snapshotId): array
             continue;
         }
 
-        // --- Ảnh ngoài allowlist -> bỏ và đếm ---
-        if (!wa_capture_is_http_url($original) || !wa_capture_is_allowlisted(wa_capture_host($original))) {
+        // --- Ảnh không vượt qua chốt an toàn -> bỏ và đếm ---
+        // Cùng chính sách URL công khai với URL trang: chặn mạng riêng, metadata,
+        // đích không xác minh được (kể cả sau khi chuyển hướng).
+        if (!wa_capture_is_http_url($original) || !wa_url_policy_is_safe($original)['ok']) {
             $remove();
             continue;
         }
 
-        // --- Tải ảnh (tự chuyển hướng + allowlist ở mỗi bước) ---
+        // --- Tải ảnh (tự chuyển hướng + kiểm tra lại ở mỗi bước) ---
         $response = wa_capture_http_get($original);
         if ($response['ok'] !== true) {
             $remove();

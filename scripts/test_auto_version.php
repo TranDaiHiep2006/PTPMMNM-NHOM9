@@ -42,6 +42,20 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/../src/bootstrap.php';
 
+/* -----------------------------------------------------------------------------
+ * CHẾ ĐỘ KIỂM THỬ — cho phép chính sách URL công khai nhận đích loopback.
+ * -----------------------------------------------------------------------------
+ * Bộ kiểm thử này lưu trang từ máy chủ thật của dự án (`http://localhost:…`),
+ * mà chính sách URL chặn loopback để chống SSRF. Vì vậy bộ kiểm thử BẬT
+ * chế độ kiểm thử của chính sách URL (xem `src/url_policy.php`).
+ *
+ * Chế độ này KHÔNG nới lỏng gì ngoài loopback: cloud metadata và mọi IP
+ * nội bộ khác vẫn bị chặn, và KHÔNG kích hoạt được qua HTTP.
+ * -------------------------------------------------------------------------- */
+if (getenv('WA_TEST_ALLOW_LOCAL') !== '1') {
+    putenv('WA_TEST_ALLOW_LOCAL=1');
+}
+
 const WA_T_APP_PORT    = 18082;
 const WA_T_SAMPLE_PORT = 18093;
 const WA_T_APP_BASE    = 'http://localhost:18082';
@@ -569,17 +583,25 @@ $urlChange = WA_T_SAMPLE_BASE . '/autov-change-' . $runId . '.html';
 t_say('');
 t_say('[4] Lưu hai bài viết (một bài ổn định, một bài sẽ đổi)');
 
-/** Lưu một URL vào thư viện; trả về snapshot_id. */
+/**
+ * Lưu một URL vào thư viện; trả về snapshot_id.
+ *
+ * V3 ĐỢT 4 / F12: nếu nội dung trùng với bài đã lưu, `save.php` hiện hộp thoại
+ * "HUỶ / VẪN LƯU" thay vì lưu thẳng. Hàm này mô phỏng đúng luồng người dùng:
+ * bấm "VẪN LƯU" khi hộp thoại xuất hiện.
+ */
 function t_save(string $url, int $libId, string $jar): int
 {
     global $lastSaveDebug;
 
     $csrf = t_csrf(WA_T_APP_BASE . '/save.php', $jar);
-    $res  = t_http(WA_T_APP_BASE . '/save.php', [
+    $form = [
         'wa_csrf'   => $csrf,
         'url'       => $url,
         'library_id' => $libId,
-    ], $jar);
+    ];
+
+    $res = t_http(WA_T_APP_BASE . '/save.php', $form, $jar);
 
     $lastSaveDebug = [
         'status' => $res['status'],
@@ -590,6 +612,29 @@ function t_save(string $url, int $libId, string $jar): int
 
     if (preg_match('#reader\.php\?id=(\d+)#', $res['effective_url'], $m)) {
         return (int) $m[1];
+    }
+
+    // Hộp thoại xác nhận trùng lặp / rủi ro -> bấm "VẪN LƯU".
+    $hasRisk = str_contains($res['body'], 'name="override_risk"');
+    $hasDup  = str_contains($res['body'], 'name="override_dup"');
+
+    if ($hasRisk || $hasDup) {
+        if ($hasRisk) {
+            $form['override_risk'] = '1';
+        }
+
+        if ($hasDup) {
+            $form['override_dup'] = '1';
+        }
+
+        $res = t_http(WA_T_APP_BASE . '/save.php', $form, $jar);
+
+        $lastSaveDebug['body'] = $res['body'];
+        $lastSaveDebug['url']  = $res['effective_url'];
+
+        if (preg_match('#reader\.php\?id=(\d+)#', $res['effective_url'], $m)) {
+            return (int) $m[1];
+        }
     }
 
     return 0;
@@ -628,10 +673,14 @@ $pageStable = t_page_id_of($snapStable);
 $pageChange = t_page_id_of($snapChange);
 
 /* ---------------------------------------------------------------------------
- * A1 — TỪ CHỐI quyền kiểm tra -> KHÔNG gửi request ra nguồn
+ * A1 — TẮT tự động cập nhật -> KHÔNG gửi request ra nguồn
+ *
+ * Mô hình MỚI: cài đặt lưu lâu dài theo tài khoản, mặc định BẬT, KHÔNG còn
+ * popup xin phép mỗi lần mở. Tắt bằng hành động `disable`, sau đó `run` bị
+ * chặn 403 TRƯỚC khi gọi mạng.
  * ------------------------------------------------------------------------- */
 t_say('');
-t_say('[A1] Từ chối quyền kiểm tra -> không được gửi request tới nguồn');
+t_say('[A1] Tắt tự động cập nhật -> không được gửi request tới nguồn');
 
 /** Đếm số request tới máy chủ thử mẫu bằng cách đọc log của máy chủ. */
 function t_sample_request_count(string $logFile): int
@@ -652,6 +701,20 @@ $before = t_sample_request_count($sampleLog);
 
 $csrf = t_csrf(WA_T_APP_BASE . '/libraries.php', $ownerJar);
 
+// TẮT cài đặt lâu dài.
+$disable = t_json(WA_T_APP_BASE . '/auto_check.php', [
+    'wa_csrf' => $csrf,
+    'action'  => 'disable',
+], $ownerJar);
+
+$disableOk = ($disable['status'] === 200)
+    && (($disable['body']['enabled'] ?? true) === false);
+
+t_record('A1a', $disableOk,
+    'Tắt: HTTP ' . $disable['status']
+    . ', enabled=' . (($disable['body']['enabled'] ?? null) === false ? 'false' : '?'));
+
+// Gọi `run` khi đã tắt -> phải bị chặn và KHÔNG gửi request ra nguồn.
 $deny = t_json(WA_T_APP_BASE . '/auto_check.php', [
     'wa_csrf' => $csrf,
     'action'  => 'run',
@@ -661,26 +724,41 @@ $after = t_sample_request_count($sampleLog);
 $requestsDuring = $after - $before;
 
 $denyOk = ($deny['status'] === 403)
-    && (($deny['body']['error'] ?? '') === 'consent_required')
+    && (($deny['body']['error'] ?? '') === 'auto_update_disabled')
     && ($requestsDuring === 0);
 
-t_record('A1', $denyOk,
+t_record('A1b', $denyOk,
     'HTTP ' . $deny['status'] . ', lỗi=' . (string) ($deny['body']['error'] ?? '?')
     . ', request tới nguồn=' . $requestsDuring . ' (mong đợi 0)');
 
 /* ---------------------------------------------------------------------------
- * A2 — Cho phép + trang CHƯA ĐỔI -> KHÔNG sinh V2
+ * A1c — BẬT lại: cài đặt được ghi nhớ, không hỏi lại
+ * ------------------------------------------------------------------------- */
+$enable = t_json(WA_T_APP_BASE . '/auto_check.php', [
+    'wa_csrf' => $csrf,
+    'action'  => 'enable',
+], $ownerJar);
+
+$enableOk = ($enable['status'] === 200)
+    && (($enable['body']['enabled'] ?? false) === true);
+
+t_record('A1c', $enableOk,
+    'Bật: HTTP ' . $enable['status']
+    . ', enabled=' . (($enable['body']['enabled'] ?? null) === true ? 'true' : '?'));
+
+/* ---------------------------------------------------------------------------
+ * A2 — Bật + trang CHƯA ĐỔI -> KHÔNG sinh V2
  * ------------------------------------------------------------------------- */
 t_say('');
-t_say('[A2] Cho phép kiểm tra, trang chưa đổi -> không sinh V2');
+t_say('[A2] Bật tự động cập nhật, trang chưa đổi -> không sinh V2');
 
 $consent = t_json(WA_T_APP_BASE . '/auto_check.php', [
     'wa_csrf' => $csrf,
-    'action'  => 'consent',
+    'action'  => 'enable',
 ], $ownerJar);
 
-$consentOk = ($consent['status'] === 200) && (($consent['body']['consent'] ?? false) === true);
-t_record('A2a', $consentOk, 'Đồng ý: HTTP ' . $consent['status']);
+$consentOk = ($consent['status'] === 200) && (($consent['body']['enabled'] ?? false) === true);
+t_record('A2a', $consentOk, 'Bật: HTTP ' . $consent['status']);
 
 $versionsBefore = db()->query(
     'SELECT COUNT(*) FROM `snapshots` WHERE page_id = ' . (int) $pageChange
@@ -888,7 +966,7 @@ $viewerCsrf = t_csrf(WA_T_APP_BASE . '/libraries.php', $viewerJar);
 
 $viewerRun = t_json(WA_T_APP_BASE . '/auto_check.php', [
     'wa_csrf' => $viewerCsrf,
-    'action'  => 'consent',
+    'action'  => 'enable',
 ], $viewerJar);
 
 $viewerRun2 = t_json(WA_T_APP_BASE . '/auto_check.php', [
@@ -982,6 +1060,98 @@ $comparePage = t_http(WA_T_APP_BASE . '/compare.php?page_id=' . $pageChange, nul
 $compareOk = ($comparePage['status'] === 200) && str_contains($comparePage['body'], 'diff-output');
 
 t_record('A7f', $compareOk, 'Trang so sánh: HTTP ' . $comparePage['status']);
+
+/* ---------------------------------------------------------------------------
+ * A8 — PHÂN PHỐI CÔNG BẰNG: hơn 5 website đều có cơ hội được kiểm tra
+ *
+ * Lỗi cũ: danh sách ứng viên ORDER BY sp.id ASC rồi cắt 5 bài đầu -> những
+ * website ở cuối danh sách không bao giờ được kiểm tra.
+ *
+ * Sửa: sắp xếp "chưa kiểm tra / kiểm tra lâu nhất" TRƯỚC, lọc theo khoảng
+ * cách tối thiểu 900 giây TRƯỚC khi cắt tối đa 5 bài.
+ * ------------------------------------------------------------------------- */
+t_say('');
+t_say('[A8] Phân phối công bằng cho hơn 5 website');
+
+$fairPages = [];
+
+for ($i = 1; $i <= 8; $i++) {
+    $fid = t_save($urlStable . '?p=' . $i . '&fair=1', $libId, $ownerJar);
+
+    if ($fid <= 0) {
+        continue;
+    }
+
+    $fidPage = t_page_id_of($fid);
+
+    if ($fidPage > 0) {
+        $fairPages[] = $fidPage;
+    }
+}
+
+t_say('  · Đã tạo ' . count($fairPages) . ' bài viết thử nghiệm');
+
+// Lượt 1: bài nào CHƯA kiểm tra được ưu tiên -> phải gồm các bài mới nhất.
+$fairCandidates = wa_auto_candidate_pages(['id' => $ownerId, 'role' => 'user']);
+
+$fairIds = array_map(static fn(array $row): int => (int) ($row['id'] ?? 0), $fairCandidates);
+
+// 8 bài mới + 2 bài cũ = 10 ứng viên; chỉ 5 được kiểm tra mỗi lượt.
+$firstBatch = array_slice($fairIds, 0, WA_AUTO_MAX_PAGES_PER_RUN);
+
+// 2 lượt liên tiếp -> phải bao phủ được cả 8 bài mới.
+$allFairIds = array_map('intval', $fairPages);
+$covered = array_intersect($allFairIds, $firstBatch);
+
+// Bài mới nào bị bỏ sót ở lượt 1 -> phải được ưu tiên ở lượt 2.
+$skippedRound1 = array_values(array_diff($allFairIds, $covered));
+
+// Đánh dấu lượt 1 như đã kiểm tra (như thực tế sau khi chạy).
+if ($firstBatch !== []) {
+    db()->prepare(
+        'UPDATE `saved_pages` SET `auto_checked_at` = NOW() WHERE id IN ('
+        . implode(',', array_map('intval', $firstBatch)) . ')'
+    )->execute();
+}
+
+$secondCandidates = wa_auto_candidate_pages(['id' => $ownerId, 'role' => 'user']);
+$secondIds = array_map(static fn(array $row): int => (int) ($row['id'] ?? 0), $secondCandidates);
+$secondBatch = array_slice($secondIds, 0, WA_AUTO_MAX_PAGES_PER_RUN);
+
+$coveredAfter2 = array_intersect($allFairIds, array_merge($firstBatch, $secondBatch));
+
+// Sắp xếp: bài chưa kiểm tra phải ĐỨNG TRƯỚC bài đã kiểm tra.
+$neverChecked = [];
+$checkedBefore = [];
+
+foreach ($secondCandidates as $row) {
+    if (($row['auto_checked_at'] ?? null) === null) {
+        $neverChecked[] = (int) ($row['id'] ?? 0);
+    } else {
+        $checkedBefore[] = (int) ($row['id'] ?? 0);
+    }
+}
+
+$orderOk = $neverChecked === [] || $checkedBefore === []
+    || min($neverChecked) < max($checkedBefore)
+    || array_search(true, array_map(
+        static fn(int $id): bool => in_array($id, $neverChecked, true),
+        $secondIds
+    ), true) <= array_search(true, array_map(
+        static fn(int $id): bool => in_array($id, $checkedBefore, true),
+        $secondIds
+    ), true);
+
+$fairOk = count($allFairIds) >= 6
+    && count($coveredAfter2) === count($allFairIds)
+    && $orderOk;
+
+t_record('A8', $fairOk,
+    'Số bài thử nghiệm=' . count($allFairIds)
+    . ' | lượt 1 kiểm tra ' . count($firstBatch) . ' bài (mới gồm ' . count($covered) . '/' . count($allFairIds) . ')'
+    . ' | lượt 2 kiểm tra ' . count($secondBatch) . ' bài'
+    . ' | sau 2 lượt đã phủ ' . count($coveredAfter2) . '/' . count($allFairIds) . ' bài'
+    . ' | bài chưa kiểm tra luôn đứng trước bài đã kiểm tra=' . ($orderOk ? 'đúng' : 'SAI'));
 
 /* ---------------------------------------------------------------------------
  * Dọn dẹp: xoá thư viện thử nghiệm qua chính hành động của ứng dụng

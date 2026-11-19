@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>WebArchive — Lưu trang</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+
+<!-- ===================== MÀN HÌNH CHÍNH: LƯU TRANG ===================== -->
+<section class="view" id="view-save">
+  <header class="head">
+    <img class="head__logo" src="icons/icon48.png" alt="">
+    <div class="head__text">
+      <strong>WebArchive</strong>
+      <span id="status" class="head__status">Đang kiểm tra kết nối…</span>
+    </div>
+    <button id="btnSettings" class="head__gear" type="button" title="Cài đặt">⚙</button>
+  </header>
+
+  <div class="page">
+
+    <!-- Trang đang mở -->
+    <div class="page__meta">
+      <span class="page__title" id="tabTitle">—</span>
+      <span class="page__url" id="tabUrl">—</span>
+    </div>
+
+    <!-- Thư viện đích + nút tạo nhanh -->
+    <label class="lbl" for="librarySelect">Lưu vào thư viện</label>
+    <div class="row">
+      <select id="librarySelect" class="inp inp--grow">
+        <option value="">— Chưa tải được danh sách —</option>
+      </select>
+      <button id="btnNewLib" class="btn btn--icon btn--wide" type="button" title="Tạo thư viện mới">+</button>
+    </div>
+
+    <!-- Ô tạo thư viện siêu nhanh: CHỈ MỘT ô bắt buộc -->
+    <div id="quickLib" class="quicklib" hidden>
+      <input id="quickLibName" class="inp" type="text" maxlength="150"
+             placeholder="Tên thư viện mới" aria-label="Tên thư viện mới">
+      <div class="row">
+        <button id="btnQuickCreate" class="btn btn--primary btn--grow" type="button">Tạo thư viện</button>
+        <button id="btnQuickCancel" class="btn" type="button">Huỷ</button>
+      </div>
+      <p class="hint">
+        Thư viện được tạo riêng tư trong WebArchive. Mô tả, màu sắc và biểu tượng
+        dùng giá trị mặc định — bạn có thể chỉnh sau trong WebArchive.
+      </p>
+    </div>
+
+    <!-- Cảnh báo rủi ro: KHÔNG LƯU / VẪN LƯU -->
+    <div id="riskBox" class="risk" hidden>
+      <div class="risk__head">
+        <span class="risk__badge">⚠</span>
+        <span class="risk__title">Cảnh báo rủi ro</span>
+      </div>
+      <p id="riskText" class="risk__text"></p>
+      <ul id="riskList" class="risk__list"></ul>
+      <div class="row">
+        <button id="btnRiskCancel" class="btn btn--grow" type="button">KHÔNG LƯU</button>
+        <button id="btnRiskProceed" class="btn btn--warn btn--grow" type="button">VẪN LƯU</button>
+      </div>
+    </div>
+
+    <!-- Cảnh báo trùng lặp: KHÔNG LƯU / VẪN LƯU (V3 ĐỢT 4 / F12) -->
+    <div id="dupBox" class="risk risk--dup" hidden>
+      <div class="risk__head">
+        <span class="risk__badge">⧉</span>
+        <span class="risk__title">Cảnh báo trùng lặp</span>
+      </div>
+      <p id="dupText" class="risk__text"></p>
+      <ul id="dupList" class="risk__list"></ul>
+      <div class="row">
+        <button id="btnDupCancel" class="btn btn--grow" type="button">KHÔNG LƯU</button>
+        <button id="btnDupProceed" class="btn btn--warn btn--grow" type="button">VẪN LƯU</button>
+      </div>
+    </div>
+
+    <button id="btnSave" class="btn btn--primary btn--block btn--big" type="button">
+      <span class="btn__ico">⬇</span><span id="btnSaveLabel">Lưu trang</span>
+    </button>
+
+    <div id="progress" class="progress" hidden>
+      <div class="progress__bar"><span id="progressFill"></span></div>
+      <span id="progressText" class="progress__text"></span>
+    </div>
+
+    <div id="result" class="result" hidden></div>
+
+    <!-- Tuỳ chọn thêm: gộp nhãn + mở cài đặt, giao diện chính gọn -->
+    <details class="more">
+      <summary>Tuỳ chọn thêm</summary>
+      <div class="more__body">
+        <label class="lbl" for="tagsInput">Nhãn (tuỳ chọn)</label>
+        <input id="tagsInput" class="inp" type="text" placeholder="nhãn 1, nhãn 2">
+      </div>
+    </details>
+  </div>
+</section>
+
+<!-- ===================== MÀN HÌNH: CÀI ĐẶT ===================== -->
+<section class="view" id="view-settings" hidden>
+  <header class="head">
+    <button id="btnBackFromSettings" class="head__gear" type="button" title="Quay lại">‹</button>
+    <div class="head__text">
+      <strong>Cài đặt</strong>
+      <span class="head__status">Kết nối, tự động lưu &amp; lịch sử</span>
+    </div>
+  </header>
+
+  <div class="page">
+    <label class="lbl" for="serverUrl">Địa chỉ máy chủ WebArchive</label>
+    <input id="serverUrl" class="inp" type="url" placeholder="http://localhost:8080">
+
+    <label class="lbl" for="tokenInput">Token kết nối</label>
+    <input id="tokenInput" class="inp" type="password" placeholder="Dán token tạo trong trang Kết nối Extension">
+    <div class="hint">
+      Tạo token tại trang <b>Kết nối Chrome Extension</b> trong WebArchive.
+      Token được lưu cục bộ trong trình duyệt, không đồng bộ lên cloud.
+    </div>
+
+    <button id="btnTestConn" class="btn btn--outline btn--block" type="button">Kiểm tra kết nối</button>
+
+    <div id="settingsResult" class="result" hidden></div>
+
+    <hr class="sep">
+
+    <div class="switch">
+      <label class="switch__label" for="autoSave">
+        Tự động lưu website
+        <span class="switch__hint">Mặc định TẮT. Chỉ lưu các domain bạn thêm bên dưới.</span>
+      </label>
+      <input id="autoSave" type="checkbox" class="switch__box">
+    </div>
+
+    <label class="lbl" for="defaultLib">Thư viện mặc định (dùng khi domain không chọn riêng)</label>
+    <select id="defaultLib" class="inp">
+      <option value="">— Chưa chọn —</option>
+    </select>
+
+    <div class="row row--head">
+      <span class="lbl lbl--plain">Domain được theo dõi</span>
+    </div>
+
+    <div class="row">
+      <input id="domainInput" class="inp inp--grow" type="text" placeholder="example.com">
+      <button id="btnAddDomain" class="btn btn--icon" type="button" title="Thêm domain">＋</button>
+    </div>
+
+    <ul id="domainList" class="domlist"></ul>
+
+    <div class="hint">
+      Chỉ những domain bạn thêm ở đây mới được theo dõi. Không có cron, không có tiến trình nền.
+      Trang gặp cảnh báo rủi ro sẽ KHÔNG được tự động lưu — bạn phải xác nhận thủ công.
+    </div>
+
+    <hr class="sep">
+
+    <details class="more">
+      <summary>Lịch sử lưu gần đây</summary>
+      <ul id="historyList" class="history__list"></ul>
+    </details>
+
+    <button id="btnClearHistory" class="btn btn--outline btn--block" type="button">Xoá lịch sử lưu</button>
+  </div>
+</section>
+
+<script src="popup.js"></script>
+</body>
+</html>

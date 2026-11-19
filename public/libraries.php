@@ -156,32 +156,32 @@ require __DIR__ . '/../templates/header_app.php';
   </div>
 </div>
 
-<!-- ===================== AUTO VERSION: XIN PHÉP KIỂM TRA =====================
-     P-AUTOVERSION: trước khi kết nối tới website nguồn, ứng dụng PHẢI xin
-     phép rõ ràng. Chưa đồng ý thì KHÔNG có request nào được gửi ra ngoài.
-     Sự đồng ý được ghi trong phiên nên chỉ cần đồng ý MỘT LẦN cho phiên
-     làm việc hiện tại. -->
-<div class="auto-consent" id="wa-auto-consent"
-     <?= wa_auto_consent_given() ? 'hidden' : '' ?>>
+<!-- ===================== AUTO VERSION: CÀI ĐẶT BẬT/TẮT =====================
+     P-AUTOVERSION: cài đặt được lưu LÂU DÀI theo tài khoản
+     (`users.auto_update_enabled`), mặc định BẬT — KHÔNG còn popup xin phép mỗi
+     lần mở. Khi người dùng TẮT, mọi request kiểm tra bị chặn TRƯỚC khi gọi
+     mạng nên không có gì được gửi tới website nguồn.
+     Kiểm tra chạy ngay khi người dùng mở Dashboard (không cron/daemon). -->
+<div class="auto-consent" id="wa-auto-consent">
   <div class="auto-consent__body">
     <span class="auto-consent__icon" aria-hidden="true"><span class="ms ms-24">sync_alt</span></span>
     <div>
-      <strong>Cho phép kiểm tra bài viết đã lưu tự động?</strong>
+      <strong>Tự động cập nhật bài viết đã lưu</strong>
       <p class="t-body-sm t-muted">
-        Khi bạn mở WebArchive, hệ thống có thể kiểm tra xem các trang gốc bạn đã
-        lưu còn thay đổi không. Nếu nội dung đổi, WebArchive tự lưu phiên bản
-        mới (V2, V3…) và báo bạn. Không có gì được gửi đi nếu bạn không đồng ý.
+        Khi bạn mở WebArchive, hệ thống kiểm tra xem các trang gốc bạn đã lưu còn
+        thay đổi không. Nếu nội dung đổi, WebArchive tự lưu phiên bản mới
+        (V2, V3…) và báo bạn. Cài đặt này được lưu theo tài khoản của bạn.
       </p>
     </div>
   </div>
   <div class="auto-consent__actions">
     <button class="btn btn--dark" type="button" id="wa-auto-consent-yes">
       <span class="ms ms-16">check</span>
-      <span>Cho phép</span>
+      <span id="wa-auto-consent-yes-label">Bật tự động cập nhật</span>
     </button>
     <button class="btn btn--outline" type="button" id="wa-auto-consent-no">
-      <span class="ms ms-16">close</span>
-      <span>Không, để sau</span>
+      <span class="ms ms-16">pause</span>
+      <span id="wa-auto-consent-no-label">Tạm dừng</span>
     </button>
   </div>
 </div>
@@ -813,18 +813,20 @@ require __DIR__ . '/../templates/header_app.php';
   })();
 
   // ---------------------------------------------------------------------------
-  // P-AUTOVERSION: xin phép kiểm tra tự động + chạy kiểm tra.
+  // P-AUTOVERSION: cài đặt bật/tắt (lưu lâu dài theo tài khoản) + chạy kiểm tra.
   //
-  //   - Chưa đồng ý  -> KHÔNG gọi auto_check.php ở chế độ 'run' (nên không
-  //     có request nào ra website nguồn).
-  //   - Đã đồng ý    -> gọi 'run' một lần khi mở trang; nếu có phiên bản mới
+  //   - Mặc định BẬT -> gọi 'run' một lần khi mở trang; nếu có phiên bản mới
   //     thì báo bằng thông báo nổi và cập nhật badge chuông thông báo.
+  //   - Người dùng TẮT -> server chặn trước khi gọi mạng, không popup hỏi lại.
   // ---------------------------------------------------------------------------
   (function () {
     var banner = document.getElementById('wa-auto-consent');
     var btnYes = document.getElementById('wa-auto-consent-yes');
     var btnNo  = document.getElementById('wa-auto-consent-no');
     var csrf   = '<?= wa_e(wa_csrf_token()) ?>';
+
+    // Cài đặt hiện tại (render từ server, theo tài khoản).
+    var enabled = <?= wa_auto_update_enabled() ? 'true' : 'false' ?>;
 
     function post(action) {
       var body = new FormData();
@@ -849,25 +851,62 @@ require __DIR__ . '/../templates/header_app.php';
       setTimeout(function () { box.remove(); }, 8000);
     }
 
-    // Nút "Không, để sau": chỉ ẩn banner, KHÔNG gửi request ra ngoài.
+    function syncBanner() {
+      if (!banner) { return; }
+
+      banner.hidden = false;
+
+      // Nút BẬT chỉ hiện khi đang TẮT; nút TẠM DỪNG chỉ hiện khi đang BẬT.
+      if (btnYes) { btnYes.hidden = enabled; }
+      if (btnNo)  { btnNo.hidden = !enabled; }
+
+      // LUÔN bỏ trạng thái vô hiệu hoá của cả hai nút: nếu không, một lần bấm
+      // thất bại (hoặc thành công) sẽ để lại nút bị khoá vĩnh viễn và người
+      // dùng KHÔNG bật lại được (BUG-01: ON -> OFF -> ON không hoạt động).
+      if (btnYes) { btnYes.disabled = false; }
+      if (btnNo)  { btnNo.disabled = false; }
+
+      var yesLabel = document.getElementById('wa-auto-consent-yes-label');
+      var noLabel  = document.getElementById('wa-auto-consent-no-label');
+
+      if (yesLabel) { yesLabel.textContent = 'Bật tự động cập nhật'; }
+      if (noLabel)  { noLabel.textContent = 'Tạm dừng'; }
+    }
+
+    // Nút "Tạm dừng": tắt cài đặt lâu dài -> server chặn trước khi gọi mạng.
     if (btnNo) {
       btnNo.addEventListener('click', function () {
-        if (banner) { banner.hidden = true; }
+        btnNo.disabled = true;
+        post('disable').then(function (data) {
+          if (!data || data.ok !== true) {
+            btnNo.disabled = false;
+            showToast('Không lưu được cài đặt. Vui lòng thử lại.', 'err');
+            return;
+          }
+          enabled = false;
+          syncBanner();
+          showToast('Đã tắt tự động cập nhật. Không có yêu cầu nào được gửi tới website nguồn.', 'ok');
+        }).catch(function () {
+          btnNo.disabled = false;
+          showToast('Không gửi được yêu cầu. Vui lòng thử lại.', 'err');
+        });
       });
     }
 
-    // Nút "Cho phép": ghi cờ đồng ý trong phiên (không gọi mạng), rồi mới
-    // chạy kiểm tra.
+    // Nút "Bật tự động cập nhật": lưu lâu dài, rồi chạy kiểm tra.
     if (btnYes) {
       btnYes.addEventListener('click', function () {
         btnYes.disabled = true;
-        post('consent').then(function (data) {
+        post('enable').then(function (data) {
           if (!data || data.ok !== true) {
             btnYes.disabled = false;
-            showToast('Không lưu được sự đồng ý. Vui lòng thử lại.', 'err');
+            showToast('Không lưu được cài đặt. Vui lòng thử lại.', 'err');
             return;
           }
-          if (banner) { banner.hidden = true; }
+          enabled = true;
+          // syncBanner() gỡ lại trạng thái `disabled` -> nút BẬT sẵn sàng cho
+          // lần bấm tiếp theo (BUG-01: ON -> OFF -> ON phải hoạt động).
+          syncBanner();
           runCheck();
         }).catch(function () {
           btnYes.disabled = false;
@@ -877,6 +916,7 @@ require __DIR__ . '/../templates/header_app.php';
     }
 
     function runCheck() {
+      if (!enabled) { return; }
       post('run').then(function (data) {
         if (!data || data.ok !== true) { return; }
         if (data.updated > 0) {
@@ -887,9 +927,9 @@ require __DIR__ . '/../templates/header_app.php';
       }).catch(function () { /* im lặng: kiểm tra nền không được làm hỏng trang */ });
     }
 
-    // Nếu đã đồng ý trong phiên này (banner bị ẩn sẵn) thì chạy kiểm tra
-    // ngay khi mở trang — đây là điểm khởi động duy nhất, không có cron.
-    if (banner && banner.hidden) {
+    // Đồng bộ trạng thái banner rồi chạy kiểm tra khi đang bật.
+    syncBanner();
+    if (enabled) {
       runCheck();
     }
   })();

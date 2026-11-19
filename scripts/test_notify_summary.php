@@ -27,6 +27,11 @@ if (PHP_SAPI !== 'cli') {
 
 require_once __DIR__ . '/../src/bootstrap.php';
 
+// Bộ kiểm thử tải trang từ máy chủ thử mẫu trên 127.0.0.1 -> cần bật chế
+// độ kiểm thử của chính sách URL cho các tiến trình con (máy chủ `php -S`).
+// Cờ này chỉ có tác dụng khi SAPI là cli/cli-server (xem src/url_policy.php).
+putenv('WA_TEST_ALLOW_LOCAL=1');
+
 const WA_T_APP_PORT    = 18084;
 const WA_T_SAMPLE_PORT = 18095;
 const WA_T_APP_BASE    = 'http://localhost:18084';
@@ -456,10 +461,10 @@ $pageId = (int) $stmt->fetchColumn();
 
 t_say('  · V1: snapshot=' . $snap1 . ', page=' . $pageId);
 
-/* --- Đồng ý cho phép kiểm tra --- */
+/* --- Bật tự động cập nhật (cài đặt lâu dài theo tài khoản) --- */
 $csrf = t_csrf(WA_T_APP_BASE . '/libraries.php', $ownerJar);
 
-t_http(WA_T_APP_BASE . '/auto_check.php', ['wa_csrf' => $csrf, 'action' => 'consent'], $ownerJar);
+t_http(WA_T_APP_BASE . '/auto_check.php', ['wa_csrf' => $csrf, 'action' => 'enable'], $ownerJar);
 
 /** Chạy một lần kiểm tra tự động; trả về mảng JSON. */
 function t_auto_run(string $csrf, string $jar): array
@@ -584,6 +589,69 @@ t_record('N3', $hasCompare && $compareLive,
     'Link compare (from=2&to=3) trong trang thông báo = ' . ($hasCompare ? 'có' : 'không')
     . ' | mở compare HTTP ' . $compareRes['status']
     . ', có diff-output = ' . (str_contains($compareRes['body'], 'diff-output') ? 'có' : 'không'));
+
+/* ============================================================================
+ * N3b — LỊCH SỬ: sau khi có V4, thông báo V3 VẪN so sánh với V2
+ *
+ * Đây là lỗi cũ: `wa_notify_previous_version()` lấy bản THÀNH CÔNG MỚI NHẤT
+ * khác snapshot hiện tại -> khi đã có V4, thông báo V3 bị trỏ nhầm sang V4.
+ *
+ * Sửa: chỉ lấy bản có `version_no` NHỎ HƠN bản đang thông báo.
+ * ========================================================================= */
+t_say('');
+t_say('[N3b] Tạo V4 -> thông báo V3 vẫn phải so sánh với V2');
+
+file_put_contents(
+    $sampleFile,
+    t_sample_html('Bai tom tat', 'MARKER-' . $runId, 'PHIEN BAN V4 — them noi dung moi nhat.')
+);
+db()->prepare('UPDATE `saved_pages` SET `auto_checked_at` = NULL WHERE `id` = ?')->execute([$pageId]);
+
+$run4 = t_auto_run($csrf, $ownerJar);
+
+$snapV4 = (int) db()->query(
+    'SELECT id FROM `snapshots` WHERE page_id = ' . (int) $pageId . ' AND version_no = 4 LIMIT 1'
+)->fetchColumn();
+
+t_say('  · V4 snapshot=' . (int) $snapV4);
+
+// Thông báo V3 (theo snapshot) — hàm cốt lõi phải trả về V2.
+$prevForV3 = wa_notify_previous_version((int) $pageId, (int) $snapV3);
+
+// Thông báo V4 (bản mới nhất) -> phải trả về V3.
+$prevForV4 = $snapV4 > 0 ? wa_notify_previous_version((int) $pageId, (int) $snapV4) : 0;
+
+// Link hiển thị trong trang thông báo: V3 vẫn là from=2&to=3, KHÔNG phải from=4.
+$pageAfterV4 = t_http(WA_T_APP_BASE . '/notifications.php', null, $ownerJar);
+
+$stillCompare23 = str_contains(
+    (string) $pageAfterV4['body'],
+    'compare.php?page_id=' . (int) $pageId . '&amp;from=2&amp;to=3'
+) || str_contains(
+    (string) $pageAfterV4['body'],
+    'compare.php?page_id=' . (int) $pageId . '&from=2&to=3'
+);
+
+// Link sai (V3 -> V4) KHÔNG được xuất hiện cho thông báo V3.
+$wrongCompare = str_contains(
+    (string) $pageAfterV4['body'],
+    'compare.php?page_id=' . (int) $pageId . '&amp;from=4&amp;to=3'
+) || str_contains(
+    (string) $pageAfterV4['body'],
+    'compare.php?page_id=' . (int) $pageId . '&from=4&to=3'
+);
+
+$n3bOk = ($prevForV3 === 2)
+    && ($prevForV4 === 3)
+    && $stillCompare23
+    && !$wrongCompare;
+
+t_record('N3b', $n3bOk,
+    'V4 đã tồn tại (snapshot=' . (int) $snapV4 . ')'
+    . ' | previous_version(V3)=' . $prevForV3 . ' (mong đợi 2)'
+    . ', previous_version(V4)=' . $prevForV4 . ' (mong đợi 3)'
+    . ' | link from=2&to=3 còn nguyên=' . ($stillCompare23 ? 'có' : 'không')
+    . ', link sai from=4&to=3=' . ($wrongCompare ? 'CÓ (LỖI)' : 'không'));
 
 /* ============================================================================
  * N4 — Tóm tắt ngắn, đúng diff, KHÔNG XSS

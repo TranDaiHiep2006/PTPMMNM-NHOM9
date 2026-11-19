@@ -1,0 +1,200 @@
+:root {
+  --wa-primary: #2B5EA8;
+  --wa-teal: #14655C;
+  --wa-text: #22252A;
+  --wa-muted: #74777E;
+  --wa-line: #E4E6EA;
+  --wa-bg: #F6F7F9;
+  --wa-white: #fff;
+  --wa-error: #B3261E;
+  --wa-ok: #14655C;
+}
+
+* { box-sizing: border-box; }
+
+/* ---------------------------------------------------------------------------
+   [hidden] PHẢI THẮNG MỌI QUY TẮC display CỦA TÁC GIẢ (BUG-06/07/08).
+   ---------------------------------------------------------------------------
+   Nếu không có quy tắc này, các lớp như `.risk { display:flex }` hoặc
+   `.view { display:flex }` có độ ưu tiên cao hơn quy tắc mặc định của trình
+   duyệt `[hidden] { display:none }`, nên hộp cảnh báo rủi ro / trùng lặp và
+   cả màn hình "Cài đặt" hiện ra ngay khi mở popup — trước khi máy chủ kịp
+   trả lời. Đây chính là nguyên nhân gốc của "cảnh báo xuất hiện vô tội vạ".
+   --------------------------------------------------------------------------- */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  width: 380px;
+  font-family: "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: 13px;
+  color: var(--wa-text);
+  background: var(--wa-bg);
+}
+
+.view { display: flex; flex-direction: column; min-height: 100%; }
+
+/* ---------------- Header ---------------- */
+.head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  background: var(--wa-primary);
+  color: #fff;
+}
+.head__logo { width: 26px; height: 26px; border-radius: 6px; }
+.head__text { display: flex; flex-direction: column; line-height: 1.35; min-width: 0; flex: 1; }
+.head__text strong { font-size: 14px; }
+.head__status { font-size: 11px; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.head__status.is-ok { color: #B8F0E2; }
+.head__status.is-err { color: #FFD1CC; }
+.head__gear {
+  border: 0; background: transparent; color: #fff;
+  font-size: 15px; line-height: 1; cursor: pointer;
+  padding: 4px 6px; border-radius: 6px; flex: 0 0 auto;
+}
+.head__gear:hover { background: rgba(255, 255, 255, .16); }
+
+/* ---------------- Body ---------------- */
+.page { padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+
+.page__meta {
+  background: var(--wa-white);
+  border: 1px solid var(--wa-line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.page__title { font-weight: 600; font-size: 13px; word-break: break-word; }
+.page__url { font-size: 11px; color: var(--wa-muted); word-break: break-all; font-family: Consolas, monospace; }
+
+.lbl { font-size: 11px; font-weight: 600; color: var(--wa-muted); text-transform: uppercase; letter-spacing: .03em; }
+.lbl--plain { cursor: default; }
+.row { display: flex; gap: 6px; align-items: center; }
+.row--head { margin-top: 4px; }
+.inp {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--wa-line);
+  border-radius: 7px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--wa-white);
+  color: var(--wa-text);
+}
+.inp:focus { outline: 2px solid rgba(43, 94, 168, .35); outline-offset: 1px; border-color: var(--wa-primary); }
+.inp--grow { flex: 1; min-width: 0; }
+textarea.inp { resize: vertical; }
+
+.btn {
+  border: 1px solid var(--wa-line);
+  background: var(--wa-white);
+  color: var(--wa-text);
+  border-radius: 7px;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn:hover { background: #EFF2F5; }
+.btn:disabled { opacity: .55; cursor: not-allowed; }
+.btn--primary { background: var(--wa-primary); border-color: var(--wa-primary); color: #fff; font-weight: 600; }
+.btn--primary:hover { background: #244C8A; }
+.btn--outline { background: transparent; }
+.btn--block { width: 100%; margin-top: 4px; }
+.btn--icon {
+  width: 32px; flex: 0 0 32px; padding: 6px 0;
+  text-align: center; font-size: 16px; line-height: 1; font-weight: 700;
+}
+.btn--wide { width: 40px; flex: 0 0 40px; }
+.btn--grow { flex: 1; }
+.btn--big { padding: 10px 12px; font-size: 14px; }
+.btn--warn { background: #B3261E; border-color: #B3261E; color: #fff; font-weight: 600; }
+.btn--warn:hover { background: #8E1D17; }
+.btn__ico { margin-right: 6px; }
+
+/* ---------------- Ô tạo thư viện nhanh ---------------- */
+.quicklib {
+  display: flex; flex-direction: column; gap: 7px;
+  background: var(--wa-white);
+  border: 1px solid var(--wa-line);
+  border-left: 3px solid var(--wa-primary);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+/* ---------------- Cảnh báo rủi ro ---------------- */
+.risk {
+  display: flex; flex-direction: column; gap: 8px;
+  background: #FFF7E8;
+  border: 1px solid #F0CE8E;
+  border-radius: 8px;
+  padding: 10px;
+}
+.risk__head { display: flex; align-items: center; gap: 6px; }
+.risk__badge { color: #A15C00; font-size: 14px; }
+.risk__title { font-weight: 700; font-size: 12px; color: #7A4400; text-transform: uppercase; letter-spacing: .03em; }
+.risk__text { margin: 0; font-size: 12px; line-height: 1.55; color: #6B4A12; }
+.risk__list { margin: 0; padding-left: 16px; font-size: 11px; line-height: 1.5; color: #7A5A25; }
+.risk__list li { margin-bottom: 2px; }
+
+/* ---------------- Cảnh báo trùng lặp (V3 ĐỢT 4 / F12) ---------------- */
+.risk--dup { background: #EFF4FD; border-color: #B9CFEC; }
+.risk--dup .risk__badge { color: var(--wa-primary); }
+.risk--dup .risk__title { color: #1D467C; }
+.risk--dup .risk__text { color: #24456F; }
+.risk--dup .risk__list { color: #33587F; }
+.risk__link { color: var(--wa-primary); font-weight: 600; text-decoration: none; }
+.risk__link:hover { text-decoration: underline; }
+
+/* ---------------- Mục "Tuỳ chọn thêm" ---------------- */
+.more { margin-top: 2px; }
+.more summary { font-size: 11px; color: var(--wa-muted); cursor: pointer; }
+.more__body { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+
+.hint { font-size: 11px; color: var(--wa-muted); line-height: 1.5; }
+
+.sep { border: 0; border-top: 1px solid var(--wa-line); margin: 6px 0; }
+
+/* ---------------- Progress ---------------- */
+.progress { display: flex; flex-direction: column; gap: 5px; }
+.progress__bar { height: 6px; background: #E4E6EA; border-radius: 999px; overflow: hidden; }
+.progress__bar span { display: block; height: 100%; width: 30%; background: var(--wa-primary); transition: width .2s; }
+.progress__text { font-size: 11px; color: var(--wa-muted); }
+
+/* ---------------- Result ---------------- */
+.result {
+  border-radius: 8px; padding: 9px 10px; font-size: 12px; line-height: 1.55;
+  border: 1px solid transparent; word-break: break-word;
+}
+.result.is-ok { background: #E7F6F3; border-color: #BFE5DE; color: var(--wa-ok); }
+.result.is-err { background: #FDECEC; border-color: #F3C9C9; color: var(--wa-error); }
+.result.is-info { background: #EDF4FC; border-color: #BBD2EC; color: var(--wa-primary); }
+.result a { color: inherit; font-weight: 600; }
+
+/* ---------------- History ---------------- */
+.history { margin-top: 4px; }
+.history summary { font-size: 11px; color: var(--wa-muted); cursor: pointer; }
+.history__list { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.history__list li {
+  font-size: 11px; line-height: 1.45; padding: 5px 7px;
+  background: var(--wa-white); border: 1px solid var(--wa-line); border-radius: 6px;
+}
+.history__list .ok { color: var(--wa-ok); }
+.history__list .bad { color: var(--wa-error); }
+
+/* ---------------- Switch ---------------- */
+.switch { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.switch__label { font-size: 13px; font-weight: 600; display: flex; flex-direction: column; gap: 2px; cursor: pointer; }
+.switch__hint { font-size: 11px; font-weight: 400; color: var(--wa-muted); }
+.switch__box { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--wa-primary); cursor: pointer; }
+
+/* ---------------- Domain list ---------------- */
+.domlist { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.domlist li {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--wa-white); border: 1px solid var(--wa-line);
+  border-radius: 7px; padding: 6px 8px; font-size: 12px;
+}
+.domlist .dom { flex: 1; font-weight: 600; word-break: break-all; }
+.domlist select { font-size: 11px; padding: 2px 4px; border-radius: 5px; border: 1px solid var(--wa-line); max-width: 130px; }
+.domlist .x { border: 0; background: none; color: var(--wa-error); cursor: pointer; font-size: 15px; line-height: 1; padding: 0 2px; }

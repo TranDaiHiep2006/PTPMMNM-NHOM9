@@ -45,6 +45,15 @@ $navMain = [
     ['file' => 'libraries.php', 'label' => 'Thư viện của tôi', 'icon' => 'folder'],
     ['file' => 'search.php', 'label' => 'Tìm kiếm nội dung', 'icon' => 'search'],
     ['file' => 'save.php', 'label' => 'Lưu trang Web', 'icon' => 'add_link'],
+    // V3: lưu hàng loạt URL + danh sách đọc sau.
+    ['file' => 'bulk_save.php', 'label' => 'Lưu hàng loạt', 'icon' => 'playlist_add'],
+    ['file' => 'reading_list.php', 'label' => 'Đọc sau', 'icon' => 'bookmark_add'],
+    // V3 Đợt 4: các đoạn nội dung đang theo dõi.
+    ['file' => 'watches.php', 'label' => 'Đoạn theo dõi', 'icon' => 'visibility'],
+    ['file' => 'version_search.php', 'label' => 'Tìm trong lịch sử', 'icon' => 'manage_search'],
+    // V3 Đợt 3: nguồn RSS/Atom + kết nối Chrome Extension.
+    ['file' => 'feeds.php', 'label' => 'Nguồn RSS / Atom', 'icon' => 'rss_feed'],
+    ['file' => 'extension.php', 'label' => 'Kết nối Extension', 'icon' => 'extension'],
     ['file' => 'notifications.php', 'label' => 'Thông báo', 'icon' => 'notifications'],
 ];
 
@@ -105,6 +114,7 @@ $headerUnreadCount = $user !== null ? wa_notify_unread_count((int) ($user['id'] 
         <a href="<?= wa_e(wa_url('libraries.php')) ?>" class="<?= $active === 'libraries.php' ? 'is-active' : '' ?>">Thư viện của tôi</a>
         <a href="<?= wa_e(wa_url('search.php')) ?>" class="<?= $active === 'search.php' ? 'is-active' : '' ?>">Tìm kiếm</a>
         <a href="<?= wa_e(wa_url('save.php')) ?>" class="<?= $active === 'save.php' ? 'is-active' : '' ?>">Lưu trang Web</a>
+        <a href="<?= wa_e(wa_url('bulk_save.php')) ?>" class="<?= $active === 'bulk_save.php' ? 'is-active' : '' ?>">Lưu hàng loạt</a>
       </nav>
     </div>
 

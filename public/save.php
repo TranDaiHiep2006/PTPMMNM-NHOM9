@@ -36,7 +36,17 @@ $form = [
     'url'      => '',
     'library'  => '',
     'tags'     => '',
+    // Cờ xác nhận: CHỈ dùng để bỏ qua CẢNH BÁO rủi ro, không bỏ qua chốt an toàn.
+    'override_risk' => false,
+    // V3 ĐỢT 4 / F12: người dùng đã xác nhận "VẪN LƯU" dù có bài gần giống.
+    'override_dup'  => false,
 ];
+
+/** Cảnh báo rủi ro đang chờ người dùng xác nhận (null nếu không có). */
+$riskNotice = null;
+
+/** V3 ĐỢT 4 / F12: cảnh báo trùng lặp đang chờ người dùng xác nhận. */
+$dupNotice = null;
 
 /* ---------------------------------------------------------------------------
  * XỬ LÝ POST — lưu trang thật
@@ -45,6 +55,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $form['url']     = trim((string) ($_POST['url'] ?? ''));
     $form['library'] = trim((string) ($_POST['library_id'] ?? ''));
     $form['tags']    = trim((string) ($_POST['tags'] ?? ''));
+    $form['override_risk'] = ($_POST['override_risk'] ?? '') === '1';
+    $form['override_dup']  = ($_POST['override_dup'] ?? '') === '1';
 
     $libraryId = (int) $form['library'];
     $tagNames  = wa_parse_tag_input($form['tags']);
@@ -58,11 +70,79 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $notice = ['type' => 'error', 'text' => 'Phiên làm việc đã thay đổi. Vui lòng tải lại trang và thử lại.'];
     } else {
         /* ---------------------------------------------------------------------------
+         * CHÍNH SÁCH URL CÔNG KHAI — chốt an toàn cấp máy chủ.
+         * Không cần tên miền được Admin duyệt, nhưng mọi đích phải qua được kiểm tra
+         * an toàn (chặn mạng riêng, localhost, cloud metadata, đích không xác minh
+         * được, DNS rebinding). KHÔNG có thao tác nào bỏ qua được chốt này.
+         * ------------------------------------------------------------------------- */
+        $policy = wa_url_policy_inspect($form['url']);
+
+        if ($policy['ok'] !== true) {
+            $notice = [
+                'type'  => 'error',
+                'title' => 'URL không an toàn để tải',
+                'text'  => (string) $policy['message'],
+                'code'  => 'error_blocked',
+            ];
+        } elseif ($policy['signals'] !== [] && !$form['override_risk']) {
+            /* ---- CẢNH BÁO RỦI RO: hai lựa chọn KHÔNG LƯU / VẪN LƯU ---- */
+            $riskNotice = [
+                'reason'  => wa_url_policy_warning_message($policy['signals'], (string) $policy['host']),
+                'signals' => $policy['signals'],
+            ];
+        } else {
+        /* ---------------------------------------------------------------------------
+         * V3 ĐỢT 4 / F12 — PHÁT HIỆN NỘI DUNG TRÙNG LẶP.
+         *
+         * Tải TRƯỚC nội dung trang (MỘT lần, cache trong session 10 phút) rồi so
+         * trùng URL / trùng nội dung chính xác (SHA-256) / gần giống (n-gram).
+         *
+         * KHÔNG tự xoá / gộp / ghi đè snapshot: nếu có bài gần giống, người dùng
+         * được chọn "VẪN LƯU" hoặc "HUỶ". Bước "VẪN LƯU" DÙNG LẠI nội dung đã
+         * tải sẵn nên KHÔNG tải lại URL lần thứ hai.
+         * ------------------------------------------------------------------------- */
+        $prefetch = wa_dup_prefetch_content($form['url']);
+
+        // Bài đang lưu thêm phiên bản: loại trừ chính nó khỏi so sánh
+        // (V1/V2/V3 của cùng một bài KHÔNG phải bài trùng độc lập).
+        $existingPage = wa_find_page_by_url($libraryId, $form['url']);
+        $excludePageId = $existingPage !== null ? (int) $existingPage['id'] : 0;
+
+        $dupCheck = [
+            'report'  => [],
+            'scanned' => 0,
+            'has_any' => false,
+        ];
+
+        if ($prefetch['ok'] === true && $prefetch['content_html'] !== '') {
+            $dupCheck = wa_dup_check_url(
+                $form['url'],
+                (string) $prefetch['content_html'],
+                $libraryId,
+                $excludePageId
+            );
+        }
+
+        if ($dupCheck['has_any'] === true && !$form['override_dup']) {
+            /* ---- CẢNH BÁO TRÙNG LẶP: hai lựa chọn HUỶ / VẪN LƯU ---- */
+            $dupNotice = [
+                'report'  => $dupCheck['report'],
+                'scanned' => (int) $dupCheck['scanned'],
+            ];
+        } else {
+        /* ---------------------------------------------------------------------------
          * ĐƯỜNG LƯU DÙNG CHUNG — cùng hàm với public/refetch.php.
          * Hàm tự tìm/tạo trang, tự tính version_no = MAX + 1, tự tải ảnh cục bộ,
          * tự ghi assets, và tự ghi bản ghi lỗi khi thất bại.
          * ------------------------------------------------------------------------- */
-        $result = wa_store_page_capture($libraryId, $form['url'], $tagNames, $userId);
+        // Nếu nội dung đã tải sẵn ở bước kiểm tra trùng lặp thì DÙNG LẠI,
+        // không tải cùng một URL hai lần.
+        $prefetchedResult = is_array($prefetch['result'] ?? null) ? $prefetch['result'] : null;
+
+        $result = wa_store_page_capture($libraryId, $form['url'], $tagNames, $userId, $prefetchedResult);
+
+        // Xoá cache prefetch: bài đã lưu xong, không cần giữ nội dung trong session.
+        wa_dup_prefetch_clear($form['url']);
 
         if ($result['ok'] === true) {
             /* ---------------- THÀNH CÔNG ---------------- */
@@ -89,8 +169,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'title' => (string) $result['error_title'],
             'code'  => (string) $result['error_code'],
         ];
-    }
-}
+        }   // hết nhánh else của cảnh báo trùng lặp
+        }   // hết nhánh else của chính sách URL
+    }       // hết nhánh if/elseif/else đầu tiên
+}           // hết POST
 
 /* ---------------------------------------------------------------------------
  * Biến cho giao diện
@@ -180,6 +262,12 @@ require __DIR__ . '/../templates/header_app.php';
              aria-label="Nhãn phân loại, phân tách bằng dấu phẩy">
     </div>
 
+    <?php /* Cờ xác nhận: chỉ bỏ qua CẢNH BÁO rủi ro, không bỏ qua chốt an toàn. */ ?>
+    <input type="hidden" name="override_risk" value="<?= $form['override_risk'] ? '1' : '' ?>">
+
+    <?php /* V3 ĐỢT 4 / F12: chỉ bỏ qua CẢNH BÁO trùng lặp. */ ?>
+    <input type="hidden" name="override_dup" value="<?= $form['override_dup'] ? '1' : '' ?>">
+
     <button class="btn btn--dark" type="submit">
       <span class="ms ms-18">download_for_offline</span>
       <span>Lưu trang Web</span>
@@ -187,11 +275,17 @@ require __DIR__ . '/../templates/header_app.php';
   </form>
 
   <div class="capture__hint">
-    <p>Chỉ những URL thuộc danh sách tên miền được duyệt mới có thể lưu. Mọi đích chuyển hướng và cả ảnh trong bài cũng được kiểm tra lại.</p>
-    <a class="linkish" href="<?= wa_e(wa_url('admin/allowlist.php')) ?>">
-      <span class="ms ms-16">verified_user</span>
-      Xem danh sách tên miền được duyệt
-    </a>
+    <p>
+      Mọi URL công khai (http/https) đều có thể lưu — không cần quản trị viên duyệt tên miền.
+      Máy chủ tự kiểm tra trước khi tải: chặn mạng nội bộ, localhost, cloud metadata,
+      đích không xác minh được và chống DNS rebinding. Mọi đích chuyển hướng và cả ảnh
+      trong bài cũng được kiểm tra lại.
+    </p>
+    <p>
+      Trang có dấu hiệu rủi ro cụ thể (địa chỉ IP thay tên miền, cổng không chuẩn,
+      không mã hoá, tên miền punycode) sẽ hiện cảnh báo để bạn chọn <b>VẪN LƯU</b>
+      hoặc <b>KHÔNG LƯU</b>.
+    </p>
   </div>
 
   <?php if ($flash !== null): ?>
@@ -202,6 +296,92 @@ require __DIR__ . '/../templates/header_app.php';
           <span class="state__title"><?= ($flash['type'] ?? 'success') === 'success' ? 'Lưu thành công:' : 'Thông báo:' ?></span>
           <p class="state__text"><?= wa_e((string) $flash['text']) ?></p>
         </div>
+      </div>
+    </div>
+  <?php endif; ?>
+
+  <?php if ($riskNotice !== null): ?>
+    <div class="state state--warning">
+      <div class="state__body">
+        <span class="state__icon"><span class="ms ms-18 ms-fill">warning</span></span>
+        <div>
+          <span class="state__title">Cảnh báo rủi ro</span>
+          <p class="state__text"><?= wa_e((string) $riskNotice['reason']) ?></p>
+          <?php if (!empty($riskNotice['signals'])): ?>
+            <ul class="state__note" style="margin:8px 0 0;padding-left:18px">
+              <?php foreach ($riskNotice['signals'] as $signal): ?>
+                <li><?= wa_e((string) $signal['detail']) ?></li>
+              <?php endforeach; ?>
+            </ul>
+          <?php endif; ?>
+        </div>
+      </div>
+      <div class="state__actions">
+        <a class="btn btn--outline" href="<?= wa_e(wa_url('save.php')) ?>">KHÔNG LƯU</a>
+        <form method="post" action="<?= wa_e(wa_url('save.php')) ?>" style="display:inline">
+          <?= wa_csrf_field() ?>
+          <input type="hidden" name="url" value="<?= wa_e($form['url']) ?>">
+          <input type="hidden" name="library_id" value="<?= wa_e($form['library']) ?>">
+          <input type="hidden" name="tags" value="<?= wa_e($form['tags']) ?>">
+          <input type="hidden" name="override_risk" value="1">
+          <button class="btn btn--dark" type="submit">VẪN LƯU</button>
+        </form>
+      </div>
+    </div>
+  <?php endif; ?>
+
+  <?php if ($dupNotice !== null): ?>
+    <div class="state state--warning">
+      <div class="state__body">
+        <span class="state__icon"><span class="ms ms-18 ms-fill">content_copy</span></span>
+        <div>
+          <span class="state__title">Có thể trùng hoặc gần giống bài đã lưu</span>
+          <p class="state__text">
+            Trang này có nội dung giống hoặc gần giống với
+            <?= count($dupNotice['report']) ?> bài đã có trong các thư viện bạn có quyền đọc.
+            Hệ thống KHÔNG tự xoá, gộp hay ghi đè bản lưu nào — bạn tự quyết định.
+          </p>
+          <ul class="state__note" style="margin:8px 0 0;padding-left:18px">
+            <?php foreach ($dupNotice['report'] as $dup): ?>
+              <li>
+                <strong><?= wa_e((string) ($dup['title'] ?? 'Không rõ tên')) ?></strong>
+                <span class="chip chip--plain" style="margin-left:6px">
+                  <?= wa_e((string) ($dup['level_label'] ?? 'Trùng')) ?>
+                </span>
+                <span class="t-label-sm t-muted">
+                  · <?= (int) ($dup['score'] ?? 0) ?>%
+                  <?php if ((string) ($dup['library_name'] ?? '') !== ''): ?>
+                    · <?= wa_e((string) $dup['library_name']) ?>
+                  <?php endif; ?>
+                </span>
+                <br>
+                <span class="t-label-sm t-muted">
+                  <?= wa_e((string) ($dup['reason'] ?? '')) ?>
+                  <?php if ((int) ($dup['snapshot_id'] ?? 0) > 0): ?>
+                    · <a href="<?= wa_e(wa_url('reader.php?id=' . (int) $dup['snapshot_id'])) ?>">xem bài</a>
+                  <?php endif; ?>
+                </span>
+              </li>
+            <?php endforeach; ?>
+          </ul>
+          <p class="state__note" style="margin-top:8px">
+            Mức độ tương đồng là <b>ước lượng</b> (so n-gram 3 từ) — không phải kết luận tuyệt đối.
+            Các phiên bản V1/V2/V3 của chính bài này không bị coi là bài trùng.
+            Đã so sánh <?= (int) $dupNotice['scanned'] ?> bài ứng viên gần nhất.
+          </p>
+        </div>
+      </div>
+      <div class="state__actions">
+        <a class="btn btn--outline" href="<?= wa_e(wa_url('save.php')) ?>">HUỶ</a>
+        <form method="post" action="<?= wa_e(wa_url('save.php')) ?>" style="display:inline">
+          <?= wa_csrf_field() ?>
+          <input type="hidden" name="url" value="<?= wa_e($form['url']) ?>">
+          <input type="hidden" name="library_id" value="<?= wa_e($form['library']) ?>">
+          <input type="hidden" name="tags" value="<?= wa_e($form['tags']) ?>">
+          <input type="hidden" name="override_risk" value="<?= $form['override_risk'] ? '1' : '' ?>">
+          <input type="hidden" name="override_dup" value="1">
+          <button class="btn btn--dark" type="submit">VẪN LƯU</button>
+        </form>
       </div>
     </div>
   <?php endif; ?>
@@ -218,27 +398,11 @@ require __DIR__ . '/../templates/header_app.php';
           <?php endif; ?>
         </div>
       </div>
-      <div class="state__actions">
-        <?php if (wa_is_admin()): ?>
-          <a class="btn btn--outline" href="<?= wa_e(wa_url('admin/allowlist.php')) ?>">Xem danh sách được duyệt</a>
-        <?php endif; ?>
-        <?php
-          // Lỗi bị chặn do allowlist: người dùng thường gửi yêu cầu duyệt
-          // đúng tên miền vừa bị chặn; quản trị viên tự thêm thẳng từ trang
-          // allowlist nên không cần nút này.
-          $blockedHost = '';
-          if ((($notice['code'] ?? '') === 'error_blocked') && isset($form['url']) && !wa_is_admin()) {
-              $blockedHost = (string) (parse_url((string) $form['url'], PHP_URL_HOST) ?? '');
-          }
-        ?>
-        <?php if ($blockedHost !== ''): ?>
-          <form method="post" action="<?= wa_e(wa_url('domain_request.php')) ?>">
-            <?= wa_csrf_field() ?>
-            <input type="hidden" name="domain" value="<?= wa_e($blockedHost) ?>">
-            <button class="btn btn--dark" type="submit">Yêu cầu duyệt tên miền <?= wa_e($blockedHost) ?></button>
-          </form>
-        <?php endif; ?>
-      </div>
+      <?php if ((($notice['code'] ?? '') === 'error_blocked')): ?>
+        <div class="state__actions">
+          <a class="btn btn--outline" href="<?= wa_e(wa_url('save.php')) ?>">Thử lại với URL khác</a>
+        </div>
+      <?php endif; ?>
     </div>
   <?php endif; ?>
 </div>
@@ -261,11 +425,14 @@ require __DIR__ . '/../templates/header_app.php';
 <div class="state-list">
   <div class="state-item">
     <div class="state-item__head">
-      <span class="state-item__name"><span class="ms ms-18">gpp_bad</span>Kiểm tra danh sách được duyệt trước</span>
+      <span class="state-item__name"><span class="ms ms-18">gpp_bad</span>Kiểm tra an toàn trước khi tải</span>
       <span class="chip chip--teal">error_blocked</span>
     </div>
     <p class="t-body-sm t-muted" style="margin-top:8px">
-      Tên miền phải khớp một mục trong danh sách được duyệt (cho phép cả subdomain).
+      Mọi URL công khai đều lưu được — <b>không</b> cần quản trị viên duyệt tên miền.
+      Máy chủ tự kiểm tra DNS và địa chỉ IP: chặn mạng nội bộ (RFC 1918), localhost,
+      cloud metadata (169.254.169.254), dải đặc biệt, IPv6 riêng tư và mọi đích không
+      xác minh được; đồng thời ghim IP đã xác minh để chống DNS rebinding.
       Việc kiểm tra diễn ra <b>trước khi</b> gửi bất kỳ yêu cầu mạng nào, và được kiểm tra
       lại ở mỗi lần chuyển hướng cũng như với từng ảnh trong bài.
     </p>

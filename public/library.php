@@ -108,6 +108,24 @@ try {
     // Bỏ qua: cột has_update chưa tồn tại trước khi chạy migrate.
 }
 
+/* V3 / FEATURE 3 — trạng thái đọc của chính tài khoản này trên từng thẻ bài.
+    MỘT truy vấn cho cả thư viện; bảng chưa migrate thì try/catch giữ mặc định. */
+$currentUserId = (int) (current_user()['id'] ?? 0);
+$readStateMap  = [];
+$queueMap      = [];
+
+try {
+    $snapshotIds = array_values(array_filter(array_map(
+        static fn (array $a): int => (int) ($a['snapshot_id'] ?? 0),
+        $articles
+    )));
+
+    $readStateMap = wa_reading_states_map($currentUserId, $snapshotIds);
+    $queueMap     = wa_reading_queue_map($currentUserId, $snapshotIds);
+} catch (Throwable) {
+    // Bảng chưa migrate -> không hiện badge trạng thái đọc.
+}
+
 /* ---------------------------------------------------------------------------
  * Phân quyền P-LIB (quyết định cái gì hiện, cái gì cho phép gửi):
  *   $canManage  — chủ sở hữu hoặc quản trị viên: đổi tên / đổi hiển thị / xoá /
@@ -330,7 +348,14 @@ require __DIR__ . '/../templates/header_app.php';
       <span class="ms ms-18" style="color:var(--wa-action)">local_offer</span>
     </div>
     <div class="stat-card__value"><b><?= $library['tag_count'] ?></b><span>phân mục</span></div>
-    <div class="stat-card__note" style="color:var(--wa-action)">Phổ biến: <?= wa_e($library['tags'][0]) ?> <?= wa_e($library['tags'][1] ?? '') ?></div>
+    <div class="stat-card__note" style="color:var(--wa-action)">
+      <?php if ($library['tags'] === []): ?>
+        Chưa có nhãn nào
+      <?php else: ?>
+        Phổ biến: <?= wa_e((string) $library['tags'][0]) ?>
+        <?= wa_e((string) ($library['tags'][1] ?? '')) ?>
+      <?php endif; ?>
+    </div>
   </div>
 
   <div class="stat-card">
@@ -413,7 +438,13 @@ require __DIR__ . '/../templates/header_app.php';
     </div>
   </div>
 
-  <!-- Trạng thái THÀNH CÔNG (đúng như bản tham chiếu) -->
+  <!-- BUG-12: KHÔNG được báo "bản đọc ngoại tuyến đã sẵn sàng" khi thư viện
+       chưa có snapshot thành công nào. Trước đây khối này luôn hiện trạng
+       thái "thành công" -> người dùng tưởng đã có bản đọc ngoại tuyến.
+       Nay chỉ hiện khi có ÍT NHẤT một snapshot fetch_status = 'success';
+       ngược lại hiện trạng thái rỗng với hướng dẫn hành động cụ thể. -->
+  <?php $hasOfflineSnapshot = (int) ($libMetrics['snapshots_ok'] ?? 0) > 0; ?>
+  <?php if ($hasOfflineSnapshot): ?>
   <div class="state state--success">
     <div class="state__body">
       <span class="state__icon"><span class="ms ms-18 ms-fill">check_circle</span></span>
@@ -443,6 +474,34 @@ require __DIR__ . '/../templates/header_app.php';
       <?php endif; ?>
     </div>
   </div>
+  <?php else: ?>
+  <div class="state state--empty">
+    <div class="state__body">
+      <span class="state__icon"><span class="ms ms-18 ms-fill">download_for_offline</span></span>
+      <div>
+        <div class="row" style="gap:8px">
+          <span class="state__title">Chưa có bản đọc ngoại tuyến</span>
+          <span class="state__text">
+            Thư viện này chưa lưu được bản nào thành công
+            (<?= (int) ($libMetrics['snapshots_failed'] ?? 0) ?> lần lưu thất bại nếu có).
+          </span>
+        </div>
+        <p class="state__note">
+          Bản đọc ngoại tuyến chỉ trở thành sẵn sàng sau khi có ít nhất một
+          snapshot tải thành công. Hãy lưu một URL công khai ở ô bên trên.
+        </p>
+      </div>
+    </div>
+    <div class="state__actions">
+      <?php if ($canEditLib && (int) ($libMetrics['snapshots_failed'] ?? 0) > 0): ?>
+        <a class="btn btn--light" href="<?= wa_e(wa_url('libraries.php?tab=failed')) ?>">
+          <span class="ms ms-16" style="color:var(--wa-teal-deep)">error</span>
+          Xem các lần lưu thất bại
+        </a>
+      <?php endif; ?>
+    </div>
+  </div>
+  <?php endif; ?>
 </div>
 
 <!-- Mục G cũ (thành viên + nhãn) nay là 2 tab-panel sau lưới bài viết. -->
@@ -496,6 +555,25 @@ require __DIR__ . '/../templates/header_app.php';
                  title="Trang gốc có nội dung mới từ lần kiểm tra trước — mở trình đọc để xem trước">
                 <span class="ms ms-14">update</span>Có bản mới
               </a>
+            <?php endif; ?>
+
+            <!-- V3 / FEATURE 3: trạng thái đọc + nhãn "đọc sau". -->
+            <?php
+            $cardSnapshotId = (int) ($article['snapshot_id'] ?? 0);
+            $cardReadState  = $readStateMap[$cardSnapshotId] ?? null;
+            $cardInQueue    = !empty($queueMap[$cardSnapshotId]);
+            ?>
+            <?php if ($cardReadState !== null && $cardReadState['status'] !== 'unread'): ?>
+              <span class="article-card__readstate <?= $cardReadState['status'] === 'read' ? 'is-read' : 'is-reading' ?>"
+                    title="Tiến độ đọc: <?= (int) $cardReadState['progress'] ?>%">
+                <span class="ms ms-14"><?= $cardReadState['status'] === 'read' ? 'task_alt' : 'menu_book' ?></span>
+                <?= $cardReadState['status'] === 'read' ? 'Đã đọc' : 'Đang đọc ' . (int) $cardReadState['progress'] . '%' ?>
+              </span>
+            <?php endif; ?>
+            <?php if ($cardInQueue): ?>
+              <span class="article-card__readstate is-read" title="Có trong danh sách đọc sau">
+                <span class="ms ms-14">bookmark</span>Đọc sau
+              </span>
             <?php endif; ?>
           </div>
           <div class="article-card__thumb-code"><?= wa_e($article['thumb_code']) ?></div>

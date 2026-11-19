@@ -25,9 +25,9 @@
  * CHUNG hàm `wa_store_page_capture()` — hàm này chỉ INSERT thêm một dòng
  * `snapshots` mới, không sửa/xoá bản cũ.
  *
- * Allowlist, kiểm tra redirect và các quy tắc chống SSRF được giữ nguyên vì
- * mọi lần tải trang gốc đều đi qua `capture_url()` — hàm đã kiểm allowlist
- * TRƯỚC mọi byte và kiểm LẠI ở mỗi bước chuyển hướng.
+ * Chính sách URL công khai, kiểm tra redirect và các quy tắc chống SSRF được giữ
+ * nguyên vì mọi lần tải trang gốc đều đi qua `capture_url()` — hàm đã kiểm tra an
+ * toàn TRƯỚC mọi byte và kiểm LẠI ở mỗi bước chuyển hướng.
  *
  * KHÔNG có cron, Task Scheduler hay daemon: mọi hoạt động chỉ chạy khi người
  * dùng đang mở ứng dụng, thông qua một request HTTP thật.
@@ -41,6 +41,14 @@ require_once __DIR__ . '/diff.php';
 /** Khoá phiên: tên cờ trong $_SESSION. */
 const WA_AUTO_CONSENT_KEY = 'wa_auto_version_consent';
 
+/**
+ * Cột trên bảng `users` lưu cài đặt bật/tắt kiểm tra tự động (bền vững theo
+ * tài khoản, KHÔNG phụ thuộc phiên).
+ *
+ * Giá trị: 1 = bật, 0 = tắt. NULL = chưa có cài đặt -> mặc định BẬT.
+ */
+const WA_AUTO_PREF_COLUMN = 'auto_update_enabled';
+
 /** Thời gian tối đa một lần giữ khoá kiểm tra (giây). */
 const WA_AUTO_LOCK_TTL = 300;
 
@@ -51,7 +59,67 @@ const WA_AUTO_MAX_PAGES_PER_RUN = 5;
 const WA_AUTO_MIN_INTERVAL = 900;
 
 /* =============================================================================
-    PHẦN 1 — SỰ ĐỒNG Ý (XIN PHÉP)
+    PHẦN 1 — CÀI ĐẶT BẬT/TẮT (LÂU DÀI, THEO TÀI KHOẢN)
+    ============================================================================= */
+
+/**
+ * Cài đặt "tự động cập nhật" của một tài khoản có đang BẬT không?
+ *
+ * MẶC ĐỊNH là BẬT: tài khoản chưa có cài đặt (cột NULL) vẫn được kiểm tra
+ * tự động khi mở ứng dụng — không còn popup xin phép lặp lại mỗi lần mở.
+ */
+function wa_auto_update_enabled(?int $userId = null): bool
+{
+    $userId ??= (int) (wa_actor()['id'] ?? 0);
+
+    if ($userId <= 0) {
+        return false;
+    }
+
+    try {
+        $stmt = db()->prepare(
+            'SELECT `auto_update_enabled` FROM `users` WHERE `id` = ? LIMIT 1'
+        );
+        $stmt->execute([$userId]);
+        $value = $stmt->fetchColumn();
+
+        // Cột chưa migrate -> mặc định BẬT (không chặn tính năng).
+        if ($value === false) {
+            return true;
+        }
+
+        // NULL -> chưa cài đặt -> mặc định BẬT.
+        return $value === null ? true : ((int) $value === 1);
+    } catch (Throwable $e) {
+        error_log('[WebArchive] auto pref read failed: ' . $e->getMessage());
+        return true;
+    }
+}
+
+/**
+ * Bật / tắt cài đặt "tự động cập nhật" cho một tài khoản.
+ */
+function wa_auto_update_set(int $userId, bool $enabled): bool
+{
+    if ($userId <= 0) {
+        return false;
+    }
+
+    try {
+        $stmt = db()->prepare(
+            'UPDATE `users` SET `' . WA_AUTO_PREF_COLUMN . '` = ? WHERE `id` = ?'
+        );
+        $stmt->execute([$enabled ? 1 : 0, $userId]);
+
+        return true;
+    } catch (Throwable $e) {
+        error_log('[WebArchive] auto pref write failed: ' . $e->getMessage());
+        return false;
+    }
+}
+
+/* =============================================================================
+    PHẦN 2 — SỰ ĐỒNG Ý (XIN PHÉP) — theo phiên
     ============================================================================= */
 
 /**
@@ -192,6 +260,15 @@ function wa_auto_content_changed(array $saved, array $live): bool
  * quản trị viên) — người xem không bao giờ nằm trong danh sách này nên không
  * thể kích hoạt việc tải trang gốc.
  *
+ * THỨ TỰ ƯU TIÊN (phân phối công bằng):
+ *   1. Bài CHƯA BAO GIỜ được kiểm tra (auto_checked_at IS NULL) — luôn đứng
+ *      đầu, nên mọi website đều có cơ hội được kiểm tra ở lượt đầu.
+ *   2. Sau đó bài được kiểm tra LÂU NHẤT (auto_checked_at nhỏ nhất).
+ *   3. Cuối cùng mới tới bài kiểm tra gần đây nhất.
+ *
+ * Nhờ vậy giới hạn WA_AUTO_MAX_PAGES_PER_RUN chỉ giới hạn SỐ BÀI kiểm tra
+ * trong một lượt, chứ không khoá vĩnh viễn những website ở cuối danh sách.
+ *
  * @return array<int, array<string,mixed>>
  */
 function wa_auto_candidate_pages(?array $actor = null): array
@@ -205,23 +282,27 @@ function wa_auto_candidate_pages(?array $actor = null): array
     try {
         if ($actor['role'] === 'admin') {
             $stmt = db()->prepare(
-                "SELECT sp.id, sp.library_id, sp.source_url, sp.title
+                "SELECT sp.id, sp.library_id, sp.source_url, sp.title, sp.auto_checked_at
                    FROM `saved_pages` sp
                    JOIN `snapshots` s ON s.page_id = sp.id AND s.fetch_status = 'success'
                   GROUP BY sp.id
-                  ORDER BY sp.id ASC"
+                  ORDER BY sp.auto_checked_at IS NOT NULL ASC,
+                           sp.auto_checked_at ASC,
+                           sp.id ASC"
             );
             $stmt->execute();
         } else {
             $stmt = db()->prepare(
-                "SELECT sp.id, sp.library_id, sp.source_url, sp.title
+                "SELECT sp.id, sp.library_id, sp.source_url, sp.title, sp.auto_checked_at
                    FROM `saved_pages` sp
                    JOIN `snapshots` s ON s.page_id = sp.id AND s.fetch_status = 'success'
                    JOIN `libraries` l ON l.id = sp.library_id
               LEFT JOIN `library_members` lm ON lm.library_id = l.id AND lm.user_id = :actor
                   WHERE (l.owner_id = :actor_owner OR lm.role IN ('owner', 'editor'))
-              GROUP BY sp.id
-                  ORDER BY sp.id ASC"
+                  GROUP BY sp.id
+                  ORDER BY sp.auto_checked_at IS NOT NULL ASC,
+                           sp.auto_checked_at ASC,
+                           sp.id ASC"
             );
             $stmt->execute([':actor' => (int) $actor['id'], ':actor_owner' => (int) $actor['id']]);
         }
@@ -381,7 +462,7 @@ function wa_auto_check_page(array $page, int $userId): array
             return ['status' => 'no_version'];
         }
 
-        // --- Tải trang gốc (allowlist + chống SSRF do capture_url() lo). ---
+        // --- Tải trang gốc (chính sách URL công khai + chống SSRF do capture_url() lo). ---
         $live = capture_url((string) $page['source_url']);
 
         if (($live['ok'] ?? false) !== true) {
@@ -442,6 +523,18 @@ function wa_auto_check_page(array $page, int $userId): array
             (string) ($page['source_url'] ?? ''),
             $latestId
         );
+
+        // V3 ĐỢT 4 / F10: đối chiếu các ĐOẠN ĐANG THEO DÕI của bài này với
+        // nội dung của phiên bản vừa tạo. Tái sử dụng kết quả Auto Version —
+        // KHÔNG tải lại website, KHÔNG sửa snapshot gốc.
+        if (function_exists('wa_watch_check_page')) {
+            wa_watch_check_page(
+                $pageId,
+                $latestId,
+                (int) $created['snapshot_id'],
+                (int) $created['version']
+            );
+        }
 
         return [
             'status'      => 'updated',

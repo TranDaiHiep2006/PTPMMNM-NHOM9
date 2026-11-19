@@ -45,13 +45,13 @@ require __DIR__ . '/../../templates/header_app.php';
         <span class="t-label-sm" style="color:#74777E">Offline Ready</span>
       </div>
       <h1 class="ribbon__title">Tổng quan hệ thống</h1>
-      <p class="ribbon__sub">Theo dõi toàn bộ hoạt động lưu trữ, tài khoản và danh sách tên miền được duyệt.</p>
+      <p class="ribbon__sub">Theo dõi toàn bộ hoạt động lưu trữ, tài khoản và danh sách tên miền tin cậy.</p>
     </div>
 
     <div class="row" style="flex-shrink:0">
       <a class="btn btn--outline" href="<?= wa_e(wa_url('admin/allowlist.php')) ?>">
         <span class="ms ms-18">verified_user</span>
-        <span>Tên miền được duyệt</span>
+        <span>Tên miền tin cậy</span>
       </a>
       <a class="btn btn--dark" href="<?= wa_e(wa_url('admin/users.php')) ?>">
         <span class="ms ms-18">group</span>
@@ -96,7 +96,7 @@ require __DIR__ . '/../../templates/header_app.php';
       <span class="stat__icon stat__icon--mint"><span class="ms ms-18">error_outline</span></span>
       <span>
         <span class="stat__value"><?= (int) $stats['error_count'] ?> Lần lưu thất bại</span>
-        <span class="stat__note">404 / timeout / ngoài allowlist</span>
+        <span class="stat__note">404 / timeout / không an toàn</span>
       </span>
     </div>
   </div>
@@ -126,7 +126,7 @@ require __DIR__ . '/../../templates/header_app.php';
 
   <div class="stat-card">
     <div class="stat-card__top">
-      <span class="stat-card__label">Tên miền được duyệt</span>
+      <span class="stat-card__label">Tên miền tin cậy</span>
       <span class="ms ms-18" style="color:var(--wa-teal-deep)">verified_user</span>
     </div>
     <div class="stat-card__value"><b><?= $activeAllowlist ?></b><span>đang hoạt động</span></div>
@@ -180,7 +180,7 @@ require __DIR__ . '/../../templates/header_app.php';
     <div class="panel__head">
       <span class="panel__label">
         <span class="ms ms-16">verified_user</span>
-        Tên miền được duyệt gần đây
+        Tên miền tin cậy gần đây
       </span>
       <a class="t-label-sm t-accent" href="<?= wa_e(wa_url('admin/allowlist.php')) ?>" style="font-weight:500">Xem tất cả</a>
     </div>

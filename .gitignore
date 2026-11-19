@@ -17,6 +17,20 @@ setup.ps1
 # Trợ giúp đăng nhập MySQL cục bộ (hỏi mật khẩu ẩn, không lưu mật khẩu).
 connect-db.ps1
 
+# Trợ giúp chuẩn bị database 3306 (sao lưu + tạo tài khoản ứng dụng + migration).
+# Chạy cục bộ, KHÔNG commit.
+setup-3306.ps1
+
+# Trợ giúp TIẾP TỤC từ bước sinh file cấu hình 3306 (chạy cục bộ, KHÔNG commit).
+prepare-3306-config.ps1
+
+# Cấu hình "chờ chuyển" 3306 + bản sao cấu hình 3307 (CHỨA MẬT KHẨU).
+# Sinh bởi setup-3306.ps1 trong .local\backup — đã nằm trong `.local/`,
+# nhưng khai báo thêm để chắc chắn kể cả khi đổi vị trí lưu.
+db.local.*.php
+db.local.3306.pending.php
+db.local.3307.php
+
 # Log
 *.log
 logs/

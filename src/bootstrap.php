@@ -395,12 +395,26 @@ define('WA_PUBLIC', WA_ROOT . '/public');
 require_once WA_SRC . '/db.php';
 require_once WA_SRC . '/auth.php';
 require_once WA_SRC . '/queries.php';
+// CHÍNH SÁCH URL CÔNG KHAI (chốt an toàn SSRF + tín hiệu rủi ro) — nạp
+// TRƯỚC capture.php và các lớp V3 để mọi đường lưu dùng cùng một chính sách.
+require_once WA_SRC . '/url_policy.php';
 require_once WA_SRC . '/capture.php';
 require_once WA_SRC . '/search.php';
 // AUTO VERSION + THÔNG BÁO (P-AUTOVERSION): hai lớp mới, nằm SAU queries.php
 // vì chúng dùng các hàm truy vấn sẵn có (wa_page_versions, wa_page_tags...).
 require_once WA_SRC . '/auto_version.php';
 require_once WA_SRC . '/notifications.php';
+// V3 (12 chức năng mới): lớp nghiệp vụ theo từng đợt.
+require_once WA_SRC . '/v3_basic.php';
+require_once WA_SRC . '/v3_research.php';
+require_once WA_SRC . '/v3_api.php';
+require_once WA_SRC . '/v3_share.php';
+require_once WA_SRC . '/v3_feeds.php';
+// V3 ĐỢT 4/4 — F10 (theo dõi đoạn nội dung), F11 (quan hệ + sơ đồ),
+// F12 (phát hiện nội dung trùng lặp).
+require_once WA_SRC . '/v3_watch.php';
+require_once WA_SRC . '/v3_relations.php';
+require_once WA_SRC . '/v3_duplicates.php';
 
 /**
  * Đường dẫn gốc của ứng dụng trên web.
