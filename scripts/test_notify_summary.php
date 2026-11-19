@@ -153,12 +153,15 @@ function t_start_server(int $port, string $docroot, string $label): void
 
     $logFile = sys_get_temp_dir() . '/wa-notifsum-' . getmypid() . '-' . $label . '.log';
 
-    $cmd = sprintf(
-        '%s -d display_errors=0 -S 127.0.0.1:%d -t %s',
-        escapeshellarg(PHP_BINARY),
-        $port,
-        escapeshellarg($docroot)
-    );
+    /* DÃY LỆNH (mảng) chứ không phải chuỗi: trên Windows, chuỗi sẽ khiến
+       proc_open() gọi qua `cmd.exe /c`, nên proc_terminate() chỉ giết được vỏ
+       cmd.exe còn php.exe thật vẫn chạy, giữ cổng và treo proc_close(). */
+    $cmd = [
+        PHP_BINARY,
+        '-d', 'display_errors=0',
+        '-S', '127.0.0.1:' . $port,
+        '-t', $docroot,
+    ];
 
     $descriptors = [1 => ['file', $logFile, 'a'], 2 => ['file', $logFile, 'a']];
     $proc        = proc_open($cmd, $descriptors, $pipes);

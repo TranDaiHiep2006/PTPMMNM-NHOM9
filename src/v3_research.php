@@ -435,6 +435,10 @@ function wa_annotation_render_html(string $contentHtml, array $annotations): str
 
 /**
  * Tìm phần tử theo đường dẫn CSS tương đối (dạng do wa_annotation_css_path tạo).
+ *
+ * Mỗi phần có dạng `tag:nth-of-type(n)`. Vẫn chấp nhận `tag` trần (hiểu là
+ * phần tử đầu tiên của thẻ đó) để không gãy khi có bản ghi cũ hoặc dữ liệu
+ * nhập tay.
  */
 function wa_annotation_find_by_path(DOMElement $root, string $path): ?DOMElement
 {
@@ -447,12 +451,17 @@ function wa_annotation_find_by_path(DOMElement $root, string $path): ?DOMElement
             continue;
         }
 
-        if (!preg_match('/^([a-z0-9]+):nth-of-type\((\d+)\)$/i', $part, $m)) {
+        $tag   = '';
+        $index = 1;
+
+        if (preg_match('/^([a-z0-9]+):nth-of-type\((\d+)\)$/i', $part, $m)) {
+            $tag   = strtolower($m[1]);
+            $index = (int) $m[2];
+        } elseif (preg_match('/^[a-z0-9]+$/i', $part)) {
+            $tag = strtolower($part);
+        } else {
             return null;
         }
-
-        $tag   = strtolower($m[1]);
-        $index = (int) $m[2];
 
         $found = null;
         $count = 0;

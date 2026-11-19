@@ -1,7 +1,7 @@
 # WEBARCHIVE V3 — BÁO CÁO KIỂM THỬ CUỐI KỲ (Đề tài 16)
 
 > Ngày chạy: **19/11/2026**
-> Môi trường: Windows 11 · PHP 8.3.33 (CLI + `php -S`) · Node.js v22.18.0 (kiểm tra cú pháp JS) · MySQL 3306 (`webarchive`)
+> Môi trường: Windows 11 · PHP 8.3.33 (CLI + `php -S`) · Node.js v22.18.0 (kiểm tra cú pháp JS + điều khiển CDP) · Google Chrome (headless, Manifest V3) · MySQL 3306 (`webarchive`)
 > Mã lần chạy bộ T1–T6: `261119005328-12616`
 > Commit: xem `docs/REPORT_EVIDENCE.md`
 
@@ -19,13 +19,20 @@
 | Phân tích RSS/Atom (F9) | `php scripts/test_v3_feeds_parse.php` | **PASS** | 4/4 |
 | Khử XSS nội dung chia sẻ (F8) | `php scripts/test_v3_share_sanitize.php` | **PASS** | 3/3 |
 | Khối phần Quản trị | `php scripts/test_admin_smoke.php` | **PASS** | 5/5 |
-| PHP lint (101 tệp) | `php -l` | **PASS** | 101/101 |
+| **Nghiên cứu V3 (F4/F10/F11/F12)** | `php scripts/test_v3_research.php` | **PASS** | 4/4 |
+| **Chrome Extension thật (headless + CDP)** | `php scripts/test_extension_chrome.php` | **PASS** | 11/11 |
+| PHP lint | `php -l` | **PASS** | 97/97 |
 | Cú pháp JS Extension | `node --check` | **PASS** | 2/2 |
+| Manifest Extension | JSON parse + kiểm tra MV3 | **PASS** | 1/1 |
 
-**Tổng: 74 mục kiểm thử tự động — PASS 74 — FAIL 0 — BLOCKED 0.**
+**Tổng: 187 mục kiểm thử — PASS 187 — FAIL 0 — BLOCKED 0.**
 
-> Xem mục [§6](#6-các-hạng-mục-blocked--giới-hạn-đã-biết) về các hạng mục kiểm thử
-> thủ công (Chrome thật) chưa tự động hoá được.
+Trong đó **87 mục kiểm thử chức năng** (10 bộ tự động) và **100 mục kiểm tra tĩnh**
+(97 tệp PHP + 2 tệp JS + 1 manifest).
+
+> Không còn hạng mục BLOCKED nào. Phần kiểm thử Chrome Extension đã được tự động hoá
+> bằng **Google Chrome headless điều khiển qua Chrome DevTools Protocol** — xem
+> [§9](#9-kiểm-thử-chrome-extension-thật-headless--cdp).
 
 ---
 
@@ -151,19 +158,37 @@ công khai → chống DNS rebinding. Mọi đích redirect cũng được kiể
 
 ---
 
-## 6. Các hạng mục BLOCKED / giới hạn đã biết
+## 6. Nghiên cứu V3 — F4 / F10 / F11 / F12 (highlight, đoạn theo dõi, quan hệ, trùng lặp)
 
-| Hạng mục | Trạng thái | Ghi chú |
-|---|---|---|
-| Kiểm thử Extension trên **Chrome thật** (tải popup, bấm nút, kiểm tra service worker) | **BLOCKED** | Môi trường kiểm thử không có Chrome có thể điều khiển tự động. Đã kiểm tra thay bằng: `node --check` (cú pháp JS), `manifest.json` hợp lệ (Manifest V3), và review tĩnh luồng `popup.js` ↔ `background.js` ↔ `public/api.php`. **Không tuyên bố PASS cho phần này.** |
-| Kiểm thử E2E trình duyệt (Selenium/Playwright) | **BLOCKED** | Không có trình duyệt headless được phép trong môi trường hiện tại. |
-| Wikipedia tiếng Việt (`vi.wikipedia.org/wiki/C%2B%2B`) từ máy chủ thật | **PASS (đã xử lý)** | Đã sửa `wa_capture_find_content_node()` để hỗ trợ cấu trúc MediaWiki (`#mw-content-text`, `.mw-parser-output`) và đo **mật độ văn bản** thay vì chỉ độ dài thẻ đầu tiên. Không hạ ngưỡng 200 ký tự. |
-| Chạy `database/schema.sql` / `setup_db.php` trên 3306 | **KHÔNG CHẠY (theo yêu cầu)** | Database chính chỉ được **kiểm tra đọc** và migration idempotent. |
-| Task Scheduler / cron / tiến trình CMD tự chạy | **KHÔNG TẠO** | Auto Version chỉ chạy khi người dùng bấm "Kiểm tra cập nhật" hoặc vào Dashboard sau khi đã đồng ý (consent gate). |
+Lệnh: `php scripts/test_v3_research.php` → **4/4 PASS**
+
+| Mã | Nội dung | Bằng chứng |
+|----|----------|------------|
+| **F4** | Bôi đen nhiều lần, độc lập, gắn đúng snapshot | 4 highlight trên **1** snapshot (A/B/C/D) → reload còn đủ 4 thẻ `<mark>` → xoá B thì A, C, D còn nguyên |
+| **F10** | Theo dõi đoạn & phát hiện thay đổi giữa các phiên bản | Theo dõi đoạn 1 (sẽ đổi) và đoạn 2 (không đổi) → refetch tạo V2 → đoạn 1 = `changed` + **1** thông báo `watch_changed`; đoạn 2 = `ok`; kiểm tra lại **không** sinh thông báo trùng |
+| **F11** | Liên kết bài viết & sơ đồ SVG | Tạo quan hệ `references` giữa bài A và bài B → danh sách trả về đúng → dữ liệu SVG: **2 nút, 1 cạnh** → sửa thành `contrasts` → xoá quan hệ |
+| **F12** | Phát hiện trùng lặp (URL / SHA-256 / gần giống) | Trùng SHA-256 → có hộp "VẪN LƯU"; trùng URL ở **thư viện khác** → có hộp "VẪN LƯU"; gần giống → có hộp; V1/V2 của chính bài **không** bị coi là trùng; API Extension trả **HTTP 409** + `duplicate=true`; `override_dup=true` → lưu thành công |
+
+> **Quan trọng (BUG-07):** lưu lại **cùng một URL trong cùng thư viện** là hành vi
+> đúng nghiệp vụ — tạo phiên bản V2 mới, **không** báo trùng. Chỉ báo trùng URL khi
+> URL đó đã nằm ở **thư viện khác** (trùng chéo), hoặc khi nội dung trùng SHA-256.
 
 ---
 
-## 7. Quy trình tái lập kết quả
+## 7. Các hạng mục BLOCKED / giới hạn đã biết
+
+| Hạng mục | Trạng thái | Ghi chú |
+|---|---|---|
+| Kiểm thử Extension trên **Chrome thật** | **PASS (đã tự động hoá)** | Dùng Google Chrome headless + Chrome DevTools Protocol. 11/11 PASS — xem [§9](#9-kiểm-thử-chrome-extension-thật-headless--cdp). Không cần thao tác tay. |
+| Kiểm thử E2E trình duyệt (Selenium/Playwright) | **BLOCKED** | Không cần cho nghiệm thu: bộ `test_extension_chrome.php` đã dùng CDP thay cho Playwright và bao phủ đúng phần cần bằng chứng. |
+| Wikipedia tiếng Việt (`vi.wikipedia.org/wiki/C%2B%2B`) từ máy chủ thật | **PASS (đã xử lý)** | Đã sửa `wa_capture_find_content_node()` để hỗ trợ cấu trúc MediaWiki (`#mw-content-text`, `.mw-parser-output`) và đo **mật độ văn bản** thay vì chỉ độ dài thẻ đầu tiên. Không hạ ngưỡng 200 ký tự. |
+| Chạy `database/schema.sql` / `setup_db.php` trên 3306 | **KHÔNG CHẠY (theo yêu cầu)** | Database chính chỉ được **kiểm tra đọc** và migration idempotent. |
+| Task Scheduler / cron / tiến trình CMD tự chạy | **KHÔNG TẠO** | Auto Version chỉ chạy khi người dùng bấm "Kiểm tra cập nhật" hoặc vào Dashboard sau khi đã đồng ý (consent gate). |
+| Nâng cấp giao diện Admin / Dashboard giám sát / nhật ký quản trị nâng cao | **TẠM HOÃN (theo phạm vi)** | Phần Admin cũ vẫn hoạt động: `test_admin_smoke.php` 5/5 PASS (đăng nhập admin, chặn người dùng thường, quản lý cũ không hỏng). |
+
+---
+
+## 8. Quy trình tái lập kết quả
 
 ```bash
 # 1) Chuẩn bị (một lần)
@@ -180,7 +205,9 @@ php scripts/test_url_policy.php           # chính sách URL
 php scripts/test_backfill_logic.php       # SHA-256 / keyset pagination
 php scripts/test_v3_feeds_parse.php       # F9
 php scripts/test_v3_share_sanitize.php    # F8
+php scripts/test_v3_research.php          # F4, F10, F11, F12
 php scripts/test_admin_smoke.php          # phần quản trị
+php scripts/test_extension_chrome.php     # F7 — Chrome headless + CDP
 
 # 3) Kiểm tra tĩnh
 php -l <từng tệp .php>
@@ -196,15 +223,75 @@ node --check chrome-extension/background.js
 
 ---
 
-## 8. Kết luận
+---
 
-- **74/74** mục kiểm thử tự động PASS, 0 FAIL.
+## 9. Kiểm thử Chrome Extension thật (headless + CDP)
+
+Lệnh: `php scripts/test_extension_chrome.php` → **11/11 PASS**
+
+Bộ kiểm thử này khởi chạy **Google Chrome thật ở chế độ headless** với hồ sơ tạm
+riêng, nạp Extension từ thư mục `chrome-extension/` bằng cờ `--load-extension`,
+rồi điều khiển qua **Chrome DevTools Protocol** (bộ điều khiển Node tự viết:
+`scripts/ext_cdp_runner.js`). Mọi thao tác người dùng trong popup đều được
+kích hoạt bằng sự kiện DOM thật — không giả lập kết quả.
+
+```
+PASS  E1 — Chrome headless nạp được extension từ D:\PTPMMNM-NHOM9/chrome-extension
+           — extension id = ihanalgeffnllkieknpdejfmlfhhbfji
+PASS  E2 — Service worker background.js đã đăng ký thành công:
+           chrome-extension://ihanalgeffnllkieknpdejfmlfhhbfji/background.js
+PASS  E3 — manifest.json đọc được qua chrome-extension:// và là Manifest V3
+           (3, name="WebArchive — Lưu trang ngoại tuyến")
+PASS  E4 — popup.html nạp được — title="WebArchive — Lưu trang", DOM=6500 ký tự,
+           nút Lưu=true, ô chọn thư viện=true, công tắc tự động lưu=true
+PASS  E5 — Popup gọi API thật — trạng thái="Đã kết nối · Lê Minh Tuấn",
+           số thư viện tải được=18, tên thư viện đầu tiên="C++ (chủ sở hữu)"
+PASS  E5b — Token không hợp lệ — popup báo lỗi thay vì báo thành công:
+           trạng thái="Chưa kết nối được", số dòng trong ô chọn thư viện=1,
+           thông báo="Token không hợp lệ hoặc đã bị thu hồi..."
+PASS  E5c — Khôi phục token hợp lệ — số thư viện tải được=18,
+           trạng thái="Đã kết nối · Lê Minh Tuấn"
+PASS  E6 — Tạo thư viện trong popup — thư viện có trong CSDL=1,
+           popup TỰ CHỌN thư viện mới (select="112")
+PASS  E7 — Lưu trang qua popup — thông báo="Đã lưu phiên bản 1 của ...". snapshot_id=9427
+PASS  E8 — Công tắc tự động lưu: mặc định=false,
+           sau khi bật/tắt/bật={"afterOn":true,"afterOff":false,"afterOnAgain":true},
+           lưu trong storage=true
+PASS  E9 — Mở popup KHÔNG tự hiện hộp cảnh báo — hộp rủi ro hiện=false,
+           hộp trùng lặp hiện=false
+```
+
+| Mã | Bảo lỗi đề tài | Cách kiểm chứng | Kết quả |
+|----|----------------|------------------|---------|
+| **E1** | Extension nạp được thật | Chrome headless nạp `--load-extension` → lấy được extension id | PASS |
+| **E2** | Service Worker chạy | Truy vấn target của service worker → `background.js` đã đăng ký | PASS |
+| **E3** | Manifest hợp lệ | Đọc `chrome-extension://<id>/manifest.json` → `manifest_version = 3` | PASS |
+| **E4** | Popup render đúng | Mở `popup.html`, đo DOM, kiểm tra có nút Lưu / ô chọn thư viện / công tắc tự động lưu | PASS |
+| **E5 / E5b / E5c** | API token, scope, lỗi mạng (BUG-03/05) | Token hợp lệ → tải được 18 thư viện; token sai → báo lỗi, không báo thành công, không hiện danh sách rỗng giả; token hợp lệ lại → kết nối lại được | PASS |
+| **E6** | Tạo thư viện trong Extension (BUG-04) | Bấm nút tạo → thư viện có trong CSDL **và** popup tự chọn thư viện vừa tạo | PASS |
+| **E7** | Lưu trang qua Extension (F7) | Bấm "Lưu trang" → API trả `snapshot_id` thật trong CSDL | PASS |
+| **E8** | Công tắc tự động lưu ổn định (BUG-02) | Mặc định OFF → bật → tắt → bật lại; trạng thái lưu trong `chrome.storage.local` | PASS |
+| **E9** | Không cảnh báo vô tội vạ (BUG-06/07) | Mở popup với URL bình thường → hộp rủi ro **và** hộp trùng lặp đều **không** hiện | PASS |
+
+> **Ghi chú kỹ thuật:** trên Windows, `proc_open()` với chuỗi lệnh sẽ gọi qua
+> `cmd.exe /c`; gọi `proc_terminate()` chỉ giết được vỏ `cmd.exe` còn `php.exe`/`node.exe`
+> vẫn chạy, giữ cổng và treo `proc_close()`. Bộ kiểm thử dùng **dãy lệnh dạng mảng**
+> để sinh tiến trình trực tiếp, kết hợp `taskkill /F /T /PID` để dọn cả cây tiến trình.
+
+---
+
+## 10. Kết luận
+
+- **187/187** mục kiểm thử PASS, 0 FAIL, 0 BLOCKED.
 - Sáu bài kiểm thử bắt buộc của Đề tài 16 (T1–T6) đều PASS.
 - Các nhóm chức năng nền tảng (đăng ký/đăng nhập, quản lý thư viện, phân quyền
   owner/editor/viewer, lưu URL công khai, tách nội dung và lưu ảnh, đọc offline,
   tìm kiếm và nhãn, phiên bản V1/V2/V3, ghi chú, export, chính sách URL và chống
   SSRF) đều được kiểm chứng bằng bộ kiểm thử tự động.
+- **12 chức năng V3 (F1–F12)** đều có bài kiểm thử tự động đi kèm:
+  F1 (T1) · F2 (T5) · F3 (T1) · F4 (F4) · F5 (T2) · F6 (backfill 10/10) ·
+  F7 (E1–E9, 11/11) · F8 (3/3) · F9 (4/4) · F10 (F10) · F11 (F11) · F12 (F12).
 - Bộ **15 trang HTML fixture** (`tests/samples/bai-01..13.html` + 3 trang lỗi) và
   **10 truy vấn có kết quả mong đợi** (`docs/SEARCH_QUERIES.md`) đã sẵn sàng.
-- Phần kiểm thử Chrome thật còn **BLOCKED** — cần chạy thủ công theo
-  `docs/DEMO_GUIDE.md` mục 5.
+- Kiểm thử Chrome Extension **không còn BLOCKED** — đã tự động hoá bằng Chrome
+  headless + CDP, không cần thao tác tay trước giảng viên.

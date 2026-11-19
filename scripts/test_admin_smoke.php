@@ -105,15 +105,20 @@ function s_login(string $email, string $password, string $jar): bool
         || ($res['status'] === 200 && !str_contains($res['body'], 'name="password"'));
 }
 
-/* --- Khởi động máy chủ --- */
+/* --- Khởi động máy chủ ---
+ *
+ * Dùng DÃY LỆNH (mảng) chứ không phải chuỗi: trên Windows, chuỗi sẽ khiến
+ * proc_open() gọi qua `cmd.exe /c`, nên proc_terminate() chỉ giết được vỏ
+ * cmd.exe còn php.exe thật vẫn chạy, giữ cổng và treo proc_close() ở cuối.
+ */
 $logFile = sys_get_temp_dir() . '/wa-adminsmoke-' . getmypid() . '.log';
 
-$cmd = sprintf(
-    '%s -d display_errors=0 -S 127.0.0.1:%d -t %s',
-    escapeshellarg(PHP_BINARY),
-    WA_S_APP_PORT,
-    escapeshellarg(dirname(__DIR__) . '/public')
-);
+$cmd = [
+    PHP_BINARY,
+    '-d', 'display_errors=0',
+    '-S', '127.0.0.1:' . WA_S_APP_PORT,
+    '-t', dirname(__DIR__) . '/public',
+];
 
 $proc = proc_open($cmd, [1 => ['file', $logFile, 'a'], 2 => ['file', $logFile, 'a']], $pipes);
 
@@ -229,6 +234,34 @@ if ($userId > 0) {
 
 s_say('');
 s_say('  · dọn tài khoản thử nghiệm (id=' . $userId . ')');
+
+/* --- Dừng máy chủ thử nghiệm ---
+ *
+ * BẮT BUỘC: phải dừng php.exe thật, không chỉ vỏ cmd.exe. Nếu không, tiến
+ * trình còn giữ cổng và khiến các lần chạy sau báo "cổng đang bận".
+ */
+if (is_resource($proc)) {
+    $status = proc_get_status($proc);
+
+    if (($status['running'] ?? false) === true) {
+        @proc_terminate($proc);
+
+        for ($i = 0; $i < 20; $i++) {
+            usleep(50000);
+            $status = proc_get_status($proc);
+
+            if (($status['running'] ?? false) !== true) {
+                break;
+            }
+        }
+
+        if (($status['running'] ?? false) === true && PHP_OS_FAMILY === 'Windows') {
+            @exec('taskkill /F /T /PID ' . (int) $status['pid'] . ' 2>nul');
+        }
+    }
+
+    @proc_close($proc);
+}
 
 /* --- Tổng kết --- */
 $passed = 0;

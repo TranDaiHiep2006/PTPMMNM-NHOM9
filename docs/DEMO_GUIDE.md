@@ -142,10 +142,14 @@ Thay bằng URL trang mẫu nội bộ (`tests/samples/`) — nội dung đã n�
 
 ---
 
-## 5. Kiểm thử Chrome Extension thủ công (phần còn BLOCKED)
+## 5. Kiểm thử Chrome Extension thật (tự động hoá bằng Chrome headless + CDP)
 
-Cần máy có Chrome (>= 102). Không tự mở Chrome trên máy người dùng khi chưa được
-phép — bước này là **thao tác tay** của người trình diễn.
+> **Cập nhật 19/11/2026:** phần này **KHÔNG còn BLOCKED**. Đã có bộ kiểm thử tự động
+> chạy Google Chrome thật ở chế độ headless, điều khiển qua Chrome DevTools
+> Protocol — **11/11 PASS**. Xem mục 5.5.
+
+Cần máy có Chrome (>= 102). Đây là **thao tác tay** của người trình diễn (không bắt buộc,
+vì đã có bộ tự động).
 
 ### 5.1. Cài đặt
 
@@ -179,6 +183,25 @@ phép — bước này là **thao tác tay** của người trình diễn.
 Chụp màn hình từng bước (ảnh 5.3), đặt tên theo mã lỗi
 (ví dụ `bug-04-quick-create.png`). Đưa vào phụ lục báo cáo.
 
+### 5.5. Chạy tự động (khuyến nghị trước giảng viên)
+
+```powershell
+php scripts/test_extension_chrome.php
+```
+
+Bộ kiểm thử sẽ:
+
+1. Khởi chạy Google Chrome **headless** với hồ sơ tạm riêng.
+2. Nạp Extension từ `chrome-extension/` bằng `--load-extension`.
+3. Mở `popup.html` thật, kích hoạt nút bằng sự kiện DOM.
+4. Gọi API thật của WebArchive (token thật được tạo tự động cho tài khoản demo).
+5. Dọn dẹp Chrome, hồ sơ tạm và dữ liệu thử nghiệm.
+
+Kết quả mong đợi: `Tổng: 11 mục — PASS: 11 — FAIL: 0`.
+
+> **Yêu cầu:** Node.js (để chạy bộ điều khiển CDP) + Google Chrome đã cài.
+> Bộ kiểm thử **không** mở cửa sổ Chrome trên màn hình người dùng.
+
 ---
 
 ## 6. Các sơ đồ nên đưa vào báo cáo Word
@@ -191,7 +214,7 @@ Chụp màn hình từng bước (ảnh 5.3), đặt tên theo mã lỗi
 | **Vòng đời phiên bản V1/V2/V3** | Bản gốc → `refetch.php`/`auto_check.php` → snapshot mới (`version_no` tăng) → thông báo → so sánh | `src/auto_version.php`, `src/notifications.php` |
 | **Mô hình phân quyền** | Owner / Editor / Viewer trên cấp thư viện; token API có scope | `src/auth.php`, `src/v3_api.php` |
 | **Sơ đồ lớp CSDL** | `users`, `libraries`, `library_members`, `saved_pages`, `snapshots`, `search_terms`, `notifications`, `content_watches`, `page_relations`, `share_links`, `feed_*` | `database/schema.sql` |
-| **Luồng kiểm thử tự động** | 8 bộ test → 74 mục → PASS | `docs/FINAL_TEST_REPORT.md` |
+| **Luồng kiểm thử tự động** | 10 bộ test → 187 mục → PASS | `docs/FINAL_TEST_REPORT.md` |
 | **Kiến trúc Extension** | Popup ↔ Service Worker ↔ `public/api.php`; `chrome.storage.local` là nguồn sự thật duy nhất | `chrome-extension/background.js` |
 
 > Sơ đồ quan hệ bài viết (F11) **đã được vẽ sẵn bằng SVG** trong `library.php` —
@@ -206,7 +229,7 @@ Chụp màn hình từng bước (ảnh 5.3), đặt tên theo mã lỗi
 | Nâng cấp giao diện Admin | **Chưa làm** | Nằm ngoài phạm vi nhiệm vụ; các chức năng quản trị **cũ vẫn chạy tốt** (test S1–S3 PASS). |
 | Dashboard giám sát Admin nâng cao | **Chưa làm** | Ngoài phạm vi. |
 | Nhật ký quản trị nâng cao | **Chưa làm** | Bảng `admin_logs` đã có sẵn nhưng chưa có giao diện quản lý đầy đủ. |
-| Kiểm thử Chrome thật tự động | **BLOCKED** | Không có Chrome điều khiển được trong môi trường; đã thay bằng kiểm tra tĩnh + hướng dẫn thủ công ở mục 5. |
+| Kiểm thử Chrome thật tự động | **Đã làm — 11/11 PASS** | Dùng Google Chrome headless điều khiển qua Chrome DevTools Protocol (`scripts/test_extension_chrome.php` + `scripts/ext_cdp_runner.js`). Không mở Chrome giao diện trên máy người dùng. |
 | Ghi chú dạng rich-text / chú thích chéo nhiều phiên bản | **Cơ bản** | Ghi chú đã gắn với snapshot và giữ qua các bản; chưa có trải nghiệm "ghi chú theo đoạn". |
 | Đồng bộ hai chiều với thư viện ngoài (Zotero, Mendeley) | **Chưa làm** | Ngoài phạm vi 12 chức năng. |
 

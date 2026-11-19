@@ -17,15 +17,15 @@ về đúng file/hàm trong mã nguồn, kèm bài kiểm thử tương ứng. D
 | **F1** | Lưu URL hàng loạt + TXT/CSV | `public/bulk_save.php`, `src/v3_basic.php` | `wa_bulk_parse_urls()`, `wa_bulk_import_file()` | `run_tests.php` (T1) |
 | **F2** | Trích dẫn APA | `public/reader.php`, `src/v3_research.php` | `wa_apa_citation()` | T5 (ghi chú giữ qua bản) |
 | **F3** | Trạng thái đọc & Read Later | `public/reading_list.php`, `public/reading_action.php` | bảng `reading_states`, `reading_queue` | T1 |
-| **F4** | Highlight & ghi chú | `public/reader.php`, `public/annotation_action.php` | bảng `annotations`, `notes` | T5 (đánh dấu ở V2 có, ở V1 không) |
+| **F4** | Highlight & ghi chú | `public/reader.php`, `public/annotation_action.php` | bảng `annotations`, `notes` | `test_v3_research.php` (F4, 4 highlight độc lập) |
 | **F5** | Lịch sử xuất hiện / biến mất cụm từ | `public/version_search.php`, `src/v3_research.php` | `wa_version_term_history()` | T2 |
 | **F6** | SHA-256 nội dung | `src/capture.php`, `scripts/backfill_snapshot_hash.php` | `snapshots.content_hash` | `test_backfill_logic.php` (10/10) |
-| **F7** | Chrome Extension (Manifest V3) | `chrome-extension/` | `background.js`, `popup.js` | Kiểm tra tĩnh + thủ công (BLOCKED) |
+| **F7** | Chrome Extension (Manifest V3) | `chrome-extension/` | `background.js`, `popup.js` | `test_extension_chrome.php` (E1–E9, **11/11 — Chrome headless + CDP**) |
 | **F8** | Chia sẻ snapshot, hạn dùng, thu hồi | `public/share_action.php`, `public/shared.php`, `src/v3_share.php` | bảng `share_links`, `wa_share_sanitize_html()` | `test_v3_share_sanitize.php` (3/3) |
 | **F9** | RSS/Atom | `public/feeds.php`, `src/v3_feeds.php` | `wa_feeds_parse()`, bảng `feed_subscriptions`, `feed_items` | `test_v3_feeds_parse.php` (4/4) |
-| **F10** | Theo dõi đoạn nội dung | `public/watch_action.php`, `public/watches.php`, `src/v3_watch.php` | `wa_watch_check_page()`, bảng `content_watches` | `test_notify_summary.php` (N3b) |
-| **F11** | Liên kết bài viết & sơ đồ | `public/relation_action.php`, `src/v3_relations.php` | bảng `page_relations`, SVG trong `library.php` | Kiểm tra tĩnh |
-| **F12** | Phát hiện trùng lặp | `src/v3_duplicates.php`, `public/save.php`, `public/api.php` | `wa_duplicates_check()` — URL chuẩn hoá / SHA-256 / độ tương đồng | T3 + `run_tests.php` |
+| **F10** | Theo dõi đoạn nội dung | `public/watch_action.php`, `public/watches.php`, `src/v3_watch.php` | `wa_watch_check_page()`, bảng `content_watches` | `test_v3_research.php` (F10) |
+| **F11** | Liên kết bài viết & sơ đồ | `public/relation_action.php`, `src/v3_relations.php` | bảng `page_relations`, SVG trong `library.php` | `test_v3_research.php` (F11) |
+| **F12** | Phát hiện trùng lặp | `src/v3_duplicates.php`, `public/save.php`, `public/api.php` | `wa_duplicates_check()` — URL chuẩn hoá / SHA-256 / độ tương đồng | `test_v3_research.php` (F12) |
 
 ---
 
@@ -65,6 +65,8 @@ về đúng file/hàm trong mã nguồn, kèm bài kiểm thử tương ứng. D
 | **BUG-12** | Banner "bản đọc ngoại tuyến sẵn sàng" hiện giả | Điều kiện banner không kiểm tra số snapshot thành công | `public/library.php` (`$libMetrics['snapshots_ok'] > 0`), `public/assets/css/app.css` (`.state--empty`) |
 | **BUG-13** | Wikipedia C++ lỗi `error_no_content` (chỉ 31 ký tự) | Thuật toán chọn `<article>`/`<main>` **đầu tiên** (quá ngắn), không hiểu cấu trúc MediaWiki | `src/capture.php` (`wa_capture_find_content_node()`: hỗ trợ `#mw-content-text`, `.mw-parser-output`, chọn theo **mật độ văn bản**) |
 | **BUG-14** | Trạng thái giao diện & API không thống nhất; test T1–T6 timeout | `CURLOPT_RESOLVE` **ghim một IP**; trên Windows `localhost` nghe trên `[::1]` nhưng chỉ ghim `127.0.0.1` → `error_timeout` | `src/url_policy.php` (`wa_url_policy_resolve_ips()` + `wa_url_policy_resolve_entries()`), `src/capture.php` (`wa_capture_http_get()` — thử lần lượt từng IP đã xác minh) |
+| **BUG-15** (phát sinh khi kiểm thử) | Bộ kiểm thử Chrome headless treo vĩnh viễn ở `proc_close()` | Trên Windows, `proc_open()` với **chuỗi** lệnh gọi qua `cmd.exe /c`; `proc_terminate()` chỉ giết vỏ `cmd.exe`, còn `php.exe`/`node.exe` vẫn chạy và giữ cổng | `scripts/test_extension_chrome.php`, `scripts/test_admin_smoke.php`, `scripts/test_notify_summary.php` (dùng **dãy lệnh dạng mảng** + `taskkill /F /T /PID`) |
+| **BUG-16** (phát sinh khi kiểm thử) | Highlight F4 không render sau khi reload | `wa_annotation_find_by_path()` chỉ chấp nhận `tag:nth-of-type(n)`, không chấp nhận tên thẻ trần (`article > p:nth-of-type(1)` không khớp) | `src/v3_research.php` (`wa_annotation_find_by_path()` — nhận cả hai dạng, mặc định chỉ số = 1) |
 
 ---
 
@@ -131,20 +133,30 @@ tự dọn dẹp dữ liệu thử nghiệm của nó):
 | `README.md` | Hướng dẫn cài đặt, kết nối MySQL, cài Chrome Extension, mô tả F1–F12, kết quả test, tình huống demo, giới hạn |
 | `CONTRIBUTING.md` | Quy trình đóng góp, quy tắc commit, quy trình kiểm thử |
 | `docs/DEMO_GUIDE.md` | Hướng dẫn demo + ảnh cần chụp + sơ đồ cho báo cáo |
-| `docs/FINAL_TEST_REPORT.md` | Báo cáo kiểm thử cuối kỳ (74 mục) |
+| `docs/FINAL_TEST_REPORT.md` | Báo cáo kiểm thử cuối kỳ (10 bộ tự động / 187 mục, gồm Chrome headless 11/11) |
 | `docs/REPORT_EVIDENCE.md` | Tài liệu này — minh chứng & bản đồ mã nguồn |
 | `docs/V3_DOT3.md` | Tài liệu Đợt 3 (Extension + Chia sẻ + RSS) |
 | `docs/V3_DOT4.md` | Tài liệu Đợt 4 (Theo dõi đoạn + Quan hệ + Trùng lặp) |
 | `docs/SEARCH_QUERIES.md` | 10 truy vấn có kết quả mong đợi |
 | `docs/RELEASE_NOTES.md` | Ghi chú phát hành |
 | `tests/samples/` | 15 trang HTML fixture + 3 trang lỗi (404 / timeout / redirect nguy hiểm) |
-| `scripts/*_test*.php`, `scripts/run_tests.php` | 8 bộ kiểm thử tự động |
+| `scripts/run_tests.php` | 6 bài kiểm thử bắt buộc T1–T6 |
+| `scripts/test_auto_version.php` | Auto Version A1–A8b, D1 (19 mục) |
+| `scripts/test_notify_summary.php` | Tóm tắt thay đổi N1–N5, D1 (7 mục) |
+| `scripts/test_url_policy.php` | Chính sách URL / chống SSRF (18 mục) |
+| `scripts/test_backfill_logic.php` | Backfill SHA-256 (10 mục) |
+| `scripts/test_v3_feeds_parse.php` | F9 RSS/Atom (4 mục) |
+| `scripts/test_v3_share_sanitize.php` | F8 khử XSS (3 mục) |
+| `scripts/test_v3_research.php` | F4 / F10 / F11 / F12 (4 mục) |
+| `scripts/test_admin_smoke.php` | Smoke test phần quản trị (5 mục) |
+| `scripts/test_extension_chrome.php` + `scripts/ext_cdp_runner.js` | Kiểm thử Chrome Extension thật, headless + CDP (11 mục) |
 
 ---
 
 ## 8. Lịch sử commit chính (để đối chiếu khi bảo vệ)
 
 ```
+fba882c  fix: stabilize WebArchive V3 extension, reader and capture flows
 dbb36be  feat: auto version updates and notification summaries
 886ddba  update thong bao giua cac ban
 23b40ab  P-FIX-CARD-CHIPS: gom 3 chip thumb ve goc trai, het gian deu 2 dau

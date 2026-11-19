@@ -435,7 +435,7 @@ async function runSave() {
     message,
     'ok',
     escapeHtml(message)
-    + (data.snapshot_id ? '<br><a href="#" id="openReader">Mở bản lưu</a>' : '')
+    + (data.snapshot_id ? '<br><a href="#" id="openReader" data-snapshot-id="' + escapeHtml(String(data.snapshot_id)) + '">Mở bản lưu</a>' : '')
   );
 
   const link = $('openReader');

@@ -32,7 +32,7 @@ quy tắc phiên bản, lập chỉ mục tìm kiếm và tải ảnh không bao
 |----------|----------|
 | [`docs/DEMO.md`](docs/DEMO.md) | **Hai kịch bản trình diễn chính thức**, viết click-by-click |
 | [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md) | **Hướng dẫn demo & báo cáo**: 24 chức năng có thể chụp ảnh, 2 tình huống demo, 8 sơ đồ cho báo cáo Word, danh sách phần chưa hoàn thiện |
-| [`docs/FINAL_TEST_REPORT.md`](docs/FINAL_TEST_REPORT.md) | **Báo cáo kiểm thử cuối kỳ** — 8 bộ test / 74 mục, toàn bộ PASS, kèm log thật |
+| [`docs/FINAL_TEST_REPORT.md`](docs/FINAL_TEST_REPORT.md) | **Báo cáo kiểm thử cuối kỳ** — 10 bộ test / 187 mục, toàn bộ PASS, kèm log thật |
 | [`docs/REPORT_EVIDENCE.md`](docs/REPORT_EVIDENCE.md) | **Minh chứng & bản đồ mã nguồn** — F1–F12 → file → hàm → bài kiểm thử; bảng lỗi đã sửa; bằng chứng bảo mật |
 | [`docs/SEARCH_QUERIES.md`](docs/SEARCH_QUERIES.md) | **10 câu hỏi tìm kiếm** kèm kết quả mong đợi và thực tế |
 | [`docs/V3_DOT3.md`](docs/V3_DOT3.md) | **Chrome Extension + Chia sẻ + RSS** — cài đặt và kiểm thử thủ công |
@@ -51,12 +51,15 @@ php scripts/test_url_policy.php       # Chính sách URL / chống SSRF (18 mụ
 php scripts/test_backfill_logic.php   # SHA-256 + keyset pagination (10 mục)
 php scripts/test_v3_feeds_parse.php   # RSS/Atom (F9)
 php scripts/test_v3_share_sanitize.php# Khử XSS nội dung chia sẻ (F8)
+php scripts/test_v3_research.php      # F4 / F10 / F11 / F12 (4 mục)
 php scripts/test_admin_smoke.php      # Khối phần quản trị (5 mục)
+php scripts/test_extension_chrome.php # Chrome Extension thật, headless + CDP (11 mục)
 ```
 
-> **Kết quả chạy thật ngày 19/11/2026: 74/74 mục PASS, 0 FAIL.**
-> Xem [`docs/FINAL_TEST_REPORT.md`](docs/FINAL_TEST_REPORT.md) để biết chi tiết từng mục
-> và các hạng mục còn **BLOCKED** (kiểm thử Chrome thật).
+> **Kết quả chạy thật ngày 19/11/2026: 187/187 mục PASS, 0 FAIL, 0 BLOCKED.**
+> Xem [`docs/FINAL_TEST_REPORT.md`](docs/FINAL_TEST_REPORT.md) để biết chi tiết từng mục.
+> Phần kiểm thử Chrome Extension đã được tự động hoá bằng **Google Chrome headless +
+> Chrome DevTools Protocol** — không cần thao tác tay, không mở Chrome giao diện.
 
 ---
 
@@ -664,10 +667,11 @@ năng đầy đủ, không phải phạm vi của một giai đoạn.
 - **Bộ kiểm thử tự động** `scripts/run_tests.php` chạy sáu bài kiểm thử bắt buộc
   (T1–T6) trên hai máy chủ riêng do chính nó bật lên, và tự dọn dữ liệu qua hành động
   của chính ứng dụng.
-- **Bộ kiểm thử mở rộng (V3, 8 bộ / 74 mục — tất cả PASS ngày 19/11/2026):**
+- **Bộ kiểm thử mở rộng (V3, 10 bộ / 187 mục — tất cả PASS ngày 19/11/2026):**
   `test_auto_version.php` (19) · `test_notify_summary.php` (7) · `test_url_policy.php` (18) ·
   `test_backfill_logic.php` (10) · `test_v3_feeds_parse.php` (4) ·
-  `test_v3_share_sanitize.php` (3) · `test_admin_smoke.php` (5) · `run_tests.php` (6).
+  `test_v3_share_sanitize.php` (3) · `test_v3_research.php` (4) · `test_admin_smoke.php` (5) ·
+  `test_extension_chrome.php` (11 — Chrome headless + CDP) · `run_tests.php` (6).
   Chi tiết: [`docs/FINAL_TEST_REPORT.md`](docs/FINAL_TEST_REPORT.md).
 - **Chính sách URL dùng chung** (`src/url_policy.php`): một cổng kiểm tra duy nhất cho
   mọi đường ra ngoài — dùng bởi engine lưu trang, API Extension, RSS/Atom và lưu hàng loạt.
@@ -963,8 +967,8 @@ Phần này ghi rõ **những gì CHƯA làm** để không gây hiểu nhầm k
 |----------|-----------|---------|
 | Nâng cấp giao diện Admin | Chưa làm | Ngoài phạm vi đợt này. Các chức năng quản trị **cũ vẫn chạy tốt** (`test_admin_smoke.php` → 5/5 PASS). |
 | Dashboard giám sát Admin nâng cao | Chưa làm | Bảng `admin_logs` đã có sẵn nhưng chưa có giao diện quản lý đầy đủ. |
-| Kiểm thử Chrome thật tự động | **BLOCKED** | Môi trường không có Chrome điều khiển được. Đã thay bằng kiểm tra tĩnh (`node --check`, Manifest V3 hợp lệ) + hướng dẫn thủ công ở [`docs/DEMO_GUIDE.md`](docs/DEMO_GUIDE.md) mục 5. |
-| E2E trình duyệt (Playwright/Selenium) | **BLOCKED** | Không có trình duyệt headless được phép. |
+| Kiểm thử Chrome thật tự động | **Đã làm — 11/11 PASS** | Chạy Google Chrome **headless** điều khiển qua Chrome DevTools Protocol (`scripts/test_extension_chrome.php` + `scripts/ext_cdp_runner.js`). Không mở Chrome giao diện, không cần thao tác tay. |
+| E2E trình duyệt (Playwright/Selenium) | Không dùng | Đã tự viết bộ điều khiển CDP bằng Node.js — nhẹ hơn, không thêm dependency. Phạm vi bao phủ: Extension + popup + API. |
 | Website chặn bot / CAPTCHA | Ghi đúng lỗi, không vượt | `error_http` / `error_no_content`; hệ thống **không** cố lách CAPTCHA. |
 | Ghi chú theo đoạn (rich-text, chú thích chéo) | Cơ bản | Ghi chú đã gắn đúng snapshot và giữ qua các bản. |
 | Đồng bộ hai chiều với Zotero/Mendeley | Chưa làm | Ngoài phạm vi 12 chức năng V3. |
