@@ -61,8 +61,8 @@ require __DIR__ . '/../templates/header_app.php';
       <?php if ($filter === 'unread'): ?>
         Không có thông báo chưa đọc nào.
       <?php else: ?>
-        Chưa có thông báo nào. Khi trang gốc của một bài viết thay đổi và bạn
-        cho phép kiểm tra tự động, WebArchive sẽ lưu phiên bản mới và báo bạn ở đây.
+        Chưa có thông báo nào. Khi trang gốc của một bài viết thay đổi,
+        WebArchive sẽ báo bạn ở đây — bạn tự bấm “Lấy phiên bản mới” khi muốn lưu.
       <?php endif; ?>
     </div>
   <?php else: ?>

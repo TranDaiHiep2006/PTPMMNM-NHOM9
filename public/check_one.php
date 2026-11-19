@@ -47,7 +47,7 @@ $pageId = (int) ($_POST['page_id'] ?? 0);
 $page = null;
 if ($pageId > 0) {
     $stmt = db()->prepare(
-        'SELECT sp.id, sp.library_id, sp.source_url
+        'SELECT sp.id, sp.library_id, sp.source_url, sp.title
            FROM `saved_pages` sp
           WHERE sp.id = ?
           LIMIT 1'
@@ -106,6 +106,28 @@ $changed = wa_diff_changed($ops) || $titleChanged;
 
 /* --- Ghi cờ + ngày kiểm tra (mốc luôn là bản mới nhất nên ghi thẳng). --- */
 wa_page_check_mark($pageId, $changed);
+
+/* --- Báo chuông khi phát hiện bản mới: CHỈ THÔNG BÁO, không tự lưu. ---
+   Mỗi (người dùng, bài viết, số phiên bản sắp tới) chỉ có tối đa MỘT
+   thông báo, nhờ khoá UNIQUE dedupe_key + INSERT IGNORE trong
+   wa_notify_create(): kiểm tra lại bao nhiêu lần cũng không tạo trùng.
+   Bấm vào thông báo mở đúng bản đang lưu để tự bấm "Lấy phiên bản mới". */
+if ($changed) {
+    $actorId = (int) ($actor['id'] ?? 0);
+    $latestVersion = (int) ($latest['version_no'] ?? 0);
+    $pageTitle = mb_substr((string) ($page['title'] ?? ''), 0, 160, 'UTF-8');
+    if ($actorId > 0 && $latestVersion > 0 && $pageTitle !== '') {
+        wa_notify_create(
+            $actorId,
+            $pageId,
+            $latestId,
+            WA_NOTIFY_VERSION_UPDATE,
+            'Bài viết "' . $pageTitle . '" có bản mới',
+            'Trang gốc đã thay đổi so với bản V' . $latestVersion . ' đang lưu. Mở bài viết rồi bấm "Lấy phiên bản mới" để lưu.',
+            wa_notify_dedupe_key($actorId, $pageId, $latestVersion + 1)
+        );
+    }
+}
 
 echo json_encode(
     [
