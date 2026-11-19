@@ -400,9 +400,8 @@ require_once WA_SRC . '/queries.php';
 require_once WA_SRC . '/url_policy.php';
 require_once WA_SRC . '/capture.php';
 require_once WA_SRC . '/search.php';
-// AUTO VERSION + THÔNG BÁO (P-AUTOVERSION): hai lớp mới, nằm SAU queries.php
-// vì chúng dùng các hàm truy vấn sẵn có (wa_page_versions, wa_page_tags...).
-require_once WA_SRC . '/auto_version.php';
+// THÔNG BÁO: lớp thông báo nằm SAU queries.php vì dùng các hàm truy vấn
+// sẵn có (wa_page_versions, wa_page_tags...).
 require_once WA_SRC . '/notifications.php';
 // V3 (12 chức năng mới): lớp nghiệp vụ theo từng đợt.
 require_once WA_SRC . '/v3_basic.php';
